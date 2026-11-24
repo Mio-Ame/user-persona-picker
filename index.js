@@ -42,6 +42,7 @@ import {
   formatWorldbookDisplay,
   groupWorldbooksByOrganizer,
   inferThemeFromTextColor,
+  inspectSnapshotHealth,
   inspectTagHygiene,
   markStoreOnWorldbookDeleted,
   migrateStoreOnWorldbookRename,
@@ -1111,6 +1112,8 @@ const ICONS = {
   warn: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   camera: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+  play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>',
+  save: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
 };
 
 // =========================
@@ -1284,14 +1287,24 @@ const STYLE_CSS = `
 }
 .upp-tabs::-webkit-scrollbar { display: none; }
 .upp-tab {
-  height: 30px; padding: 0 12px; border-radius: 9px; border: 1px solid transparent;
-  background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 550;
-  cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex-shrink: 0;
+  height: 32px; min-height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 550; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  white-space: nowrap; flex-shrink: 0; vertical-align: middle;
   transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
+.upp-tab > span { line-height: 1; display: inline-flex; align-items: center; }
 .upp-tab:hover { color: var(--text); background: var(--surface-hover); }
 .upp-tab.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(58, 123, 213, 0.28); }
-.upp-tab-count { font-size: 11px; opacity: 0.78; }
+.upp-tab-count {
+  font-size: 11px; line-height: 1; height: 16px; min-width: 16px; padding: 0 5px;
+  border-radius: 999px; background: var(--surface-strong); border: 1px solid var(--border);
+  color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.upp-tab.active .upp-tab-count {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-text);
+}
 
 .upp-toolbar {
   flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
@@ -1522,6 +1535,9 @@ const STYLE_CSS = `
   border: 1px solid var(--border-strong); border-radius: 15px; box-shadow: var(--shadow);
   display: flex; flex-direction: column; overflow: hidden;
 }
+.upp-drawer.is-fixed-box {
+  height: min(560px, 100%);
+}
 .upp-drawer.is-full {
   width: 100%; height: 100%; border: none; border-radius: 0; box-shadow: none; background: var(--bg);
 }
@@ -1566,6 +1582,14 @@ const STYLE_CSS = `
 .upp-pop-list {
   max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: var(--bg);
+}
+.upp-pop-list.is-fill {
+  flex: 1; min-height: 0; max-height: none;
+}
+.upp-unsaved-bar {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding: 9px 14px; background: var(--warn-soft); border-bottom: 1px solid rgba(166, 110, 56, 0.35);
+  color: var(--text); font-size: 12px;
 }
 
 .upp-diff-box {
@@ -1687,26 +1711,52 @@ const STYLE_CSS = `
 }
 .upp-fab-pop-list::-webkit-scrollbar { width: 4px; }
 .upp-fab-pop-list::-webkit-scrollbar-thumb { background: rgba(120, 132, 154, 0.35); border-radius: 999px; }
-.upp-fab-snap-item {
+.upp-fab-snap-row {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 5px 4px 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: var(--surface);
+  transition: background 0.12s, border-color 0.12s;
+}
+.upp-fab-snap-row:hover { background: var(--surface-hover); border-color: var(--border); }
+.upp-fab-snap-row.is-bound { border-color: var(--accent); background: var(--accent-soft); }
+.upp-fab-snap-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 7px 9px;
-  border-radius: 9px;
-  border: 1px solid transparent;
-  background: var(--surface);
+  padding: 3px 2px;
+  border: none;
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s, border-color 0.12s;
 }
-.upp-fab-snap-item:hover { background: var(--surface-hover); border-color: var(--border); }
-.upp-fab-snap-item.is-bound { border-color: var(--accent); background: var(--accent-soft); }
 .upp-fab-snap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.upp-fab-apply-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.upp-fab-apply-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .upp-fab-pop-foot {
   flex-shrink: 0;
   display: flex;
@@ -1740,6 +1790,7 @@ function initExtension() {
 
     personas: [],
     currentPersona: null,
+    userSearch: '',
 
     worldbooks: [],
     globalWorldbooks: [],
@@ -2007,6 +2058,7 @@ function initExtension() {
           <div class="upp-row">
             <button class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
             <button class="upp-btn" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
+            <button class="upp-btn" data-snap-edit="${s.id}">${ICONS.edit}<span>编辑</span></button>
             <button class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
             <button class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
             <div class="upp-spacer"></div>
@@ -2037,7 +2089,26 @@ function initExtension() {
         <div class="upp-spacer"></div>
         <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
       </div>
+      <div class="upp-row">
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-user-search" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" />
+        </div>
+        <button class="upp-btn" id="upp-user-search-clear-btn" ${state.userSearch ? '' : 'hidden'}>清空</button>
+      </div>
     `;
+  }
+
+  function makeMatchedSnippet(text, rawQuery) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return '空描述';
+    const q = normalizeText(rawQuery);
+    if (!q) return clean.slice(0, 72);
+    const idx = normalizeText(clean).indexOf(q);
+    if (idx < 0) return clean.slice(0, 72);
+    const start = Math.max(0, idx - 18);
+    const end = Math.min(clean.length, start + 76);
+    return (start > 0 ? '…' : '') + clean.slice(start, end) + (end < clean.length ? '…' : '');
   }
 
   function renderUserBody() {
@@ -2047,8 +2118,81 @@ function initExtension() {
     const pVersions = state.store.personaVersions[curP.avatar_id] || [];
     const matchedVer = findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description, curP.name);
     const liveDesc = String(curP.description || '');
+    const q = normalizeText(state.userSearch);
 
-    let html = `
+    let html = '';
+
+    if (q) {
+      const matchedPersonas = state.personas.filter(p =>
+        normalizeText(`${p.name} ${p.description} ${p.lorebook}`).includes(q)
+      );
+      const matchedVersions = pVersions.filter(v =>
+        normalizeText(`${v.name} ${v.displayName || ''} ${v.description} ${v.lorebook || ''}`).includes(q)
+      );
+
+      if (!matchedPersonas.length && !matchedVersions.length) {
+        elBody.innerHTML = `<div class="upp-empty">未找到包含「${escapeHtml(state.userSearch)}」的 User 或内部版本</div>`;
+        return;
+      }
+
+      if (matchedPersonas.length) {
+        html += `
+          <div class="upp-sec-title" style="padding: 2px 2px;">
+            <span>匹配的 User 人设</span>
+            <span>${matchedPersonas.length} 个</span>
+          </div>
+          <div class="upp-entry-list">
+            ${matchedPersonas.map(p => {
+              const isCurP = p.avatar_id === curP.avatar_id;
+              return `
+                <div class="upp-entry-row ${isCurP ? 'is-on' : ''}">
+                  <button class="upp-entry-main" data-user-switch-id="${escapeHtml(p.avatar_id)}">
+                    <div class="upp-entry-text">
+                      <div class="upp-entry-name">${escapeHtml(p.name)}${isCurP ? '<span class="upp-badge accent" style="margin-left:4px;">当前 User</span>' : ''}</div>
+                      <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(p.description, state.userSearch))}</div>
+                    </div>
+                  </button>
+                  <button class="upp-btn ${isCurP ? '' : 'primary'}" data-user-switch-id="${escapeHtml(p.avatar_id)}" ${isCurP ? 'disabled' : ''}>${isCurP ? '当前' : '切换'}</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+
+      if (matchedVersions.length) {
+        html += `
+          <div class="upp-sec-title" style="padding: 4px 2px 2px;">
+            <span>当前 User 匹配的内部版本</span>
+            <span>${matchedVersions.length} 个</span>
+          </div>
+          <div class="upp-entry-list">
+            ${matchedVersions.map(v => {
+              const nameMatches = !v.displayName || v.displayName === curP.name;
+              const isCur = matchedVer && matchedVer.id === v.id && nameMatches;
+              const dnTag = v.displayName ? `<span class="upp-badge" style="margin-left:4px;">名字: ${escapeHtml(v.displayName)}</span>` : '';
+              return `
+                <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
+                  <button class="upp-entry-main" data-pv-view="${v.id}">
+                    <div class="upp-entry-text">
+                      <div class="upp-entry-name">${escapeHtml(v.name)}${dnTag}${isCur ? '<span class="upp-badge accent" style="margin-left:4px;">使用中</span>' : ''}</div>
+                      <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(v.description, state.userSearch))}</div>
+                    </div>
+                  </button>
+                  <button class="upp-btn ${isCur ? '' : 'primary'}" data-pv-apply="${v.id}" ${isCur ? 'disabled' : ''}>${isCur ? '当前' : '切换'}</button>
+                  <button class="upp-btn icon-only danger" data-pv-del-inline="${v.id}" title="删除版本">${ICONS.trash}</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+
+      elBody.innerHTML = html;
+      return;
+    }
+
+    html = `
       <div class="upp-card">
         <div class="upp-card-head">
           <div class="upp-row-nowrap">
@@ -2189,6 +2333,7 @@ function initExtension() {
     if (Object.prototype.hasOwnProperty.call(state.presetFoldState, key)) {
       return !!state.presetFoldState[key];
     }
+    if (state.store.settings.presetGroupsDefaultCollapsed !== false) return true;
     return !!group.collapsed;
   }
 
@@ -2198,6 +2343,7 @@ function initExtension() {
     ).join('');
     const groups = state.livePresetNorm.groups || [];
     const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
+    const defFoldOn = state.store.settings.presetGroupsDefaultCollapsed !== false;
 
     elToolbar.innerHTML = `
       <div class="upp-row">
@@ -2208,6 +2354,12 @@ function initExtension() {
         </div>
         <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
         ${groups.length ? `<button class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+        ${groups.length ? `
+          <label class="upp-switch-label" title="打开预设页或快照详情时，分组是否默认收起">
+            <span>默认折叠</span>
+            <button type="button" class="upp-switch" id="upp-preset-default-fold-sw" role="switch" aria-checked="${defFoldOn}"></button>
+          </label>
+        ` : ''}
         <button class="upp-btn" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
       </div>
     `;
@@ -2386,7 +2538,7 @@ function initExtension() {
     const metaEl = shadow.getElementById('upp-snap-inspect-meta');
     if (!bodyEl) return;
 
-    const s = d.snapshot;
+    const s = d.draft || d.snapshot;
     const sub = d.subTab;
 
     if (sub === 'preset' && s.scope.preset && s.preset) {
@@ -2412,12 +2564,15 @@ function initExtension() {
         bodyEl.innerHTML = `<div class="upp-empty">没有匹配的预设条目</div>`;
         return;
       }
+      const defaultFold = state.store.settings.presetGroupsDefaultCollapsed !== false;
       let html = `<div class="upp-entry-list">` + model.nodes.map(node => {
         if (node.type === 'prompt') return renderSnapInspectPresetRow(node.prompt, d);
         const g = node.group;
         const collapsed = node.forceExpand
           ? false
-          : (Object.prototype.hasOwnProperty.call(d.foldMap, g.id) ? !!d.foldMap[g.id] : (node.effectiveOnCount === 0));
+          : (Object.prototype.hasOwnProperty.call(d.foldMap, g.id)
+            ? !!d.foldMap[g.id]
+            : (defaultFold ? true : node.effectiveOnCount === 0));
         const stateLabel = !g.enabled
           ? '整组已关'
           : node.effectiveOnCount === node.totalCount
@@ -2431,7 +2586,7 @@ function initExtension() {
                 <span class="upp-group-name">${escapeHtml(g.name)}</span>
                 <span class="upp-badge ${!g.enabled ? 'warn' : (node.effectiveOnCount > 0 ? 'accent' : '')}">${escapeHtml(stateLabel)}</span>
               </button>
-              <button type="button" class="upp-switch" role="switch" aria-checked="${!!g.enabled}" data-sv-grp-toggle="${escapeHtml(g.id)}" title="整组总开关（直接保存）"></button>
+              <button type="button" class="upp-switch" role="switch" aria-checked="${!!g.enabled}" data-sv-grp-toggle="${escapeHtml(g.id)}" title="切换整组总开关（点右上角保存生效）"></button>
             </div>
             <div class="upp-group-items">
               ${node.items.map(it => renderSnapInspectPresetRow(it, d)).join('')}
@@ -2652,7 +2807,7 @@ function initExtension() {
     elDrawerMask.classList.toggle('is-full', isFull);
 
     if (d.type === 'viewSnapshot') {
-      const s = d.snapshot;
+      const s = d.draft || d.snapshot;
       const availTabs = [];
       if (s.scope.preset && s.preset) availTabs.push({ id: 'preset', label: '预设' });
       if (s.scope.worldbooks && s.worldbooks) availTabs.push({ id: 'worldbooks', label: '世界书' });
@@ -2666,14 +2821,29 @@ function initExtension() {
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-full">
           <div class="upp-drawer-head">
-            <div class="upp-row-nowrap">
-              <button class="upp-btn icon-only" data-drawer-close title="返回">${ICONS.back}</button>
+            <div class="upp-row-nowrap" style="min-width:0;">
+              <button class="upp-btn icon-only" data-sv-back title="返回">${ICONS.back}</button>
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">快照详情 · ${escapeHtml(s.name)}</span>
+              ${d.dirty ? '<span class="upp-badge warn">未保存</span>' : ''}
             </div>
-            <button class="upp-btn primary" data-snap-apply="${s.id}">应用此快照</button>
+            <div class="upp-row-nowrap">
+              <button class="upp-btn" id="upp-sv-edit-meta-btn" title="编辑名称、分组或说明">${ICONS.edit}<span>编辑</span></button>
+              <button class="upp-btn ${d.dirty ? 'primary' : ''}" id="upp-sv-save-btn" ${d.dirty ? '' : 'disabled'}>${ICONS.save}<span>${d.dirty ? '保存修改' : '已保存'}</span></button>
+              <button class="upp-btn ${d.dirty ? '' : 'primary'}" id="upp-sv-apply-btn">应用此快照</button>
+            </div>
           </div>
+          ${d.pendingAction ? `
+            <div class="upp-unsaved-bar">
+              <span>${d.pendingAction === 'apply' ? '当前快照有未保存的开关修改，应用前要先保存吗？' : '当前快照有未保存的开关修改，离开前要先保存吗？'}</span>
+              <div class="upp-row-nowrap">
+                <button type="button" class="upp-btn primary" id="upp-sv-unsaved-save">${d.pendingAction === 'apply' ? '保存并应用' : '保存并返回'}</button>
+                <button type="button" class="upp-btn danger" id="upp-sv-unsaved-discard">${d.pendingAction === 'apply' ? '不保存直接应用' : '放弃修改'}</button>
+                <button type="button" class="upp-btn" id="upp-sv-unsaved-cancel">继续编辑</button>
+              </div>
+            </div>
+          ` : ''}
           <div class="upp-tabs" style="padding:7px 14px;">
-            ${availTabs.map(t => `<button class="upp-tab ${d.subTab === t.id ? 'active' : ''}" data-sv-tab="${t.id}">${t.label}</button>`).join('')}
+            ${availTabs.map(t => `<button class="upp-tab ${d.subTab === t.id ? 'active' : ''}" data-sv-tab="${t.id}"><span>${t.label}</span></button>`).join('')}
           </div>
           <div class="upp-drawer-toolbar">
             ${showFilter ? `
@@ -2695,10 +2865,135 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'editSnapshotMeta') {
+      const existingGroups = Array.from(new Set(state.store.snapshots.map(x => x.group).filter(Boolean)));
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer" style="width:min(460px,100%);">
+          <div class="upp-drawer-head">
+            <span>编辑快照信息</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-field">
+              <label>快照名称</label>
+              <div class="upp-row-nowrap">
+                <input class="upp-text-input" id="upp-em-name" value="${escapeHtml(d.name || '')}" placeholder="输入快照名称" />
+                <button type="button" class="upp-btn" id="upp-em-name-clear">清空</button>
+              </div>
+            </div>
+            <div class="upp-field">
+              <label>分组</label>
+              <input class="upp-text-input" id="upp-em-group" value="${escapeHtml(d.group || '')}" placeholder="可选，例如：日常 / 现代 / 某角色" />
+              ${existingGroups.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${existingGroups.map(g => `<button type="button" class="upp-pill" data-em-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}</div>` : ''}
+            </div>
+            <div class="upp-field">
+              <label>说明备注</label>
+              <textarea class="upp-inline-textarea" id="upp-em-note" style="min-height:90px;" placeholder="可选简短说明（最多 120 字）">${escapeHtml(d.note || '')}</textarea>
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-em-save-btn">保存信息</button>
+          </div>
+        </div>
+      `;
+      if (window.innerWidth > 640) window.setTimeout(() => shadow.getElementById('upp-em-name')?.focus(), 10);
+      return;
+    }
+
+    if (d.type === 'missingAudit') {
+      const snap = d.snapshot;
+      const health = d.health;
+      const hasRepairChoice = !!(
+        d.personaRemap
+        || d.presetRemap
+        || Object.values(d.bookRemap || {}).some(v => v && v !== '__keep__')
+      );
+      const hasOrg = !!getOrganizerSettings();
+      const org = getOrganizerSettings();
+      const charNameMap = buildCombinedCharNameMap(org);
+
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer is-fixed-box">
+          <div class="upp-drawer-head">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">快照存在缺失项 · ${escapeHtml(snap.name)}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-card-meta">快照本身已完整保留，不会被删除。你可以直接选择替代项修复，或先前往对应模块处理，也可以跳过缺失项继续应用其余正常部分。</div>
+            ${health.missingPersona ? `
+              <div class="upp-card">
+                <div class="upp-card-head">
+                  <span class="upp-card-title">缺失 User 人设：${escapeHtml(health.missingPersona.name)}</span>
+                  <button type="button" class="upp-btn" data-ma-goto="user">前往 User 页</button>
+                </div>
+                <div class="upp-field">
+                  <label>替换为现有 User（可选）</label>
+                  <select class="upp-select" id="upp-ma-persona-sel" style="max-width:none;width:100%;">
+                    <option value="">暂不替换（应用时跳过 User）</option>
+                    ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${d.personaRemap === p.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            ` : ''}
+            ${health.missingWorldbooks.length ? `
+              <div class="upp-card">
+                <div class="upp-card-head">
+                  <span class="upp-card-title">缺失世界书（${health.missingWorldbooks.length} 本）</span>
+                  <div class="upp-row-nowrap">
+                    ${hasOrg ? `<button type="button" class="upp-btn" id="upp-ma-open-wbo">打开整理面板</button>` : ''}
+                    <button type="button" class="upp-btn" data-ma-goto="worldbook">前往世界书页</button>
+                  </div>
+                </div>
+                ${health.missingWorldbooks.map(bk => {
+                  const chosen = (d.bookRemap && d.bookRemap[bk]) || '__keep__';
+                  return `
+                    <div class="upp-field">
+                      <label>原世界书：<strong>${escapeHtml(bk)}</strong></label>
+                      <select class="upp-select" data-ma-book-sel="${escapeHtml(bk)}" style="max-width:none;width:100%;">
+                        <option value="__keep__" ${chosen === '__keep__' ? 'selected' : ''}>暂不处理（应用时跳过此书）</option>
+                        <option value="__remove__" ${chosen === '__remove__' ? 'selected' : ''}>从本快照移除此书引用</option>
+                        ${state.worldbooks.map(liveBk => {
+                          const fmt = formatWorldbookDisplay(liveBk, org, charNameMap);
+                          const lbl = fmt.subtitle ? `${fmt.primary} (${fmt.subtitle})` : fmt.primary;
+                          return `<option value="${escapeHtml(liveBk)}" ${chosen === liveBk ? 'selected' : ''}>替换为：${escapeHtml(lbl)}</option>`;
+                        }).join('')}
+                      </select>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : ''}
+            ${health.missingPreset ? `
+              <div class="upp-card">
+                <div class="upp-card-head">
+                  <span class="upp-card-title">缺失预设：${escapeHtml(health.missingPreset)}</span>
+                  <button type="button" class="upp-btn" data-ma-goto="preset">前往预设页</button>
+                </div>
+                <div class="upp-field">
+                  <label>替换为现有预设（可选）</label>
+                  <select class="upp-select" id="upp-ma-preset-sel" style="max-width:none;width:100%;">
+                    <option value="">暂不替换（应用时跳过预设）</option>
+                    ${state.presets.map(pr => `<option value="${escapeHtml(pr)}" ${d.presetRemap === pr ? 'selected' : ''}>${escapeHtml(pr)}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn ${hasRepairChoice ? '' : 'primary'}" id="upp-ma-skip-apply">跳过缺失项继续应用</button>
+            ${hasRepairChoice ? `<button class="upp-btn primary" id="upp-ma-repair-apply">保存弥补并应用</button>` : ''}
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (d.type === 'bookPicker') {
       const hasOrg = !!getOrganizerSettings();
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer">
+        <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>选择世界书</span>
             <div class="upp-row-nowrap">
@@ -2707,11 +3002,11 @@ function initExtension() {
             </div>
           </div>
           <div class="upp-drawer-body">
-            <div class="upp-input-wrap" style="width:100%;">
+            <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
               ${ICONS.search}
-              <input type="text" id="upp-book-search-input" placeholder="输入世界书名称、别名或分组名筛选…" value="${escapeHtml(d.query || '')}" />
+              <input type="text" id="upp-book-search-input" placeholder="输入世界书名称、角色名、别名或分组名筛选…" value="${escapeHtml(d.query || '')}" />
             </div>
-            <div class="upp-pop-list" id="upp-book-picker-list" style="max-height:390px;"></div>
+            <div class="upp-pop-list is-fill" id="upp-book-picker-list"></div>
           </div>
         </div>
       `;
@@ -2803,7 +3098,7 @@ function initExtension() {
       const pinned = new Set(state.store.settings.pinnedWorldbooks);
       const selectedSet = new Set(d.selectedBooks || []);
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer">
+        <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>保存快照</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
@@ -2974,7 +3269,7 @@ function initExtension() {
       const diffLines = computeLineDiff(leftItem?.description || '', rightItem?.description || '');
 
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer">
+        <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>版本差异对比 · ${escapeHtml(p?.name || '')}</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
@@ -3009,7 +3304,7 @@ function initExtension() {
       const absorbSet = new Set(d.absorbIds || []);
       const orphans = Array.isArray(d.orphanAvatars) ? d.orphanAvatars : [];
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer">
+        <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>整理同名与旧分身 User</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
@@ -3108,6 +3403,96 @@ function initExtension() {
     renderDrawer();
   }
 
+  async function openSnapshotDetail(snap) {
+    if (!snap) return;
+    const wbDetails = {};
+    if (snap.scope.worldbooks && snap.worldbooks?.entries) {
+      for (const bk of Object.keys(snap.worldbooks.entries)) {
+        wbDetails[bk] = await ensureBookEntries(bk, false);
+      }
+    }
+    const presetNorm = (snap.scope.preset && snap.preset)
+      ? Host.getPresetByNameNormalized(snap.preset.name)
+      : null;
+    const regexDetails = (snap.scope.regex && snap.regex)
+      ? {
+          global: await Host.getRegexes('global'),
+          character: await Host.getRegexes('character'),
+          preset: await Host.getRegexes('preset'),
+        }
+      : {};
+    state.drawer = {
+      type: 'viewSnapshot',
+      snapshot: snap,
+      draft: structuredClone(snap),
+      dirty: false,
+      pendingAction: null,
+      subTab: snap.scope.preset ? 'preset' : snap.scope.worldbooks ? 'worldbooks' : snap.scope.persona ? 'persona' : 'regex',
+      search: '',
+      onlyOn: false,
+      allExpanded: false,
+      foldMap: {},
+      expandedIds: new Set(),
+      presetNorm,
+      wbDetails,
+      regexDetails,
+    };
+    renderDrawer();
+  }
+
+  function saveViewSnapshotDraft(d) {
+    if (!d || d.type !== 'viewSnapshot' || !d.draft) return;
+    const idx = state.store.snapshots.findIndex(x => x.id === d.snapshot.id);
+    const saved = structuredClone(d.draft);
+    saved.updatedAt = Date.now();
+    if (idx >= 0) state.store.snapshots[idx] = saved;
+    d.snapshot = saved;
+    d.draft = structuredClone(saved);
+    d.dirty = false;
+    d.pendingAction = null;
+    persistStore(state.store);
+    if (state.tab === 'snapshots') renderSnapshotsBody();
+    renderFooter();
+    toast(`已保存快照「${saved.name}」的修改`, 'success');
+  }
+
+  async function requestApplySnapshot(snap, { fromFab = false } = {}) {
+    if (!snap) return;
+    const personas = Host.listPersonas();
+    const worldbooks = Host.listWorldbooks();
+    const presets = Host.listPresets();
+    const presetNorm = (snap.scope?.preset && snap.preset?.name && presets.includes(snap.preset.name))
+      ? Host.getPresetByNameNormalized(snap.preset.name)
+      : null;
+    const health = inspectSnapshotHealth(snap, { personas, worldbooks, presets, presetNorm });
+    if (health.hasBlockingIssues) {
+      state.personas = personas;
+      state.worldbooks = worldbooks;
+      state.presets = presets;
+      if (fromFab && !state.open) {
+        state.store = loadStore();
+        applyThemeAll();
+        state.open = true;
+        elBackdrop.hidden = false;
+        syncFabVisBtn();
+        render();
+      }
+      state.drawer = {
+        type: 'missingAudit',
+        snapshot: snap,
+        health,
+        personaRemap: '',
+        presetRemap: '',
+        bookRemap: {},
+      };
+      renderDrawer();
+      return;
+    }
+    await applySnapshotLive(snap, state.store);
+    syncFabUi();
+    if (state.open) await refreshAll(true);
+  }
+
   async function overwriteSnapshotById(sid) {
     const idx = state.store.snapshots.findIndex(x => x.id === sid);
     if (idx < 0) return;
@@ -3184,6 +3569,10 @@ function initExtension() {
     const gBtn = target.closest('[data-snap-group]');
     if (gBtn) { state.snapGroup = gBtn.getAttribute('data-snap-group') || ''; renderSnapshotsToolbar(); renderSnapshotsBody(); return; }
 
+    if (target.closest('#upp-user-search-clear-btn')) {
+      state.userSearch = '';
+      renderUserToolbar(); renderUserBody(); return;
+    }
     if (target.closest('#upp-persona-rename-btn') && state.currentPersona) {
       state.drawer = { type: 'renamePersona', avatarId: state.currentPersona.avatar_id, name: state.currentPersona.name || '' };
       renderDrawer(); return;
@@ -3259,6 +3648,16 @@ function initExtension() {
       groups.forEach(g => { state.presetFoldState[`${state.loadedPresetName}::${g.id}`] = anyExpanded; });
       renderPresetToolbar(); renderPresetBody(); return;
     }
+    if (target.closest('#upp-preset-default-fold-sw')) {
+      const next = !(state.store.settings.presetGroupsDefaultCollapsed !== false);
+      state.store.settings.presetGroupsDefaultCollapsed = next;
+      persistStore(state.store);
+      state.presetFoldState = {};
+      syncExtSettingsCheckbox();
+      renderPresetToolbar(); renderPresetBody();
+      toast(next ? '已设为预设分组默认折叠' : '已改为按预设自身展开状态显示');
+      return;
+    }
     if (target.closest('#upp-preset-save-disk-btn')) {
       try {
         await Host.saveActivePresetToDisk();
@@ -3281,6 +3680,12 @@ function initExtension() {
   elToolbar.addEventListener('input', ev => {
     const id = ev.target.id;
     if (id === 'upp-snap-search') { state.snapSearch = ev.target.value; renderSnapshotsBody(); }
+    else if (id === 'upp-user-search') {
+      state.userSearch = ev.target.value;
+      const clr = shadow.getElementById('upp-user-search-clear-btn');
+      if (clr) clr.hidden = !state.userSearch;
+      renderUserBody();
+    }
     else if (id === 'upp-wb-search') { state.wbEntrySearch = ev.target.value; renderWorldbookBody(); }
     else if (id === 'upp-preset-search') { state.presetSearch = ev.target.value; renderPresetBody(); }
     else if (id === 'upp-rg-search') { state.regexSearch = ev.target.value; renderRegexBody(); }
@@ -3316,41 +3721,25 @@ function initExtension() {
     const applyBtn = t.closest('[data-snap-apply]');
     if (applyBtn) {
       const snap = state.store.snapshots.find(x => x.id === applyBtn.getAttribute('data-snap-apply'));
-      if (snap) { await applySnapshotLive(snap, state.store); await refreshAll(true); }
+      if (snap) await requestApplySnapshot(snap);
       return;
     }
     const viewBtn = t.closest('[data-snap-view]');
     if (viewBtn) {
       const snap = state.store.snapshots.find(x => x.id === viewBtn.getAttribute('data-snap-view'));
+      if (snap) await openSnapshotDetail(snap);
+      return;
+    }
+    const editSnapBtn = t.closest('[data-snap-edit]');
+    if (editSnapBtn) {
+      const snap = state.store.snapshots.find(x => x.id === editSnapBtn.getAttribute('data-snap-edit'));
       if (snap) {
-        const wbDetails = {};
-        if (snap.scope.worldbooks && snap.worldbooks?.entries) {
-          for (const bk of Object.keys(snap.worldbooks.entries)) {
-            wbDetails[bk] = await ensureBookEntries(bk, false);
-          }
-        }
-        const presetNorm = (snap.scope.preset && snap.preset)
-          ? Host.getPresetByNameNormalized(snap.preset.name)
-          : null;
-        const regexDetails = (snap.scope.regex && snap.regex)
-          ? {
-              global: await Host.getRegexes('global'),
-              character: await Host.getRegexes('character'),
-              preset: await Host.getRegexes('preset'),
-            }
-          : {};
         state.drawer = {
-          type: 'viewSnapshot',
-          snapshot: snap,
-          subTab: snap.scope.preset ? 'preset' : snap.scope.worldbooks ? 'worldbooks' : snap.scope.persona ? 'persona' : 'regex',
-          search: '',
-          onlyOn: false,
-          allExpanded: false,
-          foldMap: {},
-          expandedIds: new Set(),
-          presetNorm,
-          wbDetails,
-          regexDetails,
+          type: 'editSnapshotMeta',
+          snapshotId: snap.id,
+          name: snap.name || '',
+          group: snap.group || '',
+          note: snap.note || '',
         };
         renderDrawer();
       }
@@ -3380,6 +3769,18 @@ function initExtension() {
       persistStore(state.store); renderSnapshotsBody(); renderFooter(); toast('已解除绑定'); return;
     }
 
+    const userSwitchBtn = t.closest('[data-user-switch-id]');
+    if (userSwitchBtn) {
+      const targetId = userSwitchBtn.getAttribute('data-user-switch-id');
+      if (targetId && targetId !== state.currentPersona?.avatar_id) {
+        await Host.switchPersona(targetId);
+        state.personas = Host.listPersonas();
+        state.currentPersona = Host.getCurrentPersona();
+        renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+        toast(`已切换 User：${state.currentPersona?.name || ''}`, 'success');
+      }
+      return;
+    }
     if (t.closest('#upp-persona-preview-box') && state.currentPersona) {
       state.drawer = { type: 'entryEditor', mode: 'editPersona', heading: `编辑 User 正文 · ${state.currentPersona.name}`, content: state.currentPersona.description || '' };
       renderDrawer(); return;
@@ -3606,6 +4007,17 @@ function initExtension() {
   elDrawerMask.addEventListener('change', ev => {
     const d = state.drawer;
     if (!d) return;
+    if (d.type === 'missingAudit') {
+      if (ev.target.id === 'upp-ma-persona-sel') { d.personaRemap = ev.target.value; renderDrawer(); }
+      else if (ev.target.id === 'upp-ma-preset-sel') { d.presetRemap = ev.target.value; renderDrawer(); }
+      else if (ev.target.hasAttribute('data-ma-book-sel')) {
+        const bk = ev.target.getAttribute('data-ma-book-sel');
+        if (!d.bookRemap) d.bookRemap = {};
+        d.bookRemap[bk] = ev.target.value;
+        renderDrawer();
+      }
+      return;
+    }
     if (d.type === 'saveSnapshot') {
       if (ev.target.id === 'upp-sc-persona') d.scope.persona = ev.target.checked;
       else if (ev.target.id === 'upp-sc-wb') {
@@ -3689,6 +4101,85 @@ function initExtension() {
     }
 
     if (d.type === 'viewSnapshot') {
+      const markDraftDirty = () => {
+        const wasDirty = d.dirty;
+        d.dirty = true;
+        d.pendingAction = null;
+        if (!wasDirty) {
+          const saveBtn = shadow.getElementById('upp-sv-save-btn');
+          if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.classList.add('primary');
+            saveBtn.innerHTML = `${ICONS.save}<span>保存修改</span>`;
+          }
+          const applyBtn = shadow.getElementById('upp-sv-apply-btn');
+          if (applyBtn) applyBtn.classList.remove('primary');
+          const titleWrap = shadow.querySelector('.upp-drawer-head .upp-row-nowrap');
+          if (titleWrap && !titleWrap.querySelector('.upp-badge.warn')) {
+            const b = document.createElement('span');
+            b.className = 'upp-badge warn';
+            b.textContent = '未保存';
+            titleWrap.appendChild(b);
+          }
+        }
+      };
+
+      if (t.closest('[data-sv-back]')) {
+        if (d.dirty) { d.pendingAction = 'close'; renderDrawer(); }
+        else { state.drawer = null; renderDrawer(); }
+        return;
+      }
+      if (t.closest('#upp-sv-save-btn')) {
+        saveViewSnapshotDraft(d);
+        renderDrawer();
+        return;
+      }
+      if (t.closest('#upp-sv-edit-meta-btn')) {
+        const cur = d.draft || d.snapshot;
+        state.drawer = {
+          type: 'editSnapshotMeta',
+          snapshotId: d.snapshot.id,
+          name: cur.name || '',
+          group: cur.group || '',
+          note: cur.note || '',
+          returnTo: d,
+        };
+        renderDrawer();
+        return;
+      }
+      if (t.closest('#upp-sv-apply-btn')) {
+        if (d.dirty) { d.pendingAction = 'apply'; renderDrawer(); return; }
+        const targetSnap = d.snapshot;
+        state.drawer = null;
+        renderDrawer();
+        await requestApplySnapshot(targetSnap);
+        return;
+      }
+      if (t.closest('#upp-sv-unsaved-save')) {
+        const act = d.pendingAction;
+        saveViewSnapshotDraft(d);
+        const targetSnap = d.snapshot;
+        state.drawer = null;
+        renderDrawer();
+        if (act === 'apply') await requestApplySnapshot(targetSnap);
+        return;
+      }
+      if (t.closest('#upp-sv-unsaved-discard')) {
+        const act = d.pendingAction;
+        const origSnap = d.snapshot;
+        d.dirty = false;
+        d.pendingAction = null;
+        state.drawer = null;
+        renderDrawer();
+        if (act === 'apply') await requestApplySnapshot(origSnap);
+        return;
+      }
+      if (t.closest('#upp-sv-unsaved-cancel')) {
+        d.pendingAction = null;
+        renderDrawer();
+        return;
+      }
+
       const tabBtn = t.closest('[data-sv-tab]');
       if (tabBtn) { d.subTab = tabBtn.getAttribute('data-sv-tab'); d.search = ''; d.expandedIds?.clear(); renderDrawer(); return; }
       if (t.closest('#upp-sv-only-on')) { d.onlyOn = !d.onlyOn; renderDrawer(); return; }
@@ -3698,54 +4189,62 @@ function initExtension() {
         renderDrawer(); return;
       }
       const svGrpToggle = t.closest('[data-sv-grp-toggle]');
-      if (svGrpToggle && d.snapshot?.preset) {
+      if (svGrpToggle && d.draft?.preset) {
         const gid = svGrpToggle.getAttribute('data-sv-grp-toggle');
-        if (!d.snapshot.preset.groups) d.snapshot.preset.groups = {};
+        if (!d.draft.preset.groups) d.draft.preset.groups = {};
         const fallback = d.presetNorm?.groupsById?.[gid]?.enabled !== false;
-        const cur = Object.prototype.hasOwnProperty.call(d.snapshot.preset.groups, gid)
-          ? d.snapshot.preset.groups[gid] !== false
+        const cur = Object.prototype.hasOwnProperty.call(d.draft.preset.groups, gid)
+          ? d.draft.preset.groups[gid] !== false
           : fallback;
-        d.snapshot.preset.groups[gid] = !cur;
-        d.snapshot.updatedAt = Date.now();
-        persistStore(state.store);
+        d.draft.preset.groups[gid] = !cur;
+        markDraftDirty();
+        const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+        const st = bodyEl ? bodyEl.scrollTop : 0;
         renderViewSnapshotBody(d);
+        if (bodyEl) bodyEl.scrollTop = st;
         return;
       }
       const svPrToggle = t.closest('[data-sv-pr-toggle]');
-      if (svPrToggle && d.snapshot?.preset) {
+      if (svPrToggle && d.draft?.preset) {
         const pid = svPrToggle.getAttribute('data-sv-pr-toggle');
-        if (!d.snapshot.preset.prompts) d.snapshot.preset.prompts = {};
+        if (!d.draft.preset.prompts) d.draft.preset.prompts = {};
         const liveDef = (d.presetNorm?.prompts || []).find(p => p.id === pid);
-        const cur = Object.prototype.hasOwnProperty.call(d.snapshot.preset.prompts, pid)
-          ? d.snapshot.preset.prompts[pid] === true
+        const cur = Object.prototype.hasOwnProperty.call(d.draft.preset.prompts, pid)
+          ? d.draft.preset.prompts[pid] === true
           : !!liveDef?.enabled;
-        d.snapshot.preset.prompts[pid] = !cur;
-        d.snapshot.updatedAt = Date.now();
-        persistStore(state.store);
+        d.draft.preset.prompts[pid] = !cur;
+        markDraftDirty();
+        const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+        const st = bodyEl ? bodyEl.scrollTop : 0;
         renderViewSnapshotBody(d);
+        if (bodyEl) bodyEl.scrollTop = st;
         return;
       }
       const svWbToggle = t.closest('[data-sv-wb-toggle]');
-      if (svWbToggle && d.snapshot?.worldbooks?.entries) {
+      if (svWbToggle && d.draft?.worldbooks?.entries) {
         const bk = svWbToggle.getAttribute('data-sv-wb-toggle');
         const u = svWbToggle.getAttribute('data-sv-wb-uid');
-        if (d.snapshot.worldbooks.entries[bk]) {
-          d.snapshot.worldbooks.entries[bk][u] = !d.snapshot.worldbooks.entries[bk][u];
-          d.snapshot.updatedAt = Date.now();
-          persistStore(state.store);
+        if (d.draft.worldbooks.entries[bk]) {
+          d.draft.worldbooks.entries[bk][u] = !d.draft.worldbooks.entries[bk][u];
+          markDraftDirty();
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const st = bodyEl ? bodyEl.scrollTop : 0;
           renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = st;
         }
         return;
       }
       const svRgToggle = t.closest('[data-sv-rg-toggle]');
-      if (svRgToggle && d.snapshot?.regex) {
+      if (svRgToggle && d.draft?.regex) {
         const sc = svRgToggle.getAttribute('data-sv-rg-toggle');
         const rid = svRgToggle.getAttribute('data-sv-rg-id');
-        if (d.snapshot.regex[sc]) {
-          d.snapshot.regex[sc][rid] = !d.snapshot.regex[sc][rid];
-          d.snapshot.updatedAt = Date.now();
-          persistStore(state.store);
+        if (d.draft.regex[sc]) {
+          d.draft.regex[sc][rid] = !d.draft.regex[sc][rid];
+          markDraftDirty();
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const st = bodyEl ? bodyEl.scrollTop : 0;
           renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = st;
         }
         return;
       }
@@ -3758,13 +4257,6 @@ function initExtension() {
           box.classList.toggle('is-collapsed', next);
           d.foldMap[gid] = next;
         }
-        return;
-      }
-      const applyInDrawer = t.closest('[data-snap-apply]');
-      if (applyInDrawer) {
-        await applySnapshotLive(d.snapshot, state.store);
-        state.drawer = null;
-        await refreshAll(true);
         return;
       }
       const prItem = t.closest('[data-view-snap-pr]');
@@ -3838,6 +4330,135 @@ function initExtension() {
           };
           renderDrawer();
         }
+        return;
+      }
+      return;
+    }
+
+    if (d.type === 'editSnapshotMeta') {
+      if (t.closest('#upp-em-name-clear')) {
+        const inp = shadow.getElementById('upp-em-name');
+        if (inp) { inp.value = ''; if (window.innerWidth > 640) inp.focus(); }
+        return;
+      }
+      const fillEmGrp = t.closest('[data-em-fill-group]');
+      if (fillEmGrp) {
+        const inp = shadow.getElementById('upp-em-group');
+        if (inp) inp.value = fillEmGrp.getAttribute('data-em-fill-group') || '';
+        return;
+      }
+      if (t.closest('#upp-em-save-btn')) {
+        const nextName = (shadow.getElementById('upp-em-name')?.value || '').trim().slice(0, 60);
+        if (!nextName) { toast('请填写快照名称', 'warning'); return; }
+        const nextGroup = (shadow.getElementById('upp-em-group')?.value || '').trim().slice(0, 30);
+        const nextNote = (shadow.getElementById('upp-em-note')?.value || '').trim().slice(0, 120);
+        const target = state.store.snapshots.find(s => s.id === d.snapshotId);
+        if (target) {
+          target.name = nextName;
+          target.group = nextGroup;
+          target.note = nextNote;
+          target.updatedAt = Date.now();
+        }
+        if (d.returnTo && d.returnTo.type === 'viewSnapshot') {
+          if (d.returnTo.snapshot) {
+            d.returnTo.snapshot.name = nextName;
+            d.returnTo.snapshot.group = nextGroup;
+            d.returnTo.snapshot.note = nextNote;
+          }
+          if (d.returnTo.draft) {
+            d.returnTo.draft.name = nextName;
+            d.returnTo.draft.group = nextGroup;
+            d.returnTo.draft.note = nextNote;
+          }
+        }
+        persistStore(state.store);
+        state.drawer = d.returnTo || null;
+        render();
+        toast('已更新快照信息', 'success');
+        return;
+      }
+      return;
+    }
+
+    if (d.type === 'missingAudit') {
+      const gotoBtn = t.closest('[data-ma-goto]');
+      if (gotoBtn) {
+        const nextTab = gotoBtn.getAttribute('data-ma-goto');
+        state.drawer = null;
+        if (nextTab) state.tab = nextTab;
+        await refreshAll(false);
+        return;
+      }
+      if (t.closest('#upp-ma-open-wbo')) {
+        closeModal();
+        window.dispatchEvent(new CustomEvent('wbo:open-panel'));
+        return;
+      }
+      if (t.closest('#upp-ma-skip-apply')) {
+        const snap = d.snapshot;
+        state.drawer = null;
+        renderDrawer();
+        await applySnapshotLive(snap, state.store);
+        syncFabUi();
+        if (state.open) await refreshAll(true);
+        return;
+      }
+      if (t.closest('#upp-ma-repair-apply')) {
+        const snap = state.store.snapshots.find(s => s.id === d.snapshot.id) || d.snapshot;
+        let repaired = false;
+        if (d.personaRemap && snap.persona) {
+          const p = state.personas.find(x => x.avatar_id === d.personaRemap);
+          if (p) {
+            snap.persona.avatarId = p.avatar_id;
+            snap.persona.name = p.name;
+            snap.persona.versionId = '';
+            snap.persona.versionName = '';
+            repaired = true;
+          }
+        }
+        if (d.presetRemap && snap.preset) {
+          snap.preset.name = d.presetRemap;
+          repaired = true;
+        }
+        if (d.bookRemap && snap.worldbooks) {
+          Object.keys(d.bookRemap).forEach(oldBk => {
+            const action = d.bookRemap[oldBk];
+            if (!action || action === '__keep__') return;
+            if (action === '__remove__') {
+              if (Array.isArray(snap.worldbooks.global)) {
+                snap.worldbooks.global = snap.worldbooks.global.filter(x => x !== oldBk);
+              }
+              if (snap.worldbooks.entries && Object.prototype.hasOwnProperty.call(snap.worldbooks.entries, oldBk)) {
+                delete snap.worldbooks.entries[oldBk];
+              }
+              if (Array.isArray(snap.worldbooks.deletedBooks)) {
+                snap.worldbooks.deletedBooks = snap.worldbooks.deletedBooks.filter(x => x !== oldBk);
+              }
+              repaired = true;
+            } else {
+              if (Array.isArray(snap.worldbooks.global)) {
+                snap.worldbooks.global = Array.from(new Set(snap.worldbooks.global.map(x => (x === oldBk ? action : x))));
+              }
+              if (snap.worldbooks.entries && Object.prototype.hasOwnProperty.call(snap.worldbooks.entries, oldBk)) {
+                snap.worldbooks.entries[action] = snap.worldbooks.entries[oldBk];
+                delete snap.worldbooks.entries[oldBk];
+              }
+              if (Array.isArray(snap.worldbooks.deletedBooks)) {
+                snap.worldbooks.deletedBooks = snap.worldbooks.deletedBooks.filter(x => x !== oldBk);
+              }
+              repaired = true;
+            }
+          });
+        }
+        if (repaired) {
+          snap.updatedAt = Date.now();
+          persistStore(state.store);
+        }
+        state.drawer = null;
+        renderDrawer();
+        await applySnapshotLive(snap, state.store);
+        syncFabUi();
+        if (state.open) await refreshAll(true);
         return;
       }
       return;
@@ -4206,10 +4827,13 @@ function initExtension() {
         ${snaps.length ? snaps.map(s => {
           const isBound = bound && bound.snapshotId === s.id;
           return `
-            <button type="button" class="upp-fab-snap-item ${isBound ? 'is-bound' : ''}" data-fab-apply="${s.id}">
-              <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
-              ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
-            </button>
+            <div class="upp-fab-snap-row ${isBound ? 'is-bound' : ''}">
+              <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="查看快照详情">
+                <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
+                ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+              </button>
+              <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}" title="应用此快照" aria-label="应用快照">${ICONS.play}</button>
+            </div>
           `;
         }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">暂无快照，先保存一套吧</div>`}
       </div>
@@ -4325,15 +4949,24 @@ function initExtension() {
       window.setTimeout(() => openSaveSnapshotDrawer(), 60);
       return;
     }
+    const inspectItem = t.closest('[data-fab-inspect]');
+    if (inspectItem) {
+      const sid = inspectItem.getAttribute('data-fab-inspect');
+      const snap = state.store.snapshots.find(s => s.id === sid);
+      closeFabPop();
+      if (snap) {
+        openModal();
+        window.setTimeout(() => { void openSnapshotDetail(snap); }, 60);
+      }
+      return;
+    }
     const applyItem = t.closest('[data-fab-apply]');
     if (applyItem) {
       const sid = applyItem.getAttribute('data-fab-apply');
       const snap = state.store.snapshots.find(s => s.id === sid);
       closeFabPop();
       if (snap) {
-        await applySnapshotLive(snap, state.store);
-        syncFabUi();
-        if (state.open) await refreshAll(true);
+        await requestApplySnapshot(snap, { fromFab: true });
       }
     }
   });
@@ -4365,8 +4998,17 @@ function initExtension() {
     if (ev.key === 'Escape') {
       if (fabPopOpen) { closeFabPop(); return; }
       if (state.open) {
-        if (state.drawer) { state.drawer = state.drawer.returnTo || null; renderDrawer(); }
-        else closeModal();
+        if (state.drawer) {
+          if (state.drawer.type === 'viewSnapshot' && state.drawer.dirty) {
+            state.drawer.pendingAction = 'close';
+            renderDrawer();
+            return;
+          }
+          state.drawer = state.drawer.returnTo || null;
+          renderDrawer();
+        } else {
+          closeModal();
+        }
       }
     }
   });
@@ -4471,6 +5113,8 @@ function initExtension() {
     if (cb) cb.checked = !!st.autoApplyBindings;
     const fabCb = document.getElementById('upp-ext-fab-cb');
     if (fabCb) fabCb.checked = st.showFloatingBall !== false;
+    const foldCb = document.getElementById('upp-ext-fold-cb');
+    if (foldCb) foldCb.checked = st.presetGroupsDefaultCollapsed !== false;
   }
 
   function mountExtSettings() {
@@ -4495,6 +5139,12 @@ function initExtension() {
           <label class="checkbox_label" for="upp-ext-fab-cb">
             <input id="upp-ext-fab-cb" type="checkbox" ${state.store.settings.showFloatingBall !== false ? 'checked' : ''} />
             <span>显示快捷切换悬浮球</span>
+          </label>
+        </div>
+        <div class="upp-ext-settings-row">
+          <label class="checkbox_label" for="upp-ext-fold-cb">
+            <input id="upp-ext-fold-cb" type="checkbox" ${state.store.settings.presetGroupsDefaultCollapsed !== false ? 'checked' : ''} />
+            <span>预设分组默认折叠</span>
           </label>
         </div>
         <div class="upp-ext-settings-row">
@@ -4526,6 +5176,13 @@ function initExtension() {
       state.store.settings.showFloatingBall = !!ev.target.checked;
       persistStore(state.store);
       syncFabUi();
+    });
+    box.querySelector('#upp-ext-fold-cb')?.addEventListener('change', ev => {
+      state.store = loadStore();
+      state.store.settings.presetGroupsDefaultCollapsed = !!ev.target.checked;
+      persistStore(state.store);
+      state.presetFoldState = {};
+      if (state.open && state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
     });
     box.querySelector('#upp-ext-theme-sel')?.addEventListener('change', ev => {
       state.store = loadStore();

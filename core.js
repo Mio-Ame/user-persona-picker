@@ -1,7 +1,7 @@
-// Pure core logic for 快照管家 (Native SillyTavern Extension v7.4.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.5.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.4.0';
+export const APP_VERSION = '7.5.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
@@ -27,6 +27,7 @@ export function createEmptyStore() {
     settings: {
       autoApplyBindings: true,
       showFloatingBall: true,
+      presetGroupsDefaultCollapsed: true,
       themeMode: 'paper',
       fabSide: 'right',
       fabY: 0.68,
@@ -68,6 +69,7 @@ export function sanitizeStore(raw) {
   const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
   base.settings.autoApplyBindings = st.autoApplyBindings !== false;
   base.settings.showFloatingBall = st.showFloatingBall !== false;
+  base.settings.presetGroupsDefaultCollapsed = st.presetGroupsDefaultCollapsed !== false;
   base.settings.themeMode = THEME_MODES.includes(st.themeMode) ? st.themeMode : 'paper';
   base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
   const yNum = Number(st.fabY);
@@ -405,7 +407,7 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
     const effectiveOn = selfOn && grpOn;
     if (effectiveOn) effectiveOnTotal++;
     const statusNote = !isRecorded(p.id)
-      ? '未记录'
+      ? '新增未记录'
       : !selfOn
         ? ''
         : !grpOn
@@ -978,4 +980,62 @@ export function markStoreOnWorldbookDeleted(store, deletedNames) {
 
   return { changed, affectedSnapshots };
 }
+
+// Inspect a snapshot against current live host resources BEFORE applying so missing assets can be repaired without data loss
+export function inspectSnapshotHealth(snap, liveEnv = {}) {
+  const result = {
+    hasBlockingIssues: false,
+    missingPersona: null,
+    missingWorldbooks: [],
+    missingPreset: '',
+    presetDrift: { removedPromptCount: 0, newPromptCount: 0 },
+  };
+  if (!snap || typeof snap !== 'object') return result;
+
+  const livePersonas = Array.isArray(liveEnv.personas) ? liveEnv.personas : [];
+  const liveBooks = new Set(Array.isArray(liveEnv.worldbooks) ? liveEnv.worldbooks : []);
+  const livePresets = new Set(Array.isArray(liveEnv.presets) ? liveEnv.presets : []);
+
+  if (snap.scope?.persona && snap.persona && (snap.persona.avatarId || snap.persona.name)) {
+    const found = livePersonas.find(p => p && p.avatar_id === snap.persona.avatarId)
+      || livePersonas.find(p => p && p.name === snap.persona.name);
+    if (!found) {
+      result.missingPersona = {
+        avatarId: String(snap.persona.avatarId || ''),
+        name: String(snap.persona.name || snap.persona.avatarId || '未知 User'),
+      };
+    }
+  }
+
+  if (snap.scope?.worldbooks && snap.worldbooks) {
+    const missingSet = new Set();
+    if (Array.isArray(snap.worldbooks.global)) {
+      snap.worldbooks.global.forEach(bk => {
+        if (bk && !liveBooks.has(bk)) missingSet.add(bk);
+      });
+    }
+    const entriesMap = snap.worldbooks.entries && typeof snap.worldbooks.entries === 'object'
+      ? snap.worldbooks.entries
+      : {};
+    Object.keys(entriesMap).forEach(bk => {
+      if (bk && !liveBooks.has(bk)) missingSet.add(bk);
+    });
+    result.missingWorldbooks = Array.from(missingSet);
+  }
+
+  if (snap.scope?.preset && snap.preset && snap.preset.name) {
+    if (!livePresets.has(snap.preset.name)) {
+      result.missingPreset = String(snap.preset.name);
+    } else if (liveEnv.presetNorm && Array.isArray(liveEnv.presetNorm.prompts)) {
+      const savedPrompts = snap.preset.prompts || {};
+      const liveIds = new Set(liveEnv.presetNorm.prompts.map(p => p.id));
+      result.presetDrift.removedPromptCount = Object.keys(savedPrompts).filter(id => !liveIds.has(id)).length;
+      result.presetDrift.newPromptCount = liveEnv.presetNorm.prompts.filter(p => !Object.prototype.hasOwnProperty.call(savedPrompts, p.id)).length;
+    }
+  }
+
+  result.hasBlockingIssues = !!(result.missingPersona || result.missingWorldbooks.length || result.missingPreset);
+  return result;
+}
+
 
