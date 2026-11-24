@@ -1,7 +1,7 @@
 // Pure core logic for User 组装与快照 (Native SillyTavern Extension v7.0.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.0.0';
+export const APP_VERSION = '7.1.0';
 
 export function uid(prefix) {
   return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
@@ -25,6 +25,9 @@ export function createEmptyStore() {
     version: 7,
     settings: {
       autoApplyBindings: true,
+      showFloatingBall: true,
+      fabSide: 'right',
+      fabY: 0.68,
       pinnedWorldbooks: [],
     },
     personaVersions: {},
@@ -62,6 +65,10 @@ export function sanitizeStore(raw) {
 
   const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
   base.settings.autoApplyBindings = st.autoApplyBindings !== false;
+  base.settings.showFloatingBall = st.showFloatingBall !== false;
+  base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
+  const yNum = Number(st.fabY);
+  base.settings.fabY = Number.isFinite(yNum) ? Math.min(0.92, Math.max(0.08, yNum)) : 0.68;
   base.settings.pinnedWorldbooks = Array.isArray(st.pinnedWorldbooks)
     ? Array.from(new Set(st.pinnedWorldbooks.map(x => String(x || '').trim()).filter(Boolean)))
     : [];
@@ -204,11 +211,13 @@ export function pickActivePromptOrder(promptOrderArr) {
   return block ? block.order : [];
 }
 
-export function extractBaiBaiGroups(rawPreset, runtimeState) {
-  const stored = rawPreset?.extensions?.baibaiToolkit?.presetPromptGroups;
-  const src = (runtimeState && Array.isArray(runtimeState.groups) && runtimeState.groups.length)
-    ? runtimeState
-    : (stored && typeof stored === 'object' ? stored : null);
+export function extractBaiBaiGroups(rawPreset, runtimeState, fallbackPreset) {
+  const candidates = [
+    runtimeState,
+    rawPreset?.extensions?.baibaiToolkit?.presetPromptGroups,
+    fallbackPreset?.extensions?.baibaiToolkit?.presetPromptGroups,
+  ];
+  const src = candidates.find(c => c && typeof c === 'object' && Array.isArray(c.groups) && c.groups.length) || null;
 
   if (!src) {
     return { groups: [], groupsById: {}, promptGroupMap: {} };
@@ -242,7 +251,7 @@ export function extractBaiBaiGroups(rawPreset, runtimeState) {
 }
 
 // Convert native SillyTavern oai_settings / completion preset JSON into unified model
-export function normalizeNativePreset(rawPreset, runtimeBaiBaiState) {
+export function normalizeNativePreset(rawPreset, runtimeBaiBaiState, fallbackDiskPreset) {
   if (!rawPreset || typeof rawPreset !== 'object') {
     return { prompts: [], groups: [], groupsById: {}, promptGroupMap: {} };
   }
@@ -292,7 +301,7 @@ export function normalizeNativePreset(rawPreset, runtimeBaiBaiState) {
     });
   }
 
-  const { groups, groupsById, promptGroupMap } = extractBaiBaiGroups(rawPreset, runtimeBaiBaiState);
+  const { groups, groupsById, promptGroupMap } = extractBaiBaiGroups(rawPreset, runtimeBaiBaiState, fallbackDiskPreset);
   return { prompts, groups, groupsById, promptGroupMap };
 }
 

@@ -399,9 +399,18 @@ const Host = {
     await loaded;
     return true;
   },
+  getActiveDiskPreset() {
+    try {
+      const mgr = getPresetManager?.('openai') || getPresetManager?.();
+      const name = this.getLoadedPresetName();
+      return name ? (mgr?.getCompletionPresetByName?.(name) || null) : null;
+    } catch (_) {
+      return null;
+    }
+  },
   getLiveNormalizedPreset() {
     const oai = getContext()?.chatCompletionSettings;
-    return normalizeNativePreset(oai, getBaiBaiRuntimeState());
+    return normalizeNativePreset(oai, getBaiBaiRuntimeState(), this.getActiveDiskPreset());
   },
   getPresetByNameNormalized(presetName) {
     const curName = this.getLoadedPresetName();
@@ -411,9 +420,114 @@ const Host = {
     try {
       const mgr = getPresetManager?.('openai') || getPresetManager?.();
       const raw = mgr?.getCompletionPresetByName?.(presetName);
-      if (raw) return normalizeNativePreset(raw, null);
+      if (raw) return normalizeNativePreset(raw, null, null);
     } catch (_) {}
     return null;
+  },
+  async saveActivePresetToDisk() {
+    const mgr = getPresetManager?.('openai') || getPresetManager?.();
+    const curName = this.getLoadedPresetName();
+    const oai = getContext()?.chatCompletionSettings;
+    if (!mgr || !curName || !oai) throw new Error('未能定位当前预设');
+    const disk = mgr.getCompletionPresetByName?.(curName);
+    const payload = disk ? structuredClone(disk) : {};
+    if (Array.isArray(oai.prompts)) payload.prompts = structuredClone(oai.prompts);
+    if (Array.isArray(oai.prompt_order)) payload.prompt_order = structuredClone(oai.prompt_order);
+    const canonicalGroups = getBaiBaiRuntimeState()
+      || oai.extensions?.baibaiToolkit?.presetPromptGroups
+      || disk?.extensions?.baibaiToolkit?.presetPromptGroups;
+    if (canonicalGroups) {
+      if (!payload.extensions || typeof payload.extensions !== 'object') payload.extensions = {};
+      if (!payload.extensions.baibaiToolkit || typeof payload.extensions.baibaiToolkit !== 'object') {
+        payload.extensions.baibaiToolkit = {};
+      }
+      payload.extensions.baibaiToolkit.presetPromptGroups = structuredClone({
+        version: 1,
+        groups: canonicalGroups.groups || [],
+        prompts: canonicalGroups.prompts || {},
+      });
+    }
+    if (typeof mgr.savePreset === 'function') {
+      await mgr.savePreset(curName, payload, { skipUpdate: true });
+    }
+    if (disk && payload.extensions?.baibaiToolkit?.presetPromptGroups) {
+      if (!disk.extensions || typeof disk.extensions !== 'object') disk.extensions = {};
+      if (!disk.extensions.baibaiToolkit || typeof disk.extensions.baibaiToolkit !== 'object') disk.extensions.baibaiToolkit = {};
+      disk.extensions.baibaiToolkit.presetPromptGroups = structuredClone(payload.extensions.baibaiToolkit.presetPromptGroups);
+    }
+  },
+  applyBaiBaiGroupMapInMemory(groupMap, { syncToDiskCache = true } = {}) {
+    const oai = getContext()?.chatCompletionSettings;
+    const disk = this.getActiveDiskPreset();
+    const bbExt = globalThis.__baiBaiToolkitExtensionInstalled;
+    const runtime = getBaiBaiRuntimeState();
+    const canonical = runtime
+      || oai?.extensions?.baibaiToolkit?.presetPromptGroups
+      || disk?.extensions?.baibaiToolkit?.presetPromptGroups;
+    if (!canonical || !Array.isArray(canonical.groups)) {
+      return { changed: 0, matched: new Set() };
+    }
+
+    // Ensure oai.extensions.baibaiToolkit.presetPromptGroups exists so ST persists it in settings.json
+    if (oai) {
+      if (!oai.extensions || typeof oai.extensions !== 'object') oai.extensions = {};
+      if (!oai.extensions.baibaiToolkit || typeof oai.extensions.baibaiToolkit !== 'object') {
+        oai.extensions.baibaiToolkit = {};
+      }
+      if (!oai.extensions.baibaiToolkit.presetPromptGroups || !Array.isArray(oai.extensions.baibaiToolkit.presetPromptGroups.groups)) {
+        oai.extensions.baibaiToolkit.presetPromptGroups = structuredClone({
+          version: 1,
+          groups: canonical.groups,
+          prompts: canonical.prompts || {},
+        });
+      }
+    }
+
+    // Collect every live & cached group array to keep BaiBai, ST promptManager, oai, and preset cache 100% synced
+    const targets = [];
+    if (runtime?.groups) targets.push(runtime.groups);
+    if (oai?.extensions?.baibaiToolkit?.presetPromptGroups?.groups) {
+      targets.push(oai.extensions.baibaiToolkit.presetPromptGroups.groups);
+    }
+    const pmGroups = getContext()?.promptManager?.serviceSettings?.extensions?.baibaiToolkit?.presetPromptGroups?.groups;
+    if (Array.isArray(pmGroups)) targets.push(pmGroups);
+    if (syncToDiskCache && disk?.extensions?.baibaiToolkit?.presetPromptGroups?.groups) {
+      targets.push(disk.extensions.baibaiToolkit.presetPromptGroups.groups);
+    }
+
+    let changed = 0;
+    const matched = new Set();
+    targets.forEach(arr => {
+      arr.forEach(g => {
+        const gid = String(g?.id ?? '');
+        if (Object.prototype.hasOwnProperty.call(groupMap, gid)) {
+          matched.add(gid);
+          const wanted = !!groupMap[gid];
+          if ((g.enabled !== false) !== wanted) {
+            g.enabled = wanted;
+            changed++;
+          }
+        }
+      });
+    });
+
+    // Also patch BaiBai's live Vue list items & clear its sync key so its UI reflects the toggle immediately
+    if (bbExt && typeof bbExt === 'object') {
+      try { delete bbExt.presetPromptGroupExtensionSyncKey; } catch (_) {}
+      Object.values(bbExt).forEach(val => {
+        const items = val?.state?.items;
+        if (!Array.isArray(items)) return;
+        items.forEach(it => {
+          if (it && it.type === 'group' && Object.prototype.hasOwnProperty.call(groupMap, String(it.groupId))) {
+            const wanted = !!groupMap[String(it.groupId)];
+            it.enabled = wanted;
+            if (it.group) it.group.enabled = wanted;
+          }
+        });
+      });
+    }
+
+    return { changed, matched };
   },
   async togglePresetPrompt(promptId, enabled) {
     const oai = getContext()?.chatCompletionSettings;
@@ -439,20 +553,11 @@ const Host = {
   async togglePresetGroup(groupId, enabled) {
     const oai = getContext()?.chatCompletionSettings;
     if (!oai) throw new Error('未能读取 chatCompletionSettings');
-    const runtimeGroups = getBaiBaiRuntimeState()?.groups;
-    const storedGroups = oai.extensions?.baibaiToolkit?.presetPromptGroups?.groups;
-    let changed = false;
-    [runtimeGroups, storedGroups].forEach(arr => {
-      if (!Array.isArray(arr)) return;
-      arr.forEach(g => {
-        if (String(g?.id ?? '') === String(groupId)) {
-          g.enabled = !!enabled;
-          changed = true;
-        }
-      });
-    });
-    if (changed) {
+    const { changed, matched } = this.applyBaiBaiGroupMapInMemory({ [String(groupId)]: !!enabled }, { syncToDiskCache: true });
+    if (matched.size === 0) throw new Error('未找到对应的 BaiBai 预设分组');
+    if (changed > 0 || matched.size > 0) {
       saveSettingsDebounced();
+      try { await this.saveActivePresetToDisk(); } catch (_) {}
       try { await eventSource.emit(event_types.OAI_PRESET_CHANGED_AFTER); } catch (_) {}
     }
   },
@@ -464,6 +569,7 @@ const Host = {
     target.name = name;
     if (!target.marker) target.content = content;
     saveSettingsDebounced();
+    try { await this.saveActivePresetToDisk(); } catch (_) {}
     try { await eventSource.emit(event_types.OAI_PRESET_CHANGED_AFTER); } catch (_) {}
   },
   async batchTogglePresetStates(promptMap, groupMap) {
@@ -474,25 +580,12 @@ const Host = {
     const wantedPrompts = Object.keys(promptMap || {});
     const matchedPrompts = new Set();
     const wantedGroups = Object.keys(groupMap || {});
-    const matchedGroups = new Set();
+    let matchedGroups = new Set();
 
-    const runtimeGroups = getBaiBaiRuntimeState()?.groups;
-    const storedGroups = oai.extensions?.baibaiToolkit?.presetPromptGroups?.groups;
     if (wantedGroups.length) {
-      [runtimeGroups, storedGroups].forEach(arr => {
-        if (!Array.isArray(arr)) return;
-        arr.forEach(g => {
-          const gid = String(g?.id ?? '');
-          if (Object.prototype.hasOwnProperty.call(groupMap, gid)) {
-            matchedGroups.add(gid);
-            const target = !!groupMap[gid];
-            if ((g.enabled !== false) !== target) {
-              g.enabled = target;
-              changed++;
-            }
-          }
-        });
-      });
+      const grpRes = this.applyBaiBaiGroupMapInMemory(groupMap, { syncToDiskCache: true });
+      changed += grpRes.changed;
+      matchedGroups = grpRes.matched;
     }
 
     const order = pickActivePromptOrder(oai.prompt_order);
@@ -511,7 +604,7 @@ const Host = {
     wantedPrompts.forEach(k => { if (!matchedPrompts.has(k)) skipped++; });
     wantedGroups.forEach(k => { if (!matchedGroups.has(k)) skipped++; });
 
-    if (changed > 0) {
+    if (changed > 0 || wantedGroups.length > 0) {
       saveSettingsDebounced();
       try { await eventSource.emit(event_types.OAI_PRESET_CHANGED_AFTER); } catch (_) {}
     }
@@ -785,8 +878,11 @@ async function applySnapshotLive(snap, store, silentPrefix) {
 
     if (snap.scope.preset && snap.preset) {
       if (snap.preset.name) {
+        const wasSame = Host.getLoadedPresetName() === snap.preset.name;
         const ok = await Host.selectPresetByName(snap.preset.name);
         if (ok) {
+          // Wait briefly after preset switch so BaiBai finishes initializing runtime group state before we override it
+          if (!wasSame) await new Promise(r => window.setTimeout(r, 100));
           const res = await Host.batchTogglePresetStates(snap.preset.prompts || {}, snap.preset.groups || {});
           totalSkipped += res.skipped;
         } else {
@@ -1229,6 +1325,135 @@ const STYLE_CSS = `
   .upp-footer { padding: 9px 12px; }
   .upp-check-grid { grid-template-columns: 1fr; }
 }
+
+/* Floating Quick-Switch Ball & Popover */
+.upp-fab-root {
+  --bg: rgba(248, 250, 254, 0.92);
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-hover: rgba(58, 123, 213, 0.1);
+  --border: rgba(25, 36, 56, 0.14);
+  --text: #1c2434;
+  --muted: #647087;
+  --accent: #3a7bd5;
+  --accent-soft: rgba(58, 123, 213, 0.14);
+  --accent-text: #ffffff;
+  --ok: #1d9a6c;
+  --switch-off: rgba(28, 36, 52, 0.2);
+  --shadow: 0 12px 34px rgba(18, 28, 48, 0.2);
+  color: var(--text);
+}
+.upp-fab-root[data-theme="dark"] {
+  --bg: rgba(28, 33, 44, 0.92);
+  --surface: rgba(40, 47, 62, 0.88);
+  --surface-hover: rgba(104, 160, 245, 0.16);
+  --border: rgba(255, 255, 255, 0.14);
+  --text: #edf1f8;
+  --muted: #98a3b8;
+  --accent: #68a0f5;
+  --accent-soft: rgba(104, 160, 245, 0.18);
+  --accent-text: #0f1624;
+  --ok: #42c994;
+  --switch-off: rgba(255, 255, 255, 0.22);
+  --shadow: 0 14px 38px rgba(0, 0, 0, 0.46);
+}
+.upp-fab {
+  position: fixed;
+  z-index: 2147482000;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--accent);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.upp-fab:hover { transform: scale(1.06); }
+.upp-fab.is-dragging { cursor: grabbing; transform: scale(1.08); transition: none; }
+.upp-fab-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.upp-fab-pop {
+  position: fixed;
+  z-index: 2147482001;
+  width: min(260px, calc(100vw - 24px));
+  max-height: min(380px, 70dvh);
+  background: var(--bg);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.upp-fab-pop-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.upp-fab-pop-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.upp-fab-pop-list::-webkit-scrollbar { width: 4px; }
+.upp-fab-pop-list::-webkit-scrollbar-thumb { background: rgba(120, 132, 154, 0.35); border-radius: 999px; }
+.upp-fab-snap-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+.upp-fab-snap-item:hover { background: var(--surface-hover); border-color: var(--border); }
+.upp-fab-snap-item.is-bound { border-color: var(--accent); background: var(--accent-soft); }
+.upp-fab-snap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.upp-fab-pop-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-top: 1px solid var(--border);
+}
+.upp-fab-pop-foot .upp-btn { flex: 1; height: 29px; font-size: 11.5px; padding: 0 8px; }
 `;
 
 // =========================
@@ -1282,6 +1507,13 @@ function initExtension() {
   host.id = HOST_ID;
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `<style>${STYLE_CSS}</style>
+<div class="upp-fab-root" id="upp-fab-root">
+  <button type="button" class="upp-fab" id="upp-fab-btn" title="快捷切换快照" aria-label="快捷切换快照">
+    ${ICONS.camera}
+    <span class="upp-fab-dot" id="upp-fab-dot" hidden></span>
+  </button>
+  <div class="upp-fab-pop" id="upp-fab-pop" hidden></div>
+</div>
 <div class="upp-backdrop" hidden>
   <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 组装与快照">
     <div class="upp-header">
@@ -1290,6 +1522,7 @@ function initExtension() {
         <span class="upp-ctx-chip" id="upp-ctx-chip" hidden></span>
       </div>
       <div class="upp-head-actions">
+        <button class="upp-btn" id="upp-fab-vis-btn" title="显示或隐藏悬浮球">悬浮球</button>
         <button class="upp-btn icon-only" id="upp-refresh-btn" title="刷新">${ICONS.refresh}</button>
         <button class="upp-btn icon-only" id="upp-close-btn" title="关闭">${ICONS.close}</button>
       </div>
@@ -1302,6 +1535,11 @@ function initExtension() {
   </div>
 </div>`;
 
+  const elFabRoot = shadow.getElementById('upp-fab-root');
+  const elFabBtn = shadow.getElementById('upp-fab-btn');
+  const elFabDot = shadow.getElementById('upp-fab-dot');
+  const elFabPop = shadow.getElementById('upp-fab-pop');
+  const elFabVisBtn = shadow.getElementById('upp-fab-vis-btn');
   const elBackdrop = shadow.querySelector('.upp-backdrop');
   const elCtxChip = shadow.getElementById('upp-ctx-chip');
   const elTabs = shadow.getElementById('upp-tabs');
@@ -1686,6 +1924,7 @@ function initExtension() {
         </div>
         <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
         ${groups.length ? `<button class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+        <button class="upp-btn" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
       </div>
     `;
   }
@@ -1791,7 +2030,7 @@ function initExtension() {
   // Full-Size Xiaotian-Style Snapshot Detail Viewer
   // =========================
 
-  function renderSnapInspectPresetRow(item) {
+  function renderSnapInspectPresetRow(item, editing) {
     const isPh = item.marker || typeof item.content !== 'string';
     const roleShort = isPh ? '占位' : (item.role === 'user' ? 'USR' : item.role === 'assistant' ? 'AST' : 'SYS');
     const snippet = isPh ? '酒馆原生占位槽位' : String(item.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
@@ -1806,6 +2045,7 @@ function initExtension() {
           </div>
           ${item.statusNote ? `<span class="upp-badge warn">${escapeHtml(item.statusNote)}</span>` : ''}
         </button>
+        ${editing ? `<button type="button" class="upp-switch" role="switch" aria-checked="${!!item.selfOn}" data-sv-pr-toggle="${escapeHtml(item.id)}"></button>` : ''}
       </div>
     `;
   }
@@ -1815,8 +2055,9 @@ function initExtension() {
     const metaEl = shadow.getElementById('upp-snap-inspect-meta');
     if (!bodyEl) return;
 
-    const s = d.snapshot;
+    const s = d.draftSnapshot || d.snapshot;
     const sub = d.subTab;
+    const editing = !!d.editing;
 
     if (sub === 'preset' && s.scope.preset && s.preset) {
       const norm = d.presetNorm;
@@ -1827,7 +2068,7 @@ function initExtension() {
       }
       const model = buildSnapshotPresetInspectModel(s.preset, norm, {
         search: d.search || '',
-        onlyOn: !!d.onlyOn,
+        onlyOn: !!d.onlyOn && !editing,
       });
       if (metaEl) {
         metaEl.innerHTML = `
@@ -1842,11 +2083,11 @@ function initExtension() {
         return;
       }
       let html = `<div class="upp-entry-list">` + model.nodes.map(node => {
-        if (node.type === 'prompt') return renderSnapInspectPresetRow(node.prompt);
+        if (node.type === 'prompt') return renderSnapInspectPresetRow(node.prompt, editing);
         const g = node.group;
         const collapsed = node.forceExpand
           ? false
-          : (Object.prototype.hasOwnProperty.call(d.foldMap, g.id) ? !!d.foldMap[g.id] : (node.effectiveOnCount === 0));
+          : (Object.prototype.hasOwnProperty.call(d.foldMap, g.id) ? !!d.foldMap[g.id] : (!editing && node.effectiveOnCount === 0));
         const stateLabel = !g.enabled
           ? '整组已关'
           : node.effectiveOnCount === node.totalCount
@@ -1860,9 +2101,10 @@ function initExtension() {
                 <span class="upp-group-name">${escapeHtml(g.name)}</span>
                 <span class="upp-badge ${!g.enabled ? 'warn' : (node.effectiveOnCount > 0 ? 'accent' : '')}">${escapeHtml(stateLabel)}</span>
               </button>
+              ${editing ? `<button type="button" class="upp-switch" role="switch" aria-checked="${!!g.enabled}" data-sv-grp-toggle="${escapeHtml(g.id)}" title="整组总开关"></button>` : ''}
             </div>
             <div class="upp-group-items">
-              ${node.items.map(renderSnapInspectPresetRow).join('')}
+              ${node.items.map(it => renderSnapInspectPresetRow(it, editing)).join('')}
             </div>
           </div>
         `;
@@ -1892,7 +2134,7 @@ function initExtension() {
         const allUids = Object.keys(map);
         const onCount = allUids.filter(u => map[u]).length;
         const rows = allUids.filter(u => {
-          if (d.onlyOn && !map[u]) return false;
+          if (d.onlyOn && !editing && !map[u]) return false;
           if (!q) return true;
           const live = byUid.get(u);
           return normalizeText(bk + ' ' + (live ? (live.name + ' ' + live.content) : u)).includes(q);
@@ -1922,6 +2164,7 @@ function initExtension() {
                         <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
                       </div>
                     </button>
+                    ${editing ? `<button type="button" class="upp-switch" role="switch" aria-checked="${on}" data-sv-wb-toggle="${escapeHtml(bk)}" data-sv-wb-uid="${escapeHtml(u)}"></button>` : ''}
                   </div>
                 `;
               }).join('')}
@@ -2029,6 +2272,7 @@ function initExtension() {
 
       const showFilter = d.subTab === 'preset' || d.subTab === 'worldbooks' || d.subTab === 'regex';
       const showFoldAll = d.subTab === 'preset' && (d.presetNorm?.groups?.length > 0);
+      const canEdit = d.subTab === 'preset' || d.subTab === 'worldbooks';
 
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-full">
@@ -2037,7 +2281,9 @@ function initExtension() {
               <button class="upp-btn icon-only" data-drawer-close title="返回">${ICONS.back}</button>
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">快照详情 · ${escapeHtml(s.name)}</span>
             </div>
-            <button class="upp-btn primary" data-snap-apply="${s.id}">应用此快照</button>
+            <div class="upp-row-nowrap">
+              ${d.editing ? `<button class="upp-btn primary" id="upp-sv-save-edit">保存修改</button>` : `<button class="upp-btn primary" data-snap-apply="${s.id}">应用此快照</button>`}
+            </div>
           </div>
           <div class="upp-tabs" style="padding:7px 14px;">
             ${availTabs.map(t => `<button class="upp-tab ${d.subTab === t.id ? 'active' : ''}" data-sv-tab="${t.id}">${t.label}</button>`).join('')}
@@ -2049,8 +2295,9 @@ function initExtension() {
                   ${ICONS.search}
                   <input type="text" id="upp-sv-search" placeholder="搜索分组、名称或正文…" value="${escapeHtml(d.search || '')}" />
                 </div>
-                <button class="upp-btn ${d.onlyOn ? 'active' : ''}" id="upp-sv-only-on">只看已开</button>
+                ${!d.editing ? `<button class="upp-btn ${d.onlyOn ? 'active' : ''}" id="upp-sv-only-on">只看已开</button>` : ''}
                 ${showFoldAll ? `<button class="upp-btn" id="upp-sv-fold-all">${d.allExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+                ${canEdit ? `<button class="upp-btn ${d.editing ? 'active' : ''}" id="upp-sv-edit-toggle">${d.editing ? '取消编辑' : '编辑开关'}</button>` : ''}
               </div>
             ` : ''}
             <div class="upp-card-meta" id="upp-snap-inspect-meta"></div>
@@ -2564,6 +2811,15 @@ function initExtension() {
       groups.forEach(g => { state.presetFoldState[`${state.loadedPresetName}::${g.id}`] = anyExpanded; });
       renderPresetToolbar(); renderPresetBody(); return;
     }
+    if (target.closest('#upp-preset-save-disk-btn')) {
+      try {
+        await Host.saveActivePresetToDisk();
+        toast(`已将开关与分组保存到预设「${state.loadedPresetName}」`, 'success');
+      } catch (err) {
+        toast('保存预设失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
 
     const rgSc = target.closest('[data-rg-scope]');
     if (rgSc) {
@@ -2958,6 +3214,69 @@ function initExtension() {
         (d.presetNorm?.groups || []).forEach(g => { d.foldMap[g.id] = !d.allExpanded; });
         renderDrawer(); return;
       }
+      if (t.closest('#upp-sv-edit-toggle')) {
+        if (!d.editing) {
+          d.editing = true;
+          d.draftSnapshot = structuredClone(d.snapshot);
+          // Ensure preset.groups holds all known group ids so user can toggle any group cleanly
+          if (d.draftSnapshot.preset && d.presetNorm?.groups?.length) {
+            if (!d.draftSnapshot.preset.groups) d.draftSnapshot.preset.groups = {};
+            d.presetNorm.groups.forEach(g => {
+              if (!Object.prototype.hasOwnProperty.call(d.draftSnapshot.preset.groups, g.id)) {
+                d.draftSnapshot.preset.groups[g.id] = g.enabled !== false;
+              }
+            });
+          }
+        } else {
+          d.editing = false;
+          d.draftSnapshot = null;
+        }
+        renderDrawer();
+        return;
+      }
+      if (t.closest('#upp-sv-save-edit') && d.draftSnapshot) {
+        const idx = state.store.snapshots.findIndex(x => x.id === d.snapshot.id);
+        if (idx >= 0) {
+          d.draftSnapshot.updatedAt = Date.now();
+          state.store.snapshots[idx] = d.draftSnapshot;
+          d.snapshot = d.draftSnapshot;
+          persistStore(state.store);
+          toast(`已保存快照「${d.snapshot.name}」的开关修改`, 'success');
+        }
+        d.editing = false;
+        d.draftSnapshot = null;
+        renderDrawer();
+        renderSnapshotsBody();
+        return;
+      }
+      const svGrpToggle = t.closest('[data-sv-grp-toggle]');
+      if (svGrpToggle && d.editing && d.draftSnapshot?.preset) {
+        const gid = svGrpToggle.getAttribute('data-sv-grp-toggle');
+        if (!d.draftSnapshot.preset.groups) d.draftSnapshot.preset.groups = {};
+        const cur = d.draftSnapshot.preset.groups[gid] !== false;
+        d.draftSnapshot.preset.groups[gid] = !cur;
+        renderViewSnapshotBody(d);
+        return;
+      }
+      const svPrToggle = t.closest('[data-sv-pr-toggle]');
+      if (svPrToggle && d.editing && d.draftSnapshot?.preset) {
+        const pid = svPrToggle.getAttribute('data-sv-pr-toggle');
+        if (!d.draftSnapshot.preset.prompts) d.draftSnapshot.preset.prompts = {};
+        const cur = d.draftSnapshot.preset.prompts[pid] === true;
+        d.draftSnapshot.preset.prompts[pid] = !cur;
+        renderViewSnapshotBody(d);
+        return;
+      }
+      const svWbToggle = t.closest('[data-sv-wb-toggle]');
+      if (svWbToggle && d.editing && d.draftSnapshot?.worldbooks?.entries) {
+        const bk = svWbToggle.getAttribute('data-sv-wb-toggle');
+        const u = svWbToggle.getAttribute('data-sv-wb-uid');
+        if (d.draftSnapshot.worldbooks.entries[bk]) {
+          d.draftSnapshot.worldbooks.entries[bk][u] = !d.draftSnapshot.worldbooks.entries[bk][u];
+          renderViewSnapshotBody(d);
+        }
+        return;
+      }
       const foldBtn = t.closest('[data-sv-fold]');
       if (foldBtn) {
         const gid = foldBtn.getAttribute('data-sv-fold');
@@ -3195,10 +3514,12 @@ function initExtension() {
   });
 
   function openModal() {
+    closeFabPop();
     elBackdrop.dataset.theme = detectHostTheme();
     state.open = true;
     state.drawer = null;
     elBackdrop.hidden = false;
+    syncFabVisBtn();
     void refreshAll(false);
   }
 
@@ -3206,12 +3527,233 @@ function initExtension() {
     state.open = false;
     state.drawer = null;
     elBackdrop.hidden = true;
+    syncFabUi();
   }
 
+  // =========================
+  // Draggable Floating Ball & Quick Snapshot Popover
+  // =========================
+
+  let fabPopOpen = false;
+  let fabDragging = false;
+  let fabMoved = false;
+  let fabStartX = 0;
+  let fabStartY = 0;
+  let fabOrigLeft = 0;
+  let fabOrigTop = 0;
+
+  function syncFabVisBtn() {
+    const show = state.store.settings.showFloatingBall !== false;
+    if (elFabVisBtn) elFabVisBtn.classList.toggle('active', show);
+  }
+
+  function positionFab() {
+    const vw = window.innerWidth || 390;
+    const vh = window.innerHeight || 780;
+    const size = 42;
+    const margin = 10;
+    const side = state.store.settings.fabSide === 'left' ? 'left' : 'right';
+    const yRatio = typeof state.store.settings.fabY === 'number' ? state.store.settings.fabY : 0.68;
+    const top = Math.round(Math.min(vh - size - 16, Math.max(54, vh * yRatio - size / 2)));
+    const left = side === 'left' ? margin : Math.max(margin, vw - size - margin);
+    elFabBtn.style.left = left + 'px';
+    elFabBtn.style.top = top + 'px';
+  }
+
+  function positionFabPop() {
+    const vw = window.innerWidth || 390;
+    const vh = window.innerHeight || 780;
+    const rect = elFabBtn.getBoundingClientRect();
+    const popW = Math.min(260, vw - 24);
+    const popH = Math.min(380, Math.round(vh * 0.7));
+    const margin = 10;
+    let left = rect.left > vw / 2 ? (rect.left - popW - 8) : (rect.right + 8);
+    left = Math.min(vw - popW - margin, Math.max(margin, left));
+    let top = rect.top - 24;
+    if (top + popH > vh - margin) top = Math.max(margin, vh - popH - margin);
+    if (top < margin) top = margin;
+    elFabPop.style.left = Math.round(left) + 'px';
+    elFabPop.style.top = Math.round(top) + 'px';
+  }
+
+  function renderFabPop() {
+    state.store = loadStore();
+    state.charInfo = readCurrentCharInfo();
+    state.chatId = readCurrentChatId();
+    const snaps = state.store.snapshots || [];
+    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
+    const autoOn = !!state.store.settings.autoApplyBindings;
+
+    elFabPop.innerHTML = `
+      <div class="upp-fab-pop-head">
+        <span>快捷切换快照</span>
+        <button type="button" class="upp-switch" id="upp-fab-auto-sw" role="switch" aria-checked="${autoOn}" title="切聊天自动切回"></button>
+      </div>
+      <div class="upp-fab-pop-list">
+        ${snaps.length ? snaps.map(s => {
+          const isBound = bound && bound.snapshotId === s.id;
+          return `
+            <button type="button" class="upp-fab-snap-item ${isBound ? 'is-bound' : ''}" data-fab-apply="${s.id}">
+              <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
+              ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+            </button>
+          `;
+        }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">暂无快照，先保存一套吧</div>`}
+      </div>
+      <div class="upp-fab-pop-foot">
+        <button type="button" class="upp-btn primary" id="upp-fab-save-btn">${ICONS.plus}<span>保存快照</span></button>
+        <button type="button" class="upp-btn" id="upp-fab-open-btn">完整面板</button>
+      </div>
+    `;
+  }
+
+  function openFabPop() {
+    elFabRoot.dataset.theme = detectHostTheme();
+    renderFabPop();
+    elFabPop.hidden = false;
+    fabPopOpen = true;
+    positionFabPop();
+  }
+
+  function closeFabPop() {
+    if (!fabPopOpen) return;
+    fabPopOpen = false;
+    elFabPop.hidden = true;
+  }
+
+  function syncFabUi() {
+    state.store = loadStore();
+    const show = state.store.settings.showFloatingBall !== false;
+    elFabRoot.dataset.theme = detectHostTheme();
+    elFabRoot.hidden = !show;
+    syncFabVisBtn();
+    if (!show) {
+      closeFabPop();
+      return;
+    }
+    positionFab();
+    const bound = resolveBindingForContext(state.store.bindings, readCurrentChatId(), readCurrentCharInfo().id);
+    elFabDot.hidden = !bound;
+  }
+
+  elFabBtn.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    fabDragging = true;
+    fabMoved = false;
+    fabStartX = ev.clientX;
+    fabStartY = ev.clientY;
+    const rect = elFabBtn.getBoundingClientRect();
+    fabOrigLeft = rect.left;
+    fabOrigTop = rect.top;
+    try { elFabBtn.setPointerCapture(ev.pointerId); } catch (_) {}
+  });
+
+  elFabBtn.addEventListener('pointermove', ev => {
+    if (!fabDragging) return;
+    const dx = ev.clientX - fabStartX;
+    const dy = ev.clientY - fabStartY;
+    if (!fabMoved && Math.hypot(dx, dy) >= 6) {
+      fabMoved = true;
+      elFabBtn.classList.add('is-dragging');
+      closeFabPop();
+    }
+    if (!fabMoved) return;
+    const vw = window.innerWidth || 390;
+    const vh = window.innerHeight || 780;
+    const size = 42;
+    const left = Math.min(vw - size - 6, Math.max(6, fabOrigLeft + dx));
+    const top = Math.min(vh - size - 12, Math.max(46, fabOrigTop + dy));
+    elFabBtn.style.left = Math.round(left) + 'px';
+    elFabBtn.style.top = Math.round(top) + 'px';
+  });
+
+  function finishFabPointer(ev) {
+    if (!fabDragging) return;
+    fabDragging = false;
+    elFabBtn.classList.remove('is-dragging');
+    try { elFabBtn.releasePointerCapture(ev.pointerId); } catch (_) {}
+    if (fabMoved) {
+      const vw = window.innerWidth || 390;
+      const vh = window.innerHeight || 780;
+      const rect = elFabBtn.getBoundingClientRect();
+      state.store = loadStore();
+      state.store.settings.fabSide = (rect.left + rect.width / 2) < vw / 2 ? 'left' : 'right';
+      state.store.settings.fabY = Math.min(0.92, Math.max(0.08, (rect.top + rect.height / 2) / vh));
+      persistStore(state.store);
+      positionFab();
+    } else {
+      if (fabPopOpen) closeFabPop();
+      else openFabPop();
+    }
+  }
+  elFabBtn.addEventListener('pointerup', finishFabPointer);
+  elFabBtn.addEventListener('pointercancel', finishFabPointer);
+
+  elFabPop.addEventListener('click', async ev => {
+    const t = ev.target;
+    if (t.closest('#upp-fab-auto-sw')) {
+      state.store = loadStore();
+      state.store.settings.autoApplyBindings = !state.store.settings.autoApplyBindings;
+      persistStore(state.store);
+      syncExtSettingsCheckbox();
+      renderFabPop();
+      toast(state.store.settings.autoApplyBindings ? '已开启自动切回快照' : '已暂停自动切换');
+      return;
+    }
+    if (t.closest('#upp-fab-open-btn')) {
+      closeFabPop();
+      openModal();
+      return;
+    }
+    if (t.closest('#upp-fab-save-btn')) {
+      closeFabPop();
+      openModal();
+      window.setTimeout(() => openSaveSnapshotDrawer(), 60);
+      return;
+    }
+    const applyItem = t.closest('[data-fab-apply]');
+    if (applyItem) {
+      const sid = applyItem.getAttribute('data-fab-apply');
+      const snap = state.store.snapshots.find(s => s.id === sid);
+      closeFabPop();
+      if (snap) {
+        await applySnapshotLive(snap, state.store);
+        syncFabUi();
+        if (state.open) await refreshAll(true);
+      }
+    }
+  });
+
+  elFabVisBtn.addEventListener('click', () => {
+    state.store = loadStore();
+    state.store.settings.showFloatingBall = !(state.store.settings.showFloatingBall !== false);
+    persistStore(state.store);
+    syncFabUi();
+    syncExtSettingsCheckbox();
+    toast(state.store.settings.showFloatingBall ? '已显示悬浮球' : '已隐藏悬浮球');
+  });
+
+  document.addEventListener('pointerdown', ev => {
+    if (!fabPopOpen) return;
+    const path = typeof ev.composedPath === 'function' ? ev.composedPath() : [];
+    if (path.includes(elFabPop) || path.includes(elFabBtn)) return;
+    closeFabPop();
+  });
+
+  window.addEventListener('resize', () => {
+    if (state.store.settings.showFloatingBall !== false) {
+      positionFab();
+      if (fabPopOpen) positionFabPop();
+    }
+  });
+
   document.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape' && state.open) {
-      if (state.drawer) { state.drawer = state.drawer.returnTo || null; renderDrawer(); }
-      else closeModal();
+    if (ev.key === 'Escape') {
+      if (fabPopOpen) { closeFabPop(); return; }
+      if (state.open) {
+        if (state.drawer) { state.drawer = state.drawer.returnTo || null; renderDrawer(); }
+        else closeModal();
+      }
     }
   });
 
@@ -3222,6 +3764,7 @@ function initExtension() {
     if (autoTimer) window.clearTimeout(autoTimer);
     autoTimer = window.setTimeout(async () => {
       autoTimer = null;
+      syncFabUi();
       if (isApplyingSnapshot) return;
       state.store = loadStore();
       if (!state.store.settings.autoApplyBindings) return;
@@ -3235,6 +3778,7 @@ function initExtension() {
       if (!snap) return;
       lastAutoKey = key;
       await applySnapshotLive(snap, state.store, '已自动切回快照');
+      syncFabUi();
       if (state.open) await refreshAll(true);
     }, 350);
   }
@@ -3260,8 +3804,11 @@ function initExtension() {
 
   // Mount compact drawer inside Extensions Settings
   function syncExtSettingsCheckbox() {
+    const st = loadStore().settings;
     const cb = document.getElementById('upp-ext-auto-apply-cb');
-    if (cb) cb.checked = !!loadStore().settings.autoApplyBindings;
+    if (cb) cb.checked = !!st.autoApplyBindings;
+    const fabCb = document.getElementById('upp-ext-fab-cb');
+    if (fabCb) fabCb.checked = st.showFloatingBall !== false;
   }
 
   function mountExtSettings() {
@@ -3283,6 +3830,12 @@ function initExtension() {
           </label>
         </div>
         <div class="upp-ext-settings-row">
+          <label class="checkbox_label" for="upp-ext-fab-cb">
+            <input id="upp-ext-fab-cb" type="checkbox" ${state.store.settings.showFloatingBall !== false ? 'checked' : ''} />
+            <span>显示快捷切换悬浮球</span>
+          </label>
+        </div>
+        <div class="upp-ext-settings-row">
           <div class="menu_button" id="upp-ext-open-btn"><i class="fa-solid fa-camera-retro"></i><span>打开面板</span></div>
         </div>
       </div>
@@ -3295,14 +3848,22 @@ function initExtension() {
       persistStore(state.store);
       if (state.open && state.tab === 'snapshots') renderSnapshotsToolbar();
     });
+    box.querySelector('#upp-ext-fab-cb')?.addEventListener('change', ev => {
+      state.store = loadStore();
+      state.store.settings.showFloatingBall = !!ev.target.checked;
+      persistStore(state.store);
+      syncFabUi();
+    });
   }
 
   document.body.appendChild(host);
+  syncFabUi();
   mountWandMenu();
   mountExtSettings();
   eventSource.on(event_types.APP_READY, () => {
     mountWandMenu();
     mountExtSettings();
+    syncFabUi();
   });
 }
 
