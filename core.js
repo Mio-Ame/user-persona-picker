@@ -1,7 +1,8 @@
 // Pure core logic for User 组装与快照 (Native SillyTavern Extension v7.0.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.1.0';
+export const APP_VERSION = '7.2.0';
+export const THEME_MODES = ['paper', 'host', 'glass-light', 'glass-dark'];
 
 export function uid(prefix) {
   return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
@@ -26,6 +27,7 @@ export function createEmptyStore() {
     settings: {
       autoApplyBindings: true,
       showFloatingBall: true,
+      themeMode: 'paper',
       fabSide: 'right',
       fabY: 0.68,
       pinnedWorldbooks: [],
@@ -66,6 +68,7 @@ export function sanitizeStore(raw) {
   const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
   base.settings.autoApplyBindings = st.autoApplyBindings !== false;
   base.settings.showFloatingBall = st.showFloatingBall !== false;
+  base.settings.themeMode = THEME_MODES.includes(st.themeMode) ? st.themeMode : 'paper';
   base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
   const yNum = Number(st.fabY);
   base.settings.fabY = Number.isFinite(yNum) ? Math.min(0.92, Math.max(0.08, yNum)) : 0.68;
@@ -659,3 +662,96 @@ export function inferThemeFromTextColor(colorStr, hasIgLight) {
   const lum = 0.299 * r + 0.587 * g + 0.114 * b;
   return lum < 140 ? 'light' : 'dark';
 }
+
+// Group worldbooks using optional worldbook_organizer extension settings (read-only, graceful fallback)
+export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
+  const list = Array.isArray(worldbooks) ? worldbooks : [];
+  const pinnedSet = new Set(Array.isArray(meta.pinned) ? meta.pinned : []);
+  const globalSet = new Set(Array.isArray(meta.globals) ? meta.globals : []);
+  const charSet = new Set(Array.isArray(meta.charBooks) ? meta.charBooks : []);
+  const chatBook = meta.chatBook || '';
+  const query = normalizeText(meta.query || '');
+
+  const org = orgSettings && typeof orgSettings === 'object' ? orgSettings : null;
+  const orgGroups = Array.isArray(org?.groups) ? org.groups : [];
+  const assignments = org?.assignments && typeof org.assignments === 'object' ? org.assignments : {};
+  const aliases = org?.aliases && typeof org.aliases === 'object' ? org.aliases : {};
+  const cachedCharBindings = org?.cachedCharBindings && typeof org.cachedCharBindings === 'object' ? org.cachedCharBindings : {};
+
+  // Collect character-bound worldbooks known to the organizer cache
+  const knownCharBooks = new Set();
+  Object.values(cachedCharBindings).forEach(entry => {
+    if (!entry || typeof entry !== 'object') return;
+    if (entry.primary) knownCharBooks.add(String(entry.primary));
+    if (entry.embedded) knownCharBooks.add(String(entry.embedded));
+    if (Array.isArray(entry.extra)) entry.extra.forEach(x => x && knownCharBooks.add(String(x)));
+  });
+
+  const groupMap = new Map();
+  orgGroups.forEach(g => {
+    if (!g || !g.id) return;
+    groupMap.set(String(g.id), {
+      id: String(g.id),
+      name: String(g.name || '未命名分组'),
+      color: typeof g.color === 'string' ? g.color : '',
+      items: [],
+    });
+  });
+
+  const pinnedBucket = { id: '__pinned__', name: '常用与当前启用', color: '', items: [] };
+  const charBucket = { id: '__char__', name: '角色书', color: '', items: [], defaultCollapsed: true };
+  const ungroupedBucket = { id: '__ungrouped__', name: orgGroups.length ? '未分组' : '全部世界书', color: '', items: [] };
+
+  const makeItem = name => {
+    const alias = typeof aliases[name] === 'string' ? aliases[name].trim() : '';
+    const gid = assignments[name] && groupMap.has(String(assignments[name])) ? String(assignments[name]) : '';
+    const gName = gid ? groupMap.get(gid).name : (knownCharBooks.has(name) ? '角色书' : '');
+    return {
+      name,
+      alias,
+      displayTitle: alias || name,
+      groupId: gid,
+      groupName: gName,
+      isPinned: pinnedSet.has(name),
+      isGlobal: globalSet.has(name),
+      isChar: charSet.has(name),
+      isChat: chatBook === name,
+    };
+  };
+
+  const sortItems = arr => arr.sort((a, b) => {
+    const pa = (a.isPinned ? 4 : 0) + (a.isGlobal ? 2 : 0) + (a.isChar || a.isChat ? 1 : 0);
+    const pb = (b.isPinned ? 4 : 0) + (b.isGlobal ? 2 : 0) + (b.isChar || b.isChat ? 1 : 0);
+    if (pa !== pb) return pb - pa;
+    return a.displayTitle.localeCompare(b.displayTitle, 'zh-CN');
+  });
+
+  list.forEach(name => {
+    const item = makeItem(name);
+    if (query) {
+      const hay = normalizeText(item.name + ' ' + item.alias + ' ' + item.groupName);
+      if (!hay.includes(query)) return;
+    }
+    if (item.isPinned || item.isGlobal || item.isChar || item.isChat) {
+      pinnedBucket.items.push(item);
+    }
+    if (item.groupId && groupMap.has(item.groupId)) {
+      groupMap.get(item.groupId).items.push(item);
+    } else if (knownCharBooks.has(name)) {
+      charBucket.items.push(item);
+    } else {
+      ungroupedBucket.items.push(item);
+    }
+  });
+
+  const sections = [];
+  if (pinnedBucket.items.length) { sortItems(pinnedBucket.items); sections.push(pinnedBucket); }
+  groupMap.forEach(g => {
+    if (g.items.length) { sortItems(g.items); sections.push(g); }
+  });
+  if (ungroupedBucket.items.length) { sortItems(ungroupedBucket.items); sections.push(ungroupedBucket); }
+  if (charBucket.items.length) { sortItems(charBucket.items); sections.push(charBucket); }
+
+  return { sections, hasOrganizer: orgGroups.length > 0 || knownCharBooks.size > 0 };
+}
+
