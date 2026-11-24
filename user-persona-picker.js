@@ -1,7 +1,7 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '5.0.0';
+  const APP_VERSION = '5.1.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
@@ -1036,18 +1036,21 @@
 
     .upp-backdrop {
       position: fixed; inset: 0; z-index: 2147483000;
-      background: var(--upp-veil); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-      display: flex; align-items: center; justify-content: center; padding: 18px;
-      color: var(--upp-tx); animation: upp-fade-in 0.18s var(--upp-ease);
+      background: var(--upp-veil);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+      color: var(--upp-tx); animation: upp-fade-in 0.14s var(--upp-ease);
     }
     .upp-backdrop[hidden] { display: none; }
 
     .upp-modal {
-      width: 100%; max-width: 590px; max-height: 86dvh;
-      background: var(--upp-shell-bg); backdrop-filter: blur(28px) saturate(185%); -webkit-backdrop-filter: blur(28px) saturate(185%);
+      width: min(590px, calc(100vw - 32px));
+      height: min(650px, 84dvh);
+      background: var(--upp-shell-bg);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      contain: layout paint;
       color: var(--upp-tx); border: 1px solid var(--upp-shell-border); border-radius: 22px;
       box-shadow: var(--upp-shell-shadow); display: flex; flex-direction: column; overflow: hidden;
-      animation: upp-pop-in 0.22s var(--upp-ease);
+      animation: upp-pop-in 0.16s var(--upp-ease);
     }
 
     .upp-grab { display: none; width: 36px; height: 4px; border-radius: 999px; background: var(--upp-handle); margin: 8px auto 0; flex-shrink: 0; }
@@ -1141,9 +1144,9 @@
     /* Dual-zone Chip: tap text to READ content, tap right circle to CHECK! */
     .upp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
     .upp-chip-wrap {
-      display: inline-flex; align-items: stretch; border-radius: 10px; overflow: hidden;
+      display: inline-flex; align-items: center; border-radius: 11px; overflow: hidden;
       border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
-      transition: background 0.14s var(--upp-ease), border-color 0.14s ease, box-shadow 0.14s ease;
+      transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
     }
     .upp-chip-wrap:hover { background: var(--upp-chip-hover); }
     .upp-chip-wrap.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); }
@@ -1151,7 +1154,7 @@
     .upp-chip-wrap.is-inspected { box-shadow: 0 0 0 2px var(--upp-accent-border); }
 
     .upp-chip-read {
-      min-height: 34px; padding: 6px 8px 6px 11px; border: none; background: transparent;
+      min-height: 34px; padding: 6px 4px 6px 11px; border: none; background: transparent;
       color: var(--upp-chip-tx); font: inherit; font-size: 13px; line-height: 1.25;
       cursor: pointer; text-align: left; word-break: break-word;
     }
@@ -1159,14 +1162,19 @@
     .upp-chip-wrap.is-conflict .upp-chip-read { color: var(--upp-warn-tx); }
 
     .upp-chip-check {
-      width: 30px; min-height: 34px; border: none; border-left: 1px solid var(--upp-divider);
+      width: 30px; min-height: 34px; padding-right: 4px; border: none;
       background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .upp-chip-circle {
-      width: 16px; height: 16px; border-radius: 999px; border: 1.5px solid var(--upp-tx3);
-      display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: transparent;
+      width: 18px; height: 18px; border-radius: 999px; border: 1.5px solid var(--upp-chip-border);
+      background: rgba(127, 136, 154, 0.06);
+      display: inline-flex; align-items: center; justify-content: center; color: transparent;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.10s ease;
     }
+    .upp-chip-circle svg { opacity: 0; transform: scale(0.65); transition: opacity 0.12s ease, transform 0.12s var(--upp-ease); }
+    .upp-chip-check:hover .upp-chip-circle { border-color: var(--upp-accent-border); }
     .upp-chip-wrap.is-selected .upp-chip-circle { border-color: var(--upp-accent); background: var(--upp-accent); color: #ffffff; }
+    .upp-chip-wrap.is-selected .upp-chip-circle svg { opacity: 1; transform: scale(1); }
     .upp-chip-wrap.is-conflict .upp-chip-circle { border-color: #d9822b; background: #d9822b; color: #ffffff; }
 
     /* Structured Profile Form */
@@ -1274,7 +1282,7 @@
 
     @media (max-width: 640px) {
       .upp-backdrop { padding: 0; align-items: flex-end; }
-      .upp-modal { max-width: 100%; max-height: 90dvh; border-radius: 24px 24px 0 0; border-left: none; border-right: none; border-bottom: none; animation: upp-sheet-up 0.24s var(--upp-ease); }
+      .upp-modal { width: 100%; height: 84dvh; border-radius: 24px 24px 0 0; border-left: none; border-right: none; border-bottom: none; animation: upp-sheet-up 0.18s var(--upp-ease); }
       .upp-grab { display: block; }
       .upp-head { padding: 10px 16px 8px; }
       .upp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
@@ -1307,7 +1315,7 @@
         <div class="upp-inspector" hidden></div>
         <div class="upp-foot">
           <div class="upp-action-left">
-            <button type="button" class="upp-btn" data-act="clear">清空</button>
+            <button type="button" class="upp-btn" data-act="clear">取消全选</button>
             <button type="button" class="upp-btn" data-act="quick-copy">复制文本</button>
           </div>
           <div class="upp-action-right">
@@ -1328,6 +1336,7 @@
   const elConflicts = $('.upp-conflicts');
   const elInspector = $('.upp-inspector');
   const elTotal = $('.upp-total');
+  const elClearBtn = $('[data-act="clear"]');
   const elApplyBtn = $('[data-act="open-apply"]');
   const elFoot = $('.upp-foot');
 
@@ -1408,6 +1417,8 @@
     return set;
   }
 
+  const CHECK_SVG = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 6.2 4.8 8.8 9.8 3.4"/></svg>';
+
   function renderChip(book, title, label, conflictKeySet) {
     const k = itemKey(book, title);
     const isSel = state.selected.has(k);
@@ -1416,12 +1427,56 @@
     return '<span class="upp-chip-wrap' +
       (isSel ? ' is-selected' : '') +
       (isConflict ? ' is-conflict' : '') +
-      (isIns ? ' is-inspected' : '') + '">' +
+      (isIns ? ' is-inspected' : '') + '" data-chip-book="' + esc(book) + '" data-chip-title="' + esc(title) + '">' +
       '<button type="button" class="upp-chip-read" data-read-book="' + esc(book) + '" data-read-title="' + esc(title) + '" title="点击查看正文">' + esc(label) + '</button>' +
       '<button type="button" class="upp-chip-check" data-toggle-book="' + esc(book) + '" data-toggle-title="' + esc(title) + '" title="' + (isSel ? '取消勾选' : '勾选') + '" aria-label="' + (isSel ? '取消勾选' : '勾选') + '">' +
-        '<span class="upp-chip-circle">' + (isSel ? '✓' : '') + '</span>' +
+        '<span class="upp-chip-circle">' + CHECK_SVG + '</span>' +
       '</button>' +
     '</span>';
+  }
+
+  // Fast surgical DOM updates (avoids rebuilding 100+ DOM nodes on every click!)
+  function syncInspectedInPlace() {
+    elBody.querySelectorAll('.upp-chip-wrap.is-inspected').forEach(el => el.classList.remove('is-inspected'));
+    if (!state.inspected) return;
+    elBody.querySelectorAll('.upp-chip-wrap').forEach(el => {
+      if (el.dataset.chipBook === state.inspected.book && el.dataset.chipTitle === state.inspected.title) {
+        el.classList.add('is-inspected');
+      }
+    });
+  }
+
+  function syncChipStatesInPlace() {
+    const conflictSet = getConflictKeySet();
+    elBody.querySelectorAll('.upp-chip-wrap').forEach(el => {
+      const b = el.dataset.chipBook;
+      const t = el.dataset.chipTitle;
+      const k = itemKey(b, t);
+      const isSel = state.selected.has(k);
+      const isConflict = isSel && conflictSet.has(k);
+      const isIns = Boolean(state.inspected && state.inspected.book === b && state.inspected.title === t);
+      el.classList.toggle('is-selected', isSel);
+      el.classList.toggle('is-conflict', isConflict);
+      el.classList.toggle('is-inspected', isIns);
+      const chk = el.querySelector('.upp-chip-check');
+      if (chk) {
+        chk.title = isSel ? '取消勾选' : '勾选';
+        chk.setAttribute('aria-label', chk.title);
+      }
+    });
+    // Refresh category pill counts in place without rebuilding search inputs
+    if (state.tab === 'lib') {
+      elToolbar.querySelectorAll('.upp-cat-pill').forEach(pill => {
+        const c = pill.dataset.cat;
+        if (!c || c === '__profile__') return;
+        if (c === '__selected__') { pill.textContent = '已选 ' + state.selected.size; return; }
+        let sel = 0;
+        for (const it of getEntriesForCategory(state.store, c)) {
+          if (state.selected.has(itemKey(LIB_BOOK, it.title))) sel++;
+        }
+        pill.textContent = sel > 0 ? (c + ' ' + sel) : c;
+      });
+    }
   }
 
   function renderTabs() {
@@ -1445,7 +1500,7 @@
       const allCats = getAllCategories(state.store);
       const profFilled = hasProfileData(state.store.profile);
       const catPills = [
-        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__profile__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__profile__">基础资料' + (profFilled ? ' · ✓' : '') + '</button>',
+        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__profile__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__profile__">基础资料' + (profFilled ? ' · 已填' : '') + '</button>',
         '<button type="button" class="upp-cat-pill' + (state.activeCat === '__selected__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__selected__">已选 ' + state.selected.size + '</button>',
       ];
       for (const cat of allCats) {
@@ -1546,6 +1601,7 @@
     elFoot.style.display = state.subView === 'apply' ? 'none' : '';
     const total = state.selected.size + (hasProfileData(state.store.profile) ? 1 : 0);
     elTotal.textContent = '已选 ' + total;
+    elClearBtn.disabled = state.selected.size === 0;
     elApplyBtn.disabled = state.loading || state.saving;
   }
 
@@ -1622,7 +1678,10 @@
       if (items.length) {
         parts.push(
           '<section class="upp-group">' +
-            '<div class="upp-group-head"><span class="upp-group-title">已勾选条目<span class="upp-group-badge">' + items.length + '</span></span></div>' +
+            '<div class="upp-group-head">' +
+              '<span class="upp-group-title">已勾选条目<span class="upp-group-badge">' + items.length + '</span></span>' +
+              '<button type="button" class="upp-mini-btn is-danger" data-act="clear">取消全选</button>' +
+            '</div>' +
             '<div class="upp-chips">' + items.map(it => renderChip(it.book, it.title, it.title, conflictSet)).join('') + '</div>' +
           '</section>'
         );
@@ -2120,7 +2179,13 @@
     const act = btn.dataset.act;
     if (act === 'close') { closeModal(); return; }
     if (act === 'close-sub') { state.subView = ''; renderAll(); return; }
-    if (act === 'clear') { state.selected = new Set(); renderAll(); return; }
+    if (act === 'clear') {
+      if (state.selected.size === 0) return;
+      state.selected = new Set();
+      renderAll();
+      notify('已取消全部勾选', 'info');
+      return;
+    }
     if (act === 'clear-profile') { state.store.profile = createEmptyProfile(); saveStore(state.store); renderAll(); return; }
     if (act === 'show-all-chars') { state.showAllChars = true; renderBody(); return; }
     if (act === 'open-apply') { void openApplyView(); return; }
@@ -2342,14 +2407,14 @@
       return;
     }
 
-    if (btn.dataset.inspectClose) { state.inspected = null; renderInspector(); renderBody(); return; }
+    if (btn.dataset.inspectClose) { state.inspected = null; renderInspector(); syncInspectedInPlace(); return; }
     if (btn.dataset.inspectToggle && state.inspected) {
       const k = itemKey(state.inspected.book, state.inspected.title);
       if (state.selected.has(k)) state.selected.delete(k);
       else state.selected.add(k);
       renderTabs();
-      renderToolbar();
-      renderBody();
+      if (state.tab === 'lib' && state.activeCat === '__selected__') renderBody();
+      else syncChipStatesInPlace();
       renderConflicts();
       renderInspector();
       renderFooter();
@@ -2373,10 +2438,10 @@
       return;
     }
 
-    // Separate READ click vs CHECK toggle!
+    // Separate READ click vs CHECK toggle (zero full-body DOM rebuild!)
     if (btn.dataset.readBook && btn.dataset.readTitle) {
       state.inspected = { book: btn.dataset.readBook, title: btn.dataset.readTitle };
-      renderBody();
+      syncInspectedInPlace();
       renderInspector();
       return;
     }
@@ -2389,8 +2454,12 @@
       else state.selected.add(k);
       state.inspected = { book, title };
       renderTabs();
-      renderToolbar();
-      renderBody();
+      if (state.tab === 'lib' && state.activeCat === '__selected__') {
+        renderToolbar();
+        renderBody();
+      } else {
+        syncChipStatesInPlace();
+      }
       renderConflicts();
       renderInspector();
       renderFooter();
@@ -2401,7 +2470,7 @@
     if (!state.open || ev.key !== 'Escape') return;
     ev.stopPropagation();
     if (state.subView) { state.subView = ''; renderAll(); }
-    else if (state.inspected) { state.inspected = null; renderInspector(); renderBody(); }
+    else if (state.inspected) { state.inspected = null; renderInspector(); syncInspectedInPlace(); }
     else closeModal();
   });
 
@@ -2438,20 +2507,21 @@
     return menuEntry.isConnected;
   }
 
-  let menuSyncTimer = null;
-  if (typeof Env.pwin.MutationObserver === 'function') {
-    const observer = new Env.pwin.MutationObserver(() => {
-      if (dead || menuSyncTimer) return;
-      if (menuEntry.isConnected && menuEntry.parentElement?.id === 'extensionsMenu') return;
-      menuSyncTimer = later(() => { menuSyncTimer = null; mountExtensionMenu(); }, 120);
-    });
-    observer.observe(Env.pdoc.documentElement, { childList: true, subtree: true });
-    cleanup.push(() => observer.disconnect());
-  }
-
+  // Lightweight mount without expensive document-wide subtree MutationObserver
   const eventOnFn = getFn('eventOn');
   const getBtnEvtFn = getFn('getButtonEvent');
   const tavernEvents = getApi('tavern_events')?.value;
+
+  if (eventOnFn && tavernEvents?.APP_READY) {
+    try { const s = eventOnFn(tavernEvents.APP_READY, () => mountExtensionMenu()); if (s?.stop) cleanup.push(() => s.stop()); } catch (_) {}
+  }
+  if (eventOnFn && tavernEvents?.EXTENSIONS_FIRST_LOAD) {
+    try { const s = eventOnFn(tavernEvents.EXTENSIONS_FIRST_LOAD, () => mountExtensionMenu()); if (s?.stop) cleanup.push(() => s.stop()); } catch (_) {}
+  }
+  if (!mountExtensionMenu()) {
+    later(() => mountExtensionMenu(), 800);
+    later(() => mountExtensionMenu(), 2500);
+  }
 
   if (eventOnFn && getBtnEvtFn) {
     try {
