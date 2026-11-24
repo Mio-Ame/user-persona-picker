@@ -1,7 +1,7 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '6.0.0';
+  const APP_VERSION = '6.1.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
@@ -15,11 +15,6 @@
 
   function uid(prefix) {
     return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-  }
-
-  function clone(obj) {
-    if (obj === null || obj === undefined) return obj;
-    try { return JSON.parse(JSON.stringify(obj)); } catch (_) { return obj; }
   }
 
   function normalizeText(str) {
@@ -153,6 +148,7 @@
               ? {
                   name: String(prRaw.name || ''),
                   prompts: sanitizeBoolMap(prRaw.prompts),
+                  groups: sanitizeBoolMap(prRaw.groups),
                 }
               : null,
             regex: rgRaw
@@ -208,12 +204,103 @@
     throw new Error('不是本插件导出的快照备份文件');
   }
 
+  // BaiBai Tools presetPromptGroups parser & layout builder
+  function extractPresetGroups(preset) {
+    const ppg = preset && preset.extensions && preset.extensions.baibaiToolkit
+      ? preset.extensions.baibaiToolkit.presetPromptGroups
+      : null;
+    if (!ppg || typeof ppg !== 'object') {
+      return { groups: [], groupsById: {}, promptGroupMap: {} };
+    }
+    const rawGroups = Array.isArray(ppg.groups) ? ppg.groups : [];
+    const groups = rawGroups
+      .filter(g => g && typeof g === 'object' && g.id != null && String(g.id).trim())
+      .map((g, idx) => ({
+        id: String(g.id),
+        name: String(g.name || '未命名分组'),
+        order: typeof g.order === 'number' ? g.order : idx,
+        collapsed: g.collapsed === true,
+        enabled: g.enabled !== false,
+      }));
+    const groupsById = {};
+    groups.forEach(g => { groupsById[g.id] = g; });
+
+    const promptGroupMap = {};
+    const rawPrompts = sanitizePlainMap(ppg.prompts);
+    Object.keys(rawPrompts).forEach(pid => {
+      const meta = rawPrompts[pid];
+      const gid = meta && meta.groupId != null ? String(meta.groupId) : '';
+      if (gid && groupsById[gid]) {
+        promptGroupMap[pid] = gid;
+      }
+    });
+
+    return { groups, groupsById, promptGroupMap };
+  }
+
+  // Render each BaiBai group once at its first member's real position; ungrouped prompts stay inline
+  function buildPresetRenderNodes(preset, opts) {
+    const prompts = preset && Array.isArray(preset.prompts) ? preset.prompts : [];
+    const { groups, groupsById, promptGroupMap } = extractPresetGroups(preset);
+    const q = normalizeText(opts?.search || '');
+    const onlyOn = !!opts?.onlyOn;
+
+    // Collect members per group in real prompt order
+    const membersByGroup = {};
+    groups.forEach(g => { membersByGroup[g.id] = []; });
+    prompts.forEach(p => {
+      if (!p || !p.id) return;
+      const gid = promptGroupMap[p.id];
+      if (gid && membersByGroup[gid]) membersByGroup[gid].push(p);
+    });
+
+    const matchesPrompt = p => {
+      if (onlyOn && !p.enabled) return false;
+      if (!q) return true;
+      return normalizeText((p.name || '') + ' ' + (p.content || '') + ' ' + (p.id || '')).includes(q);
+    };
+
+    const emittedGroups = new Set();
+    const nodes = [];
+
+    prompts.forEach(p => {
+      if (!p || !p.id) return;
+      const gid = promptGroupMap[p.id];
+      if (gid && groupsById[gid]) {
+        if (emittedGroups.has(gid)) return;
+        emittedGroups.add(gid);
+        const grp = groupsById[gid];
+        const allMembers = membersByGroup[gid] || [];
+        const groupNameMatched = !!q && normalizeText(grp.name).includes(q);
+        let shownMembers = allMembers.filter(m => {
+          if (onlyOn && (!grp.enabled || !m.enabled)) return false;
+          if (!q || groupNameMatched) return true;
+          return normalizeText((m.name || '') + ' ' + (m.content || '') + ' ' + (m.id || '')).includes(q);
+        });
+        if (!shownMembers.length) return;
+        const enabledCount = allMembers.filter(m => m.enabled).length;
+        nodes.push({
+          type: 'group',
+          group: grp,
+          items: shownMembers,
+          totalCount: allMembers.length,
+          enabledCount,
+          forceExpand: !!q || onlyOn,
+        });
+      } else {
+        if (!matchesPrompt(p)) return;
+        nodes.push({ type: 'prompt', prompt: p });
+      }
+    });
+
+    return { nodes, hasGroups: groups.length > 0, groups };
+  }
+
   // XML / Wrapper tag hygiene inspector (never mutates user content)
   const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']);
 
   function analyzeEntryTags(content) {
     const raw = String(content || '');
-    // Strip EJS blocks and HTML comments before tag check
     const cleaned = raw.replace(/<%[\s\S]*?%>/g, '').replace(/<!--[\s\S]*?-->/g, '');
     const re = /<\s*(\/?)\s*([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+[^<>]*)?(\/?)\s*>/g;
     const stack = [];
@@ -292,13 +379,11 @@
     return { byUid, duplicateTags, unclosedCount };
   }
 
-  // LCS line diff for Persona description version comparison
   function computeLineDiff(beforeText, afterText) {
     const a = String(beforeText || '').replace(/\r\n/g, '\n').split('\n');
     const b = String(afterText || '').replace(/\r\n/g, '\n').split('\n');
     if (a.length === 1 && a[0] === '' && b.length === 1 && b[0] === '') return [];
 
-    // Cap DP matrix for extremely long texts to stay instant
     if (a.length * b.length > 160000) {
       const out = [];
       const maxLen = Math.max(a.length, b.length);
@@ -344,15 +429,11 @@
     return out;
   }
 
-  // Extract base name to help merge proliferated personas like "名字1", "名字2", "名字_现代版", "名字（古风）"
   function extractPersonaBaseName(name) {
     let s = String(name || '').trim();
     if (!s) return '';
-    // Remove bracketed suffixes e.g. (现代版) （古风） [AU] 【测试】
     s = s.replace(/\s*[\(（\[【][^\)）\]】]{1,20}[\)）\]】]\s*$/g, '');
-    // Remove separator + version/edition suffix e.g. _v2, -现代版, ·日常, 空格+2
     s = s.replace(/[\s_\-·・/]+(v?\d+|第?\d+版|[\u4e00-\u9fa5a-zA-Z0-9]{1,8}版|au|日常|现代|古风|校园|战损|黑化|备份|测试)$/i, '');
-    // Remove trailing digits or "版"
     s = s.replace(/\d+$/g, '').trim();
     return s || String(name || '').trim();
   }
@@ -411,6 +492,8 @@
     sanitizeStore,
     exportStoreJson,
     parseImportJson,
+    extractPresetGroups,
+    buildPresetRenderNodes,
     analyzeEntryTags,
     inspectTagHygiene,
     computeLineDiff,
@@ -427,7 +510,6 @@
     globalThis.__USER_PERSONA_PICKER_CORE__ = Core;
   }
 
-  // Stop here in non-DOM test runtimes
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return;
   }
@@ -523,7 +605,6 @@
     return '';
   }
 
-  // Dual persistence: localStorage + ST global variables
   function loadStoreSync() {
     let fromGlobal = null;
     try {
@@ -542,7 +623,6 @@
       if (raw) fromLocal = JSON.parse(raw);
     } catch (_) {}
 
-    // Pick whichever has more recent data or prefer global ST variable when present
     if (fromGlobal && fromLocal) {
       const gCount = (fromGlobal.snapshots?.length || 0) + Object.keys(fromGlobal.personaVersions || {}).length;
       const lCount = (fromLocal.snapshots?.length || 0) + Object.keys(fromLocal.personaVersions || {}).length;
@@ -575,7 +655,6 @@
     return clean;
   }
 
-  // Host Adapters
   const Host = {
     listPersonas() {
       const getIds = getFn('getPersonaIds');
@@ -607,7 +686,6 @@
       const getCurId = getFn('getCurrentPersonaId');
       if (getCurId && getCurId() === avatarId) return true;
 
-      // Method 1: click native persona avatar card by exact avatar_id (handles duplicate names safely)
       try {
         const escaped = String(avatarId || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         const el = Env.pdoc.querySelector(`#user_avatar_block .avatar-container[data-avatar-id="${escaped}"]`);
@@ -618,7 +696,6 @@
         }
       } catch (_) {}
 
-      // Method 2: ST native /persona slash command by unique name
       try {
         const slash = getFn('triggerSlash');
         if (slash && name) {
@@ -778,17 +855,33 @@
         return preset;
       }, { render: 'debounced' });
     },
-    async batchTogglePresetPrompts(promptMap) {
+    async togglePresetGroup(groupId, enabled) {
+      const fn = getFn('updatePresetWith');
+      if (!fn) throw new Error('不支持 updatePresetWith');
+      await fn('in_use', preset => {
+        const groups = preset.extensions?.baibaiToolkit?.presetPromptGroups?.groups;
+        if (Array.isArray(groups)) {
+          groups.forEach(g => {
+            if (String(g.id) === String(groupId)) g.enabled = !!enabled;
+          });
+        }
+        return preset;
+      }, { render: 'immediate' });
+    },
+    async batchTogglePresetStates(promptMap, groupMap) {
       const fn = getFn('updatePresetWith');
       if (!fn) throw new Error('不支持 updatePresetWith');
       let changed = 0;
       let skipped = 0;
-      const wantedKeys = Object.keys(promptMap || {});
-      const matched = new Set();
+      const wantedPrompts = Object.keys(promptMap || {});
+      const matchedPrompts = new Set();
+      const wantedGroups = Object.keys(groupMap || {});
+      const matchedGroups = new Set();
+
       await fn('in_use', preset => {
         (preset.prompts || []).forEach(p => {
-          if (Object.prototype.hasOwnProperty.call(promptMap, p.id)) {
-            matched.add(p.id);
+          if (Object.prototype.hasOwnProperty.call(promptMap || {}, p.id)) {
+            matchedPrompts.add(p.id);
             const target = !!promptMap[p.id];
             if (p.enabled !== target) {
               p.enabled = target;
@@ -796,9 +889,25 @@
             }
           }
         });
+        const groups = preset.extensions?.baibaiToolkit?.presetPromptGroups?.groups;
+        if (Array.isArray(groups) && wantedGroups.length) {
+          groups.forEach(g => {
+            const gid = String(g.id);
+            if (Object.prototype.hasOwnProperty.call(groupMap, gid)) {
+              matchedGroups.add(gid);
+              const target = !!groupMap[gid];
+              if ((g.enabled !== false) !== target) {
+                g.enabled = target;
+                changed++;
+              }
+            }
+          });
+        }
         return preset;
       }, { render: 'immediate' });
-      wantedKeys.forEach(k => { if (!matched.has(k)) skipped++; });
+
+      wantedPrompts.forEach(k => { if (!matchedPrompts.has(k)) skipped++; });
+      wantedGroups.forEach(k => { if (!matchedGroups.has(k)) skipped++; });
       return { changed, skipped };
     },
     async updatePresetPrompt(promptId, name, content) {
@@ -937,8 +1046,7 @@
     const desc = String(persona.description || '');
     if (!desc.trim()) return;
     const list = store.personaVersions[persona.avatar_id] || [];
-    const exists = list.some(v => v.description === desc);
-    if (exists) return;
+    if (list.some(v => v.description === desc)) return;
     const backupName = '切换前备份';
     const next = list.filter(v => v.name !== backupName);
     next.unshift({
@@ -1014,7 +1122,10 @@
       if (preset && Array.isArray(preset.prompts)) {
         const map = {};
         preset.prompts.forEach(p => { map[p.id] = !!p.enabled; });
-        snap.preset = { name: pName, prompts: map };
+        const grpMap = {};
+        const { groups } = extractPresetGroups(preset);
+        groups.forEach(g => { grpMap[g.id] = g.enabled !== false; });
+        snap.preset = { name: pName, prompts: map, groups: grpMap };
       } else {
         snap.scope.preset = false;
       }
@@ -1043,14 +1154,12 @@
     let totalSkipped = 0;
 
     try {
-      // 1. Persona (single Persona per name, update description in place)
       if (snap.scope.persona && snap.persona && snap.persona.avatarId) {
         const personas = Host.listPersonas();
         const target = personas.find(p => p.avatar_id === snap.persona.avatarId)
           || personas.find(p => p.name === snap.persona.name);
         if (target) {
           await Host.switchPersona(target.avatar_id, target.name);
-          // Resolve latest text if linked to an internal version, else fallback snapshot text
           let desc = snap.persona.description;
           let lorebook = snap.persona.lorebook;
           if (snap.persona.versionId) {
@@ -1071,7 +1180,6 @@
         }
       }
 
-      // 2. Worldbooks (bindings + entry enabled flags ONLY, never overwrite content!)
       if (snap.scope.worldbooks && snap.worldbooks) {
         const allBooks = new Set(Host.listWorldbooks());
         if (Array.isArray(snap.worldbooks.global)) {
@@ -1103,7 +1211,6 @@
         }
       }
 
-      // 3. Preset (load preset + toggle prompt enabled flags ONLY, never overwrite content!)
       if (snap.scope.preset && snap.preset) {
         const allPresets = Host.listPresets();
         if (snap.preset.name && allPresets.includes(snap.preset.name)) {
@@ -1111,14 +1218,13 @@
             Host.loadPreset(snap.preset.name);
             await new Promise(r => Env.pwin.setTimeout(r, 120));
           }
-          const res = await Host.batchTogglePresetPrompts(snap.preset.prompts || {});
+          const res = await Host.batchTogglePresetStates(snap.preset.prompts || {}, snap.preset.groups || {});
           totalSkipped += res.skipped;
         } else if (snap.preset.name) {
           totalSkipped++;
         }
       }
 
-      // 4. Regex (toggle enabled flags ONLY, never overwrite regex patterns!)
       if (snap.scope.regex && snap.regex) {
         for (const sc of ['global', 'character', 'preset']) {
           if (sc === 'character' && !readCurrentCharInfo().name) continue;
@@ -1160,11 +1266,11 @@
     trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
     chevron: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
     warn: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-    check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    camera: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   };
 
   // =========================
-  // Styles (Liquid Glass, Fixed Height, Zero Flicker)
+  // Styles (Liquid Glass, Fixed Height, Persistent Footer Flow)
   // =========================
 
   const STYLE_CSS = `
@@ -1179,7 +1285,7 @@
 [hidden] { display: none !important; }
 
 .upp-backdrop {
-  --bg: rgba(247, 249, 253, 0.94);
+  --bg: rgba(247, 249, 253, 0.95);
   --surface: rgba(255, 255, 255, 0.78);
   --surface-strong: rgba(255, 255, 255, 0.96);
   --surface-hover: rgba(58, 123, 213, 0.08);
@@ -1211,7 +1317,7 @@
 }
 
 .upp-backdrop[data-theme="dark"] {
-  --bg: rgba(24, 28, 37, 0.95);
+  --bg: rgba(24, 28, 37, 0.96);
   --surface: rgba(36, 42, 56, 0.78);
   --surface-strong: rgba(42, 49, 64, 0.96);
   --surface-hover: rgba(104, 160, 245, 0.13);
@@ -1255,7 +1361,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 16px 10px;
+  padding: 11px 16px 9px;
   border-bottom: 1px solid var(--border);
 }
 .upp-title-wrap {
@@ -1288,16 +1394,19 @@
   gap: 6px;
 }
 
-/* Nav Tabs */
+/* 5 Single-Purpose Nav Tabs */
 .upp-tabs {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 5px;
+  padding: 7px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.upp-tabs::-webkit-scrollbar { display: none; }
 .upp-tab {
   height: 30px;
   padding: 0 12px;
@@ -1310,19 +1419,20 @@
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
 .upp-tab:hover { color: var(--text); background: var(--surface-hover); }
 .upp-tab.active {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(58, 123, 213, 0.25);
+  border-color: rgba(58, 123, 213, 0.28);
 }
 .upp-tab-count {
   font-size: 11px;
-  opacity: 0.8;
+  opacity: 0.78;
 }
 
 /* Pinned Toolbar */
@@ -1391,7 +1501,7 @@
 .upp-select {
   padding: 0 24px 0 9px;
   cursor: pointer;
-  max-width: 240px;
+  max-width: 220px;
   outline: none;
 }
 .upp-select:focus { border-color: var(--accent); }
@@ -1416,7 +1526,7 @@
 }
 .upp-input-wrap input::placeholder { color: var(--muted); }
 
-/* Toggle Switch (iOS crisp) */
+/* Toggle Switch */
 .upp-switch {
   position: relative;
   width: 34px;
@@ -1467,7 +1577,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 16px 16px;
+  padding: 12px 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1481,6 +1591,43 @@
 .upp-pop-list::-webkit-scrollbar-thumb {
   background: rgba(120, 132, 154, 0.35);
   border-radius: 999px;
+}
+
+/* Persistent Workflow Footer (Always visible on every tab!) */
+.upp-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.upp-foot-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upp-foot-status strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.upp-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.upp-foot-actions .upp-btn {
+  height: 32px;
+  padding: 0 12px;
 }
 
 /* Pill Chips */
@@ -1516,7 +1663,7 @@
   font-weight: 550;
 }
 
-/* Cards & Xiaotian-style Entry Rows */
+/* Cards & Entry Rows */
 .upp-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1564,6 +1711,63 @@
 .upp-badge.ok { color: var(--ok); background: var(--ok-soft); border-color: rgba(29, 154, 108, 0.28); }
 .upp-badge.warn { color: var(--warn); background: var(--warn-soft); border-color: rgba(199, 119, 22, 0.3); }
 
+/* BaiBai Collapsible Preset Group Block */
+.upp-group-box {
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.upp-group-box.is-disabled {
+  opacity: 0.72;
+}
+.upp-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  background: var(--surface-strong);
+}
+.upp-group-toggle-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.upp-group-chev {
+  display: inline-flex;
+  color: var(--muted);
+  transition: transform 0.14s ease;
+  flex-shrink: 0;
+}
+.upp-group-box.is-collapsed .upp-group-chev {
+  transform: rotate(-90deg);
+}
+.upp-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upp-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid var(--border);
+}
+.upp-group-box.is-collapsed .upp-group-items {
+  display: none;
+}
+
 .upp-entry-list {
   display: flex;
   flex-direction: column;
@@ -1574,7 +1778,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 11px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
   transition: background 0.12s, border-color 0.12s;
@@ -1647,33 +1851,25 @@
   white-space: nowrap;
 }
 
-/* Persona Bar */
-.upp-persona-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.upp-persona-preview {
-  font-size: 12px;
-  color: var(--muted);
+/* User Tab Preview */
+.upp-persona-live-box {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
   background: var(--surface-strong);
   border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 7px 10px;
-  max-height: 54px;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  border-radius: 10px;
+  padding: 10px 12px;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
   cursor: pointer;
 }
-.upp-persona-preview:hover { border-color: var(--border-strong); color: var(--text); }
+.upp-persona-live-box:hover { border-color: var(--accent); }
+.upp-persona-live-box.is-empty { color: var(--muted); }
 
-/* Book Selector Popover */
+/* Book Selector */
 .upp-book-trigger {
   flex: 1;
   min-width: 140px;
@@ -1705,9 +1901,13 @@
   color: var(--muted);
   padding: 36px 16px;
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
-/* Sub-Drawer / Overlay inside Modal */
+/* Sub-Drawer Overlay */
 .upp-drawer-mask {
   position: absolute;
   inset: 0;
@@ -1878,7 +2078,8 @@
   .upp-tabs { padding: 7px 12px; gap: 4px; }
   .upp-tab { padding: 0 9px; font-size: 12px; }
   .upp-toolbar { padding: 8px 12px; }
-  .upp-body { padding: 10px 12px 14px; }
+  .upp-body { padding: 10px 12px 12px; }
+  .upp-footer { padding: 9px 12px; }
   .upp-check-grid { grid-template-columns: 1fr; }
 }
 `;
@@ -1889,42 +2090,39 @@
 
   const state = {
     open: false,
-    tab: 'snapshots', // snapshots | assembly | preset | regex
+    tab: 'snapshots', // snapshots | user | worldbook | preset | regex
     store: loadStoreSync(),
     charInfo: { id: '', name: '' },
     chatId: '',
 
-    // Snapshots tab
     snapGroup: '',
     snapSearch: '',
 
-    // Assembly tab (User + Worldbooks)
     personas: [],
     currentPersona: null,
+
     worldbooks: [],
     globalWorldbooks: [],
     charWorldbooks: { primary: null, additional: [] },
     chatWorldbook: null,
     activeBook: '',
-    bookEntriesCache: {}, // bookName -> WorldbookEntry[]
+    bookEntriesCache: {},
     wbEntrySearch: '',
     wbOnlyOn: false,
 
-    // Preset tab
     presets: [],
     loadedPresetName: '',
     inUsePreset: null,
     presetSearch: '',
     presetOnlyOn: false,
+    presetFoldState: {}, // `${presetName}::${groupId}` -> boolean (true = collapsed)
 
-    // Regex tab
-    regexScope: 'global', // global | character | preset
+    regexScope: 'global',
     regexList: [],
     regexSearch: '',
     regexOnlyOn: false,
 
-    // Drawer overlay
-    drawer: null, // { type, ... }
+    drawer: null,
   };
 
   const host = Env.pdoc.createElement('div');
@@ -1946,6 +2144,7 @@
     <div class="upp-tabs" id="upp-tabs"></div>
     <div class="upp-toolbar" id="upp-toolbar"></div>
     <div class="upp-body" id="upp-body"></div>
+    <div class="upp-footer" id="upp-footer"></div>
     <div class="upp-drawer-mask" id="upp-drawer-mask" hidden></div>
   </div>
 </div>`;
@@ -1955,6 +2154,7 @@
   const elTabs = shadow.getElementById('upp-tabs');
   const elToolbar = shadow.getElementById('upp-toolbar');
   const elBody = shadow.getElementById('upp-body');
+  const elFooter = shadow.getElementById('upp-footer');
   const elDrawerMask = shadow.getElementById('upp-drawer-mask');
 
   // =========================
@@ -1987,7 +2187,7 @@
       const preferred = getDefaultSnapshotBooks(state.store).find(b => state.worldbooks.includes(b));
       state.activeBook = preferred || state.worldbooks[0] || '';
     }
-    if (state.activeBook && (state.tab === 'assembly' || forceBookReload)) {
+    if (state.activeBook && (state.tab === 'worldbook' || forceBookReload)) {
       await ensureBookEntries(state.activeBook, !!forceBookReload);
     }
 
@@ -2017,7 +2217,8 @@
     const snapCount = state.store.snapshots.length;
     const tabs = [
       { id: 'snapshots', label: '快照', count: snapCount || '' },
-      { id: 'assembly', label: 'User 与世界书', count: '' },
+      { id: 'user', label: 'User', count: '' },
+      { id: 'worldbook', label: '世界书', count: '' },
       { id: 'preset', label: '预设', count: '' },
       { id: 'regex', label: '正则', count: '' },
     ];
@@ -2029,12 +2230,33 @@
     `).join('');
   }
 
+  function renderFooter() {
+    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
+    const boundSnap = bound ? state.store.snapshots.find(s => s.id === bound.snapshotId) : null;
+    const parts = [];
+    if (state.currentPersona?.name) parts.push(`User: ${state.currentPersona.name}`);
+    if (state.loadedPresetName) parts.push(`预设: ${state.loadedPresetName}`);
+
+    const statusHtml = boundSnap
+      ? `<span>已绑定 <strong>${escapeHtml(boundSnap.name)}</strong></span>`
+      : `<span>${escapeHtml(parts.join(' · ') || '组装完成后可随时保存为快照')}</span>`;
+
+    elFooter.innerHTML = `
+      <div class="upp-foot-status">${statusHtml}</div>
+      <div class="upp-foot-actions">
+        ${boundSnap ? `<button class="upp-btn" id="upp-foot-update-btn" data-snap-update="${boundSnap.id}">更新当前快照</button>` : ''}
+        <button class="upp-btn primary" id="upp-foot-save-snap-btn">${ICONS.camera}<span>保存快照</span></button>
+      </div>
+    `;
+  }
+
+  // --- Tab 1: Snapshots ---
   function renderSnapshotsToolbar() {
     const snaps = state.store.snapshots;
     const groups = Array.from(new Set(snaps.map(s => s.group).filter(Boolean)));
     if (state.snapGroup && !groups.includes(state.snapGroup)) state.snapGroup = '';
-
     const autoOn = !!state.store.settings.autoApplyBindings;
+
     elToolbar.innerHTML = `
       <div class="upp-row">
         <div class="upp-input-wrap">
@@ -2045,8 +2267,7 @@
           <span>自动切换</span>
           <button type="button" class="upp-switch" id="upp-auto-bind-sw" role="switch" aria-checked="${autoOn}"></button>
         </label>
-        <button class="upp-btn icon-only" id="upp-backup-btn" title="备份与导入">${ICONS.backup}</button>
-        <button class="upp-btn primary" id="upp-new-snap-btn">${ICONS.plus}<span>保存快照</span></button>
+        <button class="upp-btn" id="upp-backup-btn">${ICONS.backup}<span>备份</span></button>
       </div>
       ${groups.length ? `
         <div class="upp-pill-strip">
@@ -2084,7 +2305,12 @@
     }
 
     if (!filtered.length) {
-      html += `<div class="upp-empty">${snaps.length ? '没有匹配的快照' : '还没有保存快照，先在右侧点「保存快照」记录当前状态'}</div>`;
+      html += `
+        <div class="upp-empty">
+          <span>${snaps.length ? '没有匹配的快照' : '先在上方各页调好 User、世界书、预设与正则，再点右下角「保存快照」'}</span>
+          ${!snaps.length ? `<button class="upp-btn primary" data-open-save-snap>${ICONS.camera}<span>保存当前状态为第一份快照</span></button>` : ''}
+        </div>
+      `;
       elBody.innerHTML = html;
       return;
     }
@@ -2136,12 +2362,84 @@
     elBody.innerHTML = html;
   }
 
-  function renderSnapshotsTab() {
-    renderSnapshotsToolbar();
-    renderSnapshotsBody();
+  // --- Tab 2: User (Dedicated, Zero Proliferation) ---
+  function renderUserToolbar() {
+    const curP = state.currentPersona;
+    const pVersions = curP ? (state.store.personaVersions[curP.avatar_id] || []) : [];
+    const dupGroups = detectProliferatedPersonas(state.personas);
+    const personaOptions = state.personas.map(p =>
+      `<option value="${escapeHtml(p.avatar_id)}" ${curP && p.avatar_id === curP.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
+
+    elToolbar.innerHTML = `
+      <div class="upp-row">
+        <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
+        <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
+        <button class="upp-btn" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
+        <button class="upp-btn" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
+        <div class="upp-spacer"></div>
+        <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或旧分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
+      </div>
+    `;
   }
 
-  function renderAssemblyToolbar() {
+  function renderUserBody() {
+    const curP = state.currentPersona;
+    if (!curP) {
+      elBody.innerHTML = `<div class="upp-empty">未读取到当前 User 人设</div>`;
+      return;
+    }
+
+    const pVersions = state.store.personaVersions[curP.avatar_id] || [];
+    const matchedVer = findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description);
+    const liveDesc = String(curP.description || '');
+
+    let html = `
+      <div class="upp-card">
+        <div class="upp-card-head">
+          <div class="upp-row-nowrap">
+            <span class="upp-card-title">${escapeHtml(curP.name)}</span>
+            ${matchedVer ? `<span class="upp-badge accent">${escapeHtml(matchedVer.name)}</span>` : '<span class="upp-badge">当前实时</span>'}
+            ${curP.lorebook ? `<span class="upp-badge">绑定世界书: ${escapeHtml(curP.lorebook)}</span>` : ''}
+          </div>
+          <span class="upp-card-meta">${liveDesc.length} 字</span>
+        </div>
+        <div class="upp-persona-live-box ${liveDesc.trim() ? '' : 'is-empty'}" id="upp-persona-preview-box">${escapeHtml(liveDesc.trim() ? liveDesc : '暂无描述，点击编辑')}</div>
+      </div>
+      <div class="upp-sec-title" style="padding: 2px 2px;">
+        <span>内部描述版本（不新建同名 User）</span>
+        <span>${pVersions.length} 个</span>
+      </div>
+    `;
+
+    if (!pVersions.length) {
+      html += `<div class="upp-empty" style="padding: 24px 16px;">还没有保存过「${escapeHtml(curP.name)}」的内部版本，点上方「存为版本」或「整理分身」即可收纳。</div>`;
+      elBody.innerHTML = html;
+      return;
+    }
+
+    html += `<div class="upp-entry-list">` + pVersions.map(v => {
+      const isCur = matchedVer && matchedVer.id === v.id;
+      const snippet = String(v.description || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      return `
+        <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
+          <button class="upp-entry-main" data-pv-view="${v.id}">
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(v.name)} ${isCur ? '<span class="upp-badge accent" style="margin-left:4px;">使用中</span>' : ''}</div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空描述')}</div>
+            </div>
+          </button>
+          <button class="upp-btn ${isCur ? '' : 'primary'}" data-pv-apply="${v.id}" ${isCur ? 'disabled' : ''}>${isCur ? '当前' : '切换'}</button>
+          <button class="upp-btn icon-only danger" data-pv-del-inline="${v.id}" title="删除版本">${ICONS.trash}</button>
+        </div>
+      `;
+    }).join('') + `</div>`;
+
+    elBody.innerHTML = html;
+  }
+
+  // --- Tab 3: Worldbooks ---
+  function renderWorldbookToolbar() {
     const activeBook = state.activeBook;
     const isPinned = activeBook && state.store.settings.pinnedWorldbooks.includes(activeBook);
     const isGlobal = activeBook && state.globalWorldbooks.includes(activeBook);
@@ -2156,7 +2454,7 @@
         <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="全局绑定开关" ${activeBook ? '' : 'disabled'}>全局</button>
         <div class="upp-spacer"></div>
         <button class="upp-btn" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
-        <button class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制本世界书已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
+        <button class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
       </div>
       <div class="upp-row">
         <div class="upp-input-wrap">
@@ -2169,45 +2467,10 @@
     `;
   }
 
-  function renderAssemblyBody() {
+  function renderWorldbookBody() {
     const activeBook = state.activeBook;
-    const curP = state.currentPersona;
-    const pVersions = curP ? (state.store.personaVersions[curP.avatar_id] || []) : [];
-    const matchedVer = curP ? findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description) : null;
-    const dupGroups = detectProliferatedPersonas(state.personas);
-
-    const personaOptions = state.personas.map(p =>
-      `<option value="${escapeHtml(p.avatar_id)}" ${curP && p.avatar_id === curP.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
-    ).join('');
-
-    const versionPills = curP && pVersions.length
-      ? `<div class="upp-pill-strip">
-          ${pVersions.map(v => `
-            <button class="upp-pill ${matchedVer && matchedVer.id === v.id ? 'active' : ''}" data-pv-apply="${v.id}">
-              <span>${escapeHtml(v.name)}</span>
-            </button>
-          `).join('')}
-        </div>`
-      : '';
-
-    let html = `
-      <div class="upp-persona-card">
-        <div class="upp-row">
-          <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
-          <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑</span></button>
-          <button class="upp-btn" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存版本</span></button>
-          <button class="upp-btn" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
-          <div class="upp-spacer"></div>
-          <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或旧分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
-        </div>
-        ${versionPills}
-        ${curP ? `<div class="upp-persona-preview" id="upp-persona-preview-box">${escapeHtml(curP.description || '当前 User 暂无描述，点击编辑')}</div>` : ''}
-      </div>
-    `;
-
     if (!activeBook) {
-      html += `<div class="upp-empty">酒馆中暂无世界书</div>`;
-      elBody.innerHTML = html;
+      elBody.innerHTML = `<div class="upp-empty">酒馆中暂无世界书</div>`;
       return;
     }
 
@@ -2220,6 +2483,7 @@
       return true;
     });
 
+    let html = '';
     if (hygiene.unclosedCount > 0 || hygiene.duplicateTags.length > 0) {
       const notes = [];
       if (hygiene.unclosedCount > 0) notes.push(`${hygiene.unclosedCount} 条存在未闭合标签`);
@@ -2263,67 +2527,91 @@
     elBody.innerHTML = html;
   }
 
-  function renderAssemblyTab() {
-    renderAssemblyToolbar();
-    renderAssemblyBody();
+  // --- Tab 4: Preset (with BaiBai presetPromptGroups support) ---
+  function isPresetGroupCollapsed(group) {
+    const key = `${state.loadedPresetName}::${group.id}`;
+    if (Object.prototype.hasOwnProperty.call(state.presetFoldState, key)) {
+      return !!state.presetFoldState[key];
+    }
+    return !!group.collapsed;
   }
 
   function renderPresetToolbar() {
     const presetOpts = state.presets.map(name =>
       `<option value="${escapeHtml(name)}" ${name === state.loadedPresetName ? 'selected' : ''}>${escapeHtml(name)}</option>`
     ).join('');
+    const { groups } = extractPresetGroups(state.inUsePreset);
+    const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
 
     elToolbar.innerHTML = `
       <div class="upp-row">
         <select class="upp-select" id="upp-preset-select" title="切换预设">${presetOpts || '<option value="">无可用预设</option>'}</select>
         <div class="upp-input-wrap">
           ${ICONS.search}
-          <input type="text" id="upp-preset-search" placeholder="搜索提示词标题或正文…" value="${escapeHtml(state.presetSearch)}" />
+          <input type="text" id="upp-preset-search" placeholder="搜索分组、提示词或正文…" value="${escapeHtml(state.presetSearch)}" />
         </div>
         <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
+        ${groups.length ? `<button class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+      </div>
+    `;
+  }
+
+  function renderPresetPromptRowHtml(p) {
+    const placeholderIds = new Set(['worldInfoBefore', 'personaDescription', 'charDescription', 'charPersonality', 'scenario', 'worldInfoAfter', 'dialogueExamples', 'chatHistory']);
+    const isPh = placeholderIds.has(p.id);
+    const roleShort = isPh ? '占位' : (p.role === 'user' ? 'USR' : p.role === 'assistant' ? 'AST' : 'SYS');
+    const snippet = isPh ? '酒馆原生占位槽位' : String(p.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+    return `
+      <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${escapeHtml(p.id)}">
+        <button class="upp-entry-main" data-pr-open="${escapeHtml(p.id)}">
+          <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
+          <div class="upp-entry-text">
+            <div class="upp-entry-name">${escapeHtml(p.name || p.id)}</div>
+            <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+          </div>
+        </button>
+        <button type="button" class="upp-switch" role="switch" aria-checked="${!!p.enabled}" data-pr-toggle="${escapeHtml(p.id)}"></button>
       </div>
     `;
   }
 
   function renderPresetBody() {
-    const prompts = state.inUsePreset && Array.isArray(state.inUsePreset.prompts) ? state.inUsePreset.prompts : [];
-    const q = normalizeText(state.presetSearch);
-    const filtered = prompts.filter(p => {
-      if (state.presetOnlyOn && !p.enabled) return false;
-      if (q && !normalizeText((p.name || '') + ' ' + (p.content || '')).includes(q)) return false;
-      return true;
+    const { nodes } = buildPresetRenderNodes(state.inUsePreset, {
+      search: state.presetSearch,
+      onlyOn: state.presetOnlyOn,
     });
 
-    if (!filtered.length) {
-      elBody.innerHTML = `<div class="upp-empty">${prompts.length ? '没有匹配的提示词' : '未能读取当前预设条目'}</div>`;
+    if (!nodes.length) {
+      const hasAny = !!(state.inUsePreset && Array.isArray(state.inUsePreset.prompts) && state.inUsePreset.prompts.length);
+      elBody.innerHTML = `<div class="upp-empty">${hasAny ? '没有匹配的提示词' : '未能读取当前预设条目'}</div>`;
       return;
     }
 
-    const placeholderIds = new Set(['worldInfoBefore', 'personaDescription', 'charDescription', 'charPersonality', 'scenario', 'worldInfoAfter', 'dialogueExamples', 'chatHistory']);
-    elBody.innerHTML = `<div class="upp-entry-list">` + filtered.map(p => {
-      const isPh = placeholderIds.has(p.id);
-      const roleShort = isPh ? '占位' : (p.role === 'user' ? 'USR' : p.role === 'assistant' ? 'AST' : 'SYS');
-      const snippet = isPh ? '酒馆原生占位槽位' : String(p.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+    elBody.innerHTML = `<div class="upp-entry-list">` + nodes.map(node => {
+      if (node.type === 'prompt') {
+        return renderPresetPromptRowHtml(node.prompt);
+      }
+      const g = node.group;
+      const collapsed = node.forceExpand ? false : isPresetGroupCollapsed(g);
       return `
-        <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${escapeHtml(p.id)}">
-          <button class="upp-entry-main" data-pr-open="${escapeHtml(p.id)}">
-            <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
-            <div class="upp-entry-text">
-              <div class="upp-entry-name">${escapeHtml(p.name || p.id)}</div>
-              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
-            </div>
-          </button>
-          <button type="button" class="upp-switch" role="switch" aria-checked="${!!p.enabled}" data-pr-toggle="${escapeHtml(p.id)}"></button>
+        <div class="upp-group-box ${collapsed ? 'is-collapsed' : ''} ${g.enabled ? '' : 'is-disabled'}" data-prg-box="${escapeHtml(g.id)}">
+          <div class="upp-group-head">
+            <button type="button" class="upp-group-toggle-btn" data-prg-fold="${escapeHtml(g.id)}">
+              <span class="upp-group-chev">${ICONS.chevron}</span>
+              <span class="upp-group-name">${escapeHtml(g.name)}</span>
+              <span class="upp-badge ${g.enabled ? 'accent' : ''}">${node.enabledCount}/${node.totalCount}</span>
+            </button>
+            <button type="button" class="upp-switch" role="switch" aria-checked="${!!g.enabled}" data-prg-toggle="${escapeHtml(g.id)}" title="分组总开关"></button>
+          </div>
+          <div class="upp-group-items">
+            ${node.items.map(renderPresetPromptRowHtml).join('')}
+          </div>
         </div>
       `;
     }).join('') + `</div>`;
   }
 
-  function renderPresetTab() {
-    renderPresetToolbar();
-    renderPresetBody();
-  }
-
+  // --- Tab 5: Regex ---
   function renderRegexToolbar() {
     elToolbar.innerHTML = `
       <div class="upp-row">
@@ -2370,9 +2658,16 @@
     }).join('') + `</div>`;
   }
 
-  function renderRegexTab() {
-    renderRegexToolbar();
-    renderRegexBody();
+  function openSaveSnapshotDrawer() {
+    state.drawer = {
+      type: 'saveSnapshot',
+      name: '',
+      group: state.snapGroup || '',
+      note: '',
+      scope: { persona: true, worldbooks: true, preset: true, regex: true },
+      selectedBooks: getDefaultSnapshotBooks(state.store),
+    };
+    renderDrawer();
   }
 
   function renderDrawer() {
@@ -2497,7 +2792,7 @@
               <div class="upp-check-grid">
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-persona" ${d.scope.persona ? 'checked' : ''} /><span>User 人设</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-wb" ${d.scope.worldbooks ? 'checked' : ''} /><span>世界书与条目开关</span></label>
-                <label class="upp-check-item"><input type="checkbox" id="upp-sc-preset" ${d.scope.preset ? 'checked' : ''} /><span>预设与提示词开关</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-preset" ${d.scope.preset ? 'checked' : ''} /><span>预设、分组与提示词</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-regex" ${d.scope.regex ? 'checked' : ''} /><span>正则开关</span></label>
               </div>
             </div>
@@ -2530,6 +2825,7 @@
       const livePrompts = (state.inUsePreset && state.inUsePreset.prompts) || [];
       const promptMap = {};
       livePrompts.forEach(p => { promptMap[p.id] = p; });
+      const { groupsById, promptGroupMap } = extractPresetGroups(state.inUsePreset);
 
       let body = '';
       if (s.scope.persona && s.persona) {
@@ -2574,12 +2870,22 @@
 
       if (s.scope.preset && s.preset) {
         const pMap = s.preset.prompts || {};
+        const gMap = s.preset.groups || {};
         const onIds = Object.keys(pMap).filter(id => pMap[id]);
+        const groupKeys = Object.keys(gMap);
         body += `<div class="upp-sec-title"><span>预设：${escapeHtml(s.preset.name || '当前')}（开 ${onIds.length} 条）</span></div>`;
+        if (groupKeys.length) {
+          body += `<div class="upp-card-meta">` + groupKeys.map(gid => {
+            const gName = groupsById[gid]?.name || gid.slice(0, 8);
+            return `<span class="upp-badge ${gMap[gid] ? 'accent' : ''}">${escapeHtml(gName)}：${gMap[gid] ? '开' : '关'}</span>`;
+          }).join('') + `</div>`;
+        }
         body += `<div class="upp-pop-list" style="max-height:180px;">` + (onIds.length ? onIds.map(id => {
           const live = promptMap[id];
+          const gid = promptGroupMap[id];
+          const gName = gid && groupsById[gid] ? groupsById[gid].name : '';
           return `<button class="upp-detail-item" data-view-snap-pr="${escapeHtml(id)}">
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(live ? (live.name || id) : id)}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${gName ? `[${escapeHtml(gName)}] ` : ''}${escapeHtml(live ? (live.name || id) : id)}</span>
             <span class="upp-badge">${live ? '查看' : '切换后可见'}</span>
           </button>`;
         }).join('') : '<div class="upp-card-meta">无开启条目</div>') + `</div>`;
@@ -2662,12 +2968,12 @@
           </div>
           <div class="upp-drawer-body">
             <div class="upp-field">
-              <label>版本名称（仅存于本插件，不会在酒馆新建同名 User）</label>
+              <label>版本名称</label>
               <input class="upp-text-input" id="upp-pv-name" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
             </div>
             ${existing.length ? `
               <div class="upp-field">
-                <label>已有版本（点选同名可覆盖，点删除清理）</label>
+                <label>已有版本（点选同名可覆盖）</label>
                 <div class="upp-pop-list">
                   ${existing.map(v => `
                     <div class="upp-row-nowrap" style="padding:3px 4px;">
@@ -2752,7 +3058,7 @@
               </div>
             ` : ''}
             <div class="upp-field">
-              <label>保留的主 User（只按名字保留这 1 个）</label>
+              <label>保留的主 User</label>
               <select class="upp-select" id="upp-merge-keep" style="max-width:none;width:100%;">
                 ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
               </select>
@@ -2809,11 +3115,38 @@
   function render() {
     renderHeader();
     renderTabs();
-    if (state.tab === 'snapshots') renderSnapshotsTab();
-    else if (state.tab === 'assembly') renderAssemblyTab();
-    else if (state.tab === 'preset') renderPresetTab();
-    else if (state.tab === 'regex') renderRegexTab();
+    if (state.tab === 'snapshots') { renderSnapshotsToolbar(); renderSnapshotsBody(); }
+    else if (state.tab === 'user') { renderUserToolbar(); renderUserBody(); }
+    else if (state.tab === 'worldbook') { renderWorldbookToolbar(); renderWorldbookBody(); }
+    else if (state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
+    else if (state.tab === 'regex') { renderRegexToolbar(); renderRegexBody(); }
+    renderFooter();
     renderDrawer();
+  }
+
+  // =========================
+  // Snapshot Overwrite Helper
+  // =========================
+
+  async function overwriteSnapshotById(sid) {
+    const idx = state.store.snapshots.findIndex(x => x.id === sid);
+    if (idx < 0) return;
+    const old = state.store.snapshots[idx];
+    const selectedBooks = old.worldbooks && old.worldbooks.entries
+      ? Object.keys(old.worldbooks.entries)
+      : getDefaultSnapshotBooks(state.store);
+    const updated = await captureLiveSnapshot({
+      id: old.id,
+      name: old.name,
+      group: old.group,
+      note: old.note,
+      scope: old.scope,
+      selectedBooks,
+    }, state.store);
+    state.store.snapshots[idx] = updated;
+    persistStore(state.store);
+    render();
+    toast(`已用当前状态更新「${old.name}」`, 'success');
   }
 
   // =========================
@@ -2830,6 +3163,19 @@
     }
   });
 
+  // Persistent Footer Click
+  listen(elFooter, 'click', async ev => {
+    const t = ev.target;
+    if (t.closest('#upp-foot-save-snap-btn')) {
+      openSaveSnapshotDrawer();
+      return;
+    }
+    const updBtn = t.closest('#upp-foot-update-btn');
+    if (updBtn) {
+      await overwriteSnapshotById(updBtn.getAttribute('data-snap-update'));
+    }
+  });
+
   // Tab switch
   listen(elTabs, 'click', async ev => {
     const btn = ev.target.closest('[data-tab]');
@@ -2838,17 +3184,20 @@
     if (next === state.tab) return;
     state.tab = next;
     state.drawer = null;
-    if (next === 'assembly' && state.activeBook) {
+    if (next === 'worldbook' && state.activeBook) {
       await ensureBookEntries(state.activeBook, false);
     } else if (next === 'regex') {
       state.regexList = Host.getRegexes(state.regexScope);
     } else if (next === 'preset') {
       state.inUsePreset = Host.getInUsePreset();
+    } else if (next === 'user') {
+      state.personas = Host.listPersonas();
+      state.currentPersona = Host.getCurrentPersona();
     }
     render();
   });
 
-  // Toolbar click & input delegation
+  // Toolbar click, input & change
   listen(elToolbar, 'click', async ev => {
     const target = ev.target;
 
@@ -2866,26 +3215,52 @@
       renderDrawer();
       return;
     }
-    if (target.closest('#upp-new-snap-btn')) {
+    const gBtn = target.closest('[data-snap-group]');
+    if (gBtn) {
+      state.snapGroup = gBtn.getAttribute('data-snap-group') || '';
+      renderSnapshotsToolbar();
+      renderSnapshotsBody();
+      return;
+    }
+
+    // User toolbar
+    if (target.closest('#upp-persona-edit-btn') && state.currentPersona) {
       state.drawer = {
-        type: 'saveSnapshot',
-        name: '',
-        group: state.snapGroup || '',
-        note: '',
-        scope: { persona: true, worldbooks: true, preset: true, regex: true },
-        selectedBooks: getDefaultSnapshotBooks(state.store),
+        type: 'entryEditor',
+        mode: 'editPersona',
+        heading: `编辑 User 正文 · ${state.currentPersona.name}`,
+        content: state.currentPersona.description || '',
       };
       renderDrawer();
       return;
     }
-    const gBtn = target.closest('[data-snap-group]');
-    if (gBtn) {
-      state.snapGroup = gBtn.getAttribute('data-snap-group') || '';
-      renderSnapshotsTab();
+    if (target.closest('#upp-persona-savever-btn') && state.currentPersona) {
+      state.drawer = { type: 'savePersonaVersion', name: '' };
+      renderDrawer();
+      return;
+    }
+    if (target.closest('#upp-persona-diff-btn') && state.currentPersona) {
+      state.drawer = { type: 'personaDiff' };
+      renderDrawer();
+      return;
+    }
+    if (target.closest('#upp-persona-merge-btn')) {
+      const dupGroups = detectProliferatedPersonas(state.personas);
+      let keepId = state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '';
+      let absorbIds = [];
+      if (dupGroups.length) {
+        const g = dupGroups[0];
+        const curInGroup = g.items.find(x => x.avatar_id === keepId);
+        const main = curInGroup || g.items[0];
+        keepId = main.avatar_id;
+        absorbIds = g.items.filter(x => x.avatar_id !== keepId).map(x => x.avatar_id);
+      }
+      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false };
+      renderDrawer();
       return;
     }
 
-    // Assembly toolbar
+    // Worldbook toolbar
     if (target.closest('#upp-book-picker-btn')) {
       state.drawer = { type: 'bookPicker', query: '' };
       renderDrawer();
@@ -2897,17 +3272,16 @@
       if (idx >= 0) list.splice(idx, 1);
       else list.unshift(state.activeBook);
       persistStore(state.store);
-      renderAssemblyTab();
+      renderWorldbookToolbar();
       return;
     }
     if (target.closest('#upp-global-book-btn') && state.activeBook) {
       const next = new Set(state.globalWorldbooks);
       if (next.has(state.activeBook)) next.delete(state.activeBook);
       else next.add(state.activeBook);
-      const arr = Array.from(next);
-      await Host.setGlobalWorldbooks(arr);
+      await Host.setGlobalWorldbooks(Array.from(next));
       state.globalWorldbooks = Host.getGlobalWorldbooks();
-      renderAssemblyTab();
+      renderWorldbookToolbar();
       return;
     }
     if (target.closest('#upp-new-wb-entry-btn') && state.activeBook) {
@@ -2940,7 +3314,8 @@
     }
     if (target.closest('#upp-wb-only-on-btn')) {
       state.wbOnlyOn = !state.wbOnlyOn;
-      renderAssemblyTab();
+      renderWorldbookToolbar();
+      renderWorldbookBody();
       return;
     }
     if (target.closest('#upp-wb-all-off-btn') && state.activeBook) {
@@ -2950,7 +3325,7 @@
       if (!Object.keys(offMap).length) { toast('本世界书已全部关闭'); return; }
       await Host.batchToggleWorldbookEntries(state.activeBook, offMap);
       await ensureBookEntries(state.activeBook, true);
-      renderAssemblyTab();
+      renderWorldbookBody();
       toast('已关闭本世界书全部条目');
       return;
     }
@@ -2958,7 +3333,18 @@
     // Preset toolbar
     if (target.closest('#upp-preset-only-on-btn')) {
       state.presetOnlyOn = !state.presetOnlyOn;
-      renderPresetTab();
+      renderPresetToolbar();
+      renderPresetBody();
+      return;
+    }
+    if (target.closest('#upp-preset-fold-all-btn')) {
+      const { groups } = extractPresetGroups(state.inUsePreset);
+      const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
+      groups.forEach(g => {
+        state.presetFoldState[`${state.loadedPresetName}::${g.id}`] = anyExpanded;
+      });
+      renderPresetToolbar();
+      renderPresetBody();
       return;
     }
 
@@ -2967,40 +3353,26 @@
     if (rgSc) {
       state.regexScope = rgSc.getAttribute('data-rg-scope') || 'global';
       state.regexList = Host.getRegexes(state.regexScope);
-      renderRegexTab();
+      renderRegexToolbar();
+      renderRegexBody();
       return;
     }
     if (target.closest('#upp-rg-only-on-btn')) {
       state.regexOnlyOn = !state.regexOnlyOn;
-      renderRegexTab();
+      renderRegexToolbar();
+      renderRegexBody();
     }
   });
 
   listen(elToolbar, 'input', ev => {
     const id = ev.target.id;
     if (id === 'upp-snap-search') { state.snapSearch = ev.target.value; renderSnapshotsBody(); }
-    else if (id === 'upp-wb-search') { state.wbEntrySearch = ev.target.value; renderAssemblyBody(); }
+    else if (id === 'upp-wb-search') { state.wbEntrySearch = ev.target.value; renderWorldbookBody(); }
     else if (id === 'upp-preset-search') { state.presetSearch = ev.target.value; renderPresetBody(); }
     else if (id === 'upp-rg-search') { state.regexSearch = ev.target.value; renderRegexBody(); }
   });
 
-  listen(elToolbar, 'change', ev => {
-    if (ev.target.id === 'upp-preset-select') {
-      const targetPreset = ev.target.value;
-      if (targetPreset && targetPreset !== state.loadedPresetName) {
-        Host.loadPreset(targetPreset);
-        later(() => {
-          state.loadedPresetName = Host.getLoadedPresetName();
-          state.inUsePreset = Host.getInUsePreset();
-          renderPresetTab();
-          toast('已切换预设：' + targetPreset, 'success');
-        }, 120);
-      }
-    }
-  });
-
-  // Body click & change delegation
-  listen(elBody, 'change', async ev => {
+  listen(elToolbar, 'change', async ev => {
     if (ev.target.id === 'upp-persona-select') {
       const targetId = ev.target.value;
       const p = state.personas.find(x => x.avatar_id === targetId);
@@ -3008,13 +3380,36 @@
         await Host.switchPersona(p.avatar_id, p.name);
         state.currentPersona = Host.getCurrentPersona();
         renderHeader();
-        renderAssemblyTab();
+        renderUserToolbar();
+        renderUserBody();
+        renderFooter();
+      }
+      return;
+    }
+    if (ev.target.id === 'upp-preset-select') {
+      const targetPreset = ev.target.value;
+      if (targetPreset && targetPreset !== state.loadedPresetName) {
+        Host.loadPreset(targetPreset);
+        later(() => {
+          state.loadedPresetName = Host.getLoadedPresetName();
+          state.inUsePreset = Host.getInUsePreset();
+          renderPresetToolbar();
+          renderPresetBody();
+          renderFooter();
+          toast('已切换预设：' + targetPreset, 'success');
+        }, 120);
       }
     }
   });
 
+  // Body click delegation
   listen(elBody, 'click', async ev => {
     const t = ev.target;
+
+    if (t.closest('[data-open-save-snap]')) {
+      openSaveSnapshotDrawer();
+      return;
+    }
 
     // --- Snapshots actions ---
     const applyBtn = t.closest('[data-snap-apply]');
@@ -3045,26 +3440,7 @@
     }
     const updBtn = t.closest('[data-snap-update]');
     if (updBtn) {
-      const sid = updBtn.getAttribute('data-snap-update');
-      const idx = state.store.snapshots.findIndex(x => x.id === sid);
-      if (idx >= 0) {
-        const old = state.store.snapshots[idx];
-        const selectedBooks = old.worldbooks && old.worldbooks.entries
-          ? Object.keys(old.worldbooks.entries)
-          : getDefaultSnapshotBooks(state.store);
-        const updated = await captureLiveSnapshot({
-          id: old.id,
-          name: old.name,
-          group: old.group,
-          note: old.note,
-          scope: old.scope,
-          selectedBooks,
-        }, state.store);
-        state.store.snapshots[idx] = updated;
-        persistStore(state.store);
-        renderSnapshotsTab();
-        toast(`已用当前状态覆盖更新「${old.name}」`, 'success');
-      }
+      await overwriteSnapshotById(updBtn.getAttribute('data-snap-update'));
       return;
     }
     const bindBtn = t.closest('[data-snap-bind]');
@@ -3094,13 +3470,14 @@
       if (src === 'chat' && state.chatId) delete state.store.bindings.chats[state.chatId];
       if (src === 'character' && state.charInfo.id) delete state.store.bindings.characters[state.charInfo.id];
       persistStore(state.store);
-      renderSnapshotsTab();
+      renderSnapshotsBody();
+      renderFooter();
       toast('已解除绑定');
       return;
     }
 
-    // --- Persona bar actions ---
-    if ((t.closest('#upp-persona-edit-btn') || t.closest('#upp-persona-preview-box')) && state.currentPersona) {
+    // --- User tab body actions ---
+    if (t.closest('#upp-persona-preview-box') && state.currentPersona) {
       state.drawer = {
         type: 'entryEditor',
         mode: 'editPersona',
@@ -3110,29 +3487,23 @@
       renderDrawer();
       return;
     }
-    if (t.closest('#upp-persona-savever-btn') && state.currentPersona) {
-      state.drawer = { type: 'savePersonaVersion', name: '' };
-      renderDrawer();
-      return;
-    }
-    if (t.closest('#upp-persona-diff-btn') && state.currentPersona) {
-      state.drawer = { type: 'personaDiff' };
-      renderDrawer();
-      return;
-    }
-    if (t.closest('#upp-persona-merge-btn')) {
-      const dupGroups = detectProliferatedPersonas(state.personas);
-      let keepId = state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '';
-      let absorbIds = [];
-      if (dupGroups.length) {
-        const g = dupGroups[0];
-        const curInGroup = g.items.find(x => x.avatar_id === keepId);
-        const main = curInGroup || g.items[0];
-        keepId = main.avatar_id;
-        absorbIds = g.items.filter(x => x.avatar_id !== keepId).map(x => x.avatar_id);
+    const pvView = t.closest('[data-pv-view]');
+    if (pvView && state.currentPersona) {
+      const vid = pvView.getAttribute('data-pv-view');
+      const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
+      const ver = list.find(v => v.id === vid);
+      if (ver) {
+        state.drawer = {
+          type: 'entryEditor',
+          mode: 'editPersonaVersion',
+          versionId: ver.id,
+          heading: `编辑内部版本 · ${state.currentPersona.name}`,
+          allowNameEdit: true,
+          name: ver.name,
+          content: ver.description || '',
+        };
+        renderDrawer();
       }
-      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false };
-      renderDrawer();
       return;
     }
     const pvApply = t.closest('[data-pv-apply]');
@@ -3145,9 +3516,21 @@
         persistStore(state.store);
         await Host.updatePersonaInPlace(state.currentPersona.avatar_id, ver.description, ver.lorebook || undefined);
         state.currentPersona = Host.getCurrentPersona();
-        renderAssemblyTab();
+        renderUserToolbar();
+        renderUserBody();
         toast(`已切换至「${ver.name}」`, 'success');
       }
+      return;
+    }
+    const pvDelInline = t.closest('[data-pv-del-inline]');
+    if (pvDelInline && state.currentPersona) {
+      const vid = pvDelInline.getAttribute('data-pv-del-inline');
+      const aid = state.currentPersona.avatar_id;
+      state.store.personaVersions[aid] = (state.store.personaVersions[aid] || []).filter(v => v.id !== vid);
+      persistStore(state.store);
+      renderUserToolbar();
+      renderUserBody();
+      toast('已删除内部版本');
       return;
     }
 
@@ -3165,7 +3548,7 @@
       if (row) row.classList.toggle('is-on', next);
       try {
         await Host.toggleWorldbookEntry(state.activeBook, u, next);
-        if (state.wbOnlyOn && !next) renderAssemblyTab();
+        if (state.wbOnlyOn && !next) renderWorldbookBody();
       } catch (err) {
         entry.enabled = !next;
         wbSw.setAttribute('aria-checked', String(!next));
@@ -3198,7 +3581,43 @@
       return;
     }
 
-    // --- Preset surgical switch & preview/edit ---
+    // --- Preset BaiBai group fold & master switch ---
+    const prgFold = t.closest('[data-prg-fold]');
+    if (prgFold) {
+      const gid = prgFold.getAttribute('data-prg-fold');
+      const box = prgFold.closest('.upp-group-box');
+      if (box && gid) {
+        const nextCollapsed = !box.classList.contains('is-collapsed');
+        box.classList.toggle('is-collapsed', nextCollapsed);
+        state.presetFoldState[`${state.loadedPresetName}::${gid}`] = nextCollapsed;
+        renderPresetToolbar();
+      }
+      return;
+    }
+    const prgSw = t.closest('[data-prg-toggle]');
+    if (prgSw && state.inUsePreset) {
+      const gid = prgSw.getAttribute('data-prg-toggle');
+      const groups = state.inUsePreset.extensions?.baibaiToolkit?.presetPromptGroups?.groups || [];
+      const grp = groups.find(g => String(g.id) === String(gid));
+      if (!grp) return;
+      const next = !(grp.enabled !== false);
+      grp.enabled = next;
+      prgSw.setAttribute('aria-checked', String(next));
+      const box = prgSw.closest('.upp-group-box');
+      if (box) box.classList.toggle('is-disabled', !next);
+      try {
+        await Host.togglePresetGroup(gid, next);
+        if (state.presetOnlyOn && !next) renderPresetBody();
+      } catch (err) {
+        grp.enabled = !next;
+        prgSw.setAttribute('aria-checked', String(!next));
+        if (box) box.classList.toggle('is-disabled', next);
+        toast('切换分组失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+
+    // --- Preset prompt switch & preview/edit ---
     const prSw = t.closest('[data-pr-toggle]');
     if (prSw && state.inUsePreset) {
       const pid = prSw.getAttribute('data-pr-toggle');
@@ -3211,7 +3630,7 @@
       if (row) row.classList.toggle('is-on', next);
       try {
         await Host.togglePresetPrompt(pid, next);
-        if (state.presetOnlyOn && !next) renderPresetTab();
+        if (state.presetOnlyOn && !next) renderPresetBody();
       } catch (err) {
         item.enabled = !next;
         prSw.setAttribute('aria-checked', String(!next));
@@ -3255,7 +3674,7 @@
       if (row) row.classList.toggle('is-on', next);
       try {
         await Host.toggleRegex(state.regexScope, rid, next);
-        if (state.regexOnlyOn && !next) renderRegexTab();
+        if (state.regexOnlyOn && !next) renderRegexBody();
       } catch (err) {
         item.enabled = !next;
         rgSw.setAttribute('aria-checked', String(!next));
@@ -3370,7 +3789,6 @@
       reader.onload = () => {
         try {
           const imported = parseImportJson(reader.result);
-          // Merge cleanly by id
           const snapMap = new Map(state.store.snapshots.map(s => [s.id, s]));
           imported.snapshots.forEach(s => snapMap.set(s.id, s));
           state.store.snapshots = Array.from(snapMap.values());
@@ -3405,7 +3823,6 @@
       return;
     }
 
-    // Book picker selection
     const pickBk = t.closest('[data-pick-book]');
     if (pickBk) {
       state.activeBook = pickBk.getAttribute('data-pick-book') || '';
@@ -3415,7 +3832,6 @@
       return;
     }
 
-    // Entry editor save
     if (t.closest('#upp-ed-save-btn') && d.type === 'entryEditor') {
       const content = shadow.getElementById('upp-ed-content')?.value ?? '';
       const name = shadow.getElementById('upp-ed-name')?.value?.trim() ?? d.name ?? '';
@@ -3425,6 +3841,17 @@
           await Host.updatePersonaInPlace(state.currentPersona.avatar_id, content);
           state.currentPersona = Host.getCurrentPersona();
           toast('已保存 User 正文', 'success');
+        } else if (d.mode === 'editPersonaVersion' && state.currentPersona) {
+          const aid = state.currentPersona.avatar_id;
+          const list = state.store.personaVersions[aid] || [];
+          const ver = list.find(v => v.id === d.versionId);
+          if (ver) {
+            ver.name = name || ver.name;
+            ver.description = content;
+            ver.updatedAt = Date.now();
+            persistStore(state.store);
+            toast('已更新内部版本', 'success');
+          }
         } else if (d.mode === 'editWb') {
           await Host.updateWorldbookEntry(d.bookName, d.uid, name || '未命名条目', content, strategyType);
           await ensureBookEntries(d.bookName, true);
@@ -3446,7 +3873,6 @@
       return;
     }
 
-    // Save snapshot confirm
     const fillGrp = t.closest('[data-ss-fill-group]');
     if (fillGrp) {
       const inp = shadow.getElementById('upp-ss-group');
@@ -3470,12 +3896,12 @@
       state.store.snapshots.unshift(snap);
       persistStore(state.store);
       state.drawer = null;
+      state.tab = 'snapshots';
       render();
       toast(`已保存快照「${snap.name}」`, 'success');
       return;
     }
 
-    // View snapshot drill-down previews
     if (d.type === 'viewSnapshot') {
       const applyInDrawer = t.closest('[data-snap-apply]');
       if (applyInDrawer) {
@@ -3530,7 +3956,6 @@
       }
     }
 
-    // Bind snapshot buttons
     if (d.type === 'bindSnapshot') {
       const sid = d.snapshot.id;
       if (t.closest('#upp-bind-chat-btn') && state.chatId) {
@@ -3549,7 +3974,6 @@
       }
     }
 
-    // Save persona internal version
     if (d.type === 'savePersonaVersion' && state.currentPersona) {
       const fillPv = t.closest('[data-pv-fill-name]');
       if (fillPv) {
@@ -3590,7 +4014,6 @@
       }
     }
 
-    // Merge proliferated personas
     if (d.type === 'mergePersonas') {
       const grpBtn = t.closest('[data-merge-preset-group]');
       if (grpBtn) {
@@ -3608,7 +4031,6 @@
         const keep = state.personas.find(p => p.avatar_id === d.keepId);
         if (!keep) return;
         const list = state.store.personaVersions[keep.avatar_id] || [];
-        // Ensure main persona's own live description is also saved if non-empty
         if ((keep.description || '').trim() && !list.some(v => v.description === keep.description)) {
           list.unshift({
             id: uid('pv'),
@@ -3653,7 +4075,6 @@
       }
     }
 
-    // Backup export / import
     if (d.type === 'backup') {
       if (t.closest('#upp-export-json-btn')) {
         const blob = new Blob([exportStoreJson(state.store)], { type: 'application/json' });
@@ -3699,7 +4120,6 @@
     }
   });
 
-  // Auto-apply bound snapshot when chat changes
   let lastAutoKey = '';
   let autoTimer = null;
   function scheduleAutoApplyOnChatChange() {
@@ -3723,7 +4143,6 @@
     }, 350);
   }
 
-  // Extension Menu Entry
   const menuEntry = Env.pdoc.createElement('div');
   menuEntry.id = MENU_ENTRY_ID;
   menuEntry.className = 'list-group-item flex-container flexGap5 interactable';
