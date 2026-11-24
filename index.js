@@ -380,6 +380,49 @@ const Host = {
       return [];
     }
   },
+  listAllCharacters() {
+    if (!Array.isArray(characters)) return [];
+    const seen = new Set();
+    return characters
+      .filter(ch => ch && ch.name && ch.name !== 'SillyTavern System')
+      .map(ch => ({
+        id: String(ch.avatar || ch.name),
+        name: String(ch.name),
+        avatar: String(ch.avatar || ''),
+      }))
+      .filter(ch => {
+        if (seen.has(ch.id)) return false;
+        seen.add(ch.id);
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  },
+  async listCharacterChats(avatarUrl) {
+    if (!avatarUrl) return [];
+    const resp = await fetch('/api/characters/chats', {
+      method: 'POST',
+      headers: getRequestHeaders(),
+      body: JSON.stringify({ avatar_url: avatarUrl }),
+    });
+    if (!resp.ok) throw new Error(`扫描聊天记录失败 (${resp.status})`);
+    const raw = await resp.json();
+    if (!raw || raw.error === true) return [];
+    const arr = Array.isArray(raw) ? raw : Object.values(raw);
+    return arr
+      .filter(item => item && item.file_name)
+      .map(item => {
+        const fileName = String(item.file_name);
+        const chatId = fileName.replace(/\.jsonl$/i, '');
+        return {
+          chatId,
+          fileName,
+          lastMes: String(item.last_mes || ''),
+          preview: String(item.mes || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+          count: Number(item.chat_items || 0),
+        };
+      })
+      .sort((a, b) => b.fileName.localeCompare(a.fileName, 'zh-CN'));
+  },
 
   // --- Worldbooks ---
   listWorldbooks() {
@@ -1441,9 +1484,11 @@ const STYLE_CSS = `
 .upp-group-items {
   display: flex; flex-direction: column; gap: 5px; padding: 6px 8px 8px; border-top: 1px solid var(--border);
 }
+.upp-group-items > * { flex-shrink: 0; }
 .upp-group-box.is-collapsed .upp-group-items { display: none; }
 
 .upp-entry-list { display: flex; flex-direction: column; gap: 5px; }
+.upp-entry-list > * { flex-shrink: 0; }
 .upp-entry-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px;
   border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
@@ -1593,8 +1638,28 @@ const STYLE_CSS = `
   max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: var(--bg);
 }
+.upp-pop-list > * { flex-shrink: 0; }
 .upp-pop-list.is-fill {
   flex: 1; min-height: 0; max-height: none;
+}
+.upp-merge-row {
+  display: flex; flex-direction: column; gap: 5px; padding: 7px 9px;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--surface-strong);
+}
+.upp-merge-row.is-checked { border-color: var(--accent); }
+.upp-merge-top {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+}
+.upp-merge-top label {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+}
+.upp-merge-name {
+  font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upp-merge-snippet {
+  font-size: 11.5px; color: var(--muted); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-word; padding-left: 21px;
 }
 .upp-unsaved-bar {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
@@ -1687,8 +1752,8 @@ const STYLE_CSS = `
 .upp-fab-pop {
   position: fixed;
   z-index: 2147482001;
-  width: min(260px, calc(100vw - 24px));
-  max-height: min(380px, 70dvh);
+  width: min(296px, calc(100vw - 24px));
+  max-height: min(410px, 72dvh);
   background: var(--bg);
   backdrop-filter: blur(22px) saturate(150%);
   -webkit-backdrop-filter: blur(22px) saturate(150%);
@@ -1725,8 +1790,8 @@ const STYLE_CSS = `
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 5px 4px 8px;
+  gap: 6px;
+  padding: 6px 6px 6px 9px;
   border-radius: 9px;
   border: 1px solid transparent;
   background: var(--surface);
@@ -1738,10 +1803,10 @@ const STYLE_CSS = `
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 3px 2px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 1px 0;
   border: none;
   background: transparent;
   color: var(--text);
@@ -1750,23 +1815,42 @@ const STYLE_CSS = `
   cursor: pointer;
   text-align: left;
 }
-.upp-fab-snap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.upp-fab-snap-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.upp-fab-snap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 580; }
+.upp-fab-snap-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
 .upp-fab-apply-btn {
-  width: 26px;
   height: 26px;
+  padding: 0 9px;
   border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--surface-strong);
-  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  padding: 0;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+  transition: filter 0.12s;
 }
-.upp-fab-apply-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.upp-fab-apply-btn:hover { filter: brightness(1.08); }
 .upp-fab-pop-foot {
   flex-shrink: 0;
   display: flex;
@@ -2757,6 +2841,181 @@ function initExtension() {
     }
   }
 
+  function renderMergeCandidateList(d) {
+    const listEl = shadow.getElementById('upp-merge-candidate-list');
+    if (!listEl) return;
+    const keepId = d.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
+    const keep = state.personas.find(p => p.avatar_id === keepId);
+    const dupGroups = detectProliferatedPersonas(state.personas);
+    const absorbSet = new Set(d.absorbIds || []);
+    const previewSet = d.previewIds || new Set();
+    const q = normalizeText(d.query || '');
+
+    // Identify personas overlapping/similar with `keep` so they ALWAYS appear at the very top!
+    const overlapIds = new Set();
+    dupGroups.forEach(g => {
+      if (g.items.some(x => x.avatar_id === keepId)) {
+        g.items.forEach(x => { if (x.avatar_id !== keepId) overlapIds.add(x.avatar_id); });
+      }
+    });
+    if (keep) {
+      const keepName = String(keep.name || '').trim();
+      const keepTail2 = /^[\u4e00-\u9fa5]{2,4}$/.test(keepName) ? keepName.slice(-2) : '';
+      state.personas.forEach(p => {
+        if (p.avatar_id === keepId) return;
+        const pn = String(p.name || '').trim();
+        if (pn === keepName || (keepTail2 && /^[\u4e00-\u9fa5]{2,4}$/.test(pn) && pn.endsWith(keepTail2))) {
+          overlapIds.add(p.avatar_id);
+        }
+      });
+    }
+
+    const others = state.personas.filter(p => {
+      if (p.avatar_id === keepId) return false;
+      if (q && !normalizeText(`${p.name} ${p.description || ''}`).includes(q)) return false;
+      return true;
+    });
+
+    const topItems = others.filter(p => overlapIds.has(p.avatar_id) || absorbSet.has(p.avatar_id));
+    const restItems = others.filter(p => !overlapIds.has(p.avatar_id) && !absorbSet.has(p.avatar_id));
+
+    if (!others.length) {
+      listEl.innerHTML = `<div class="upp-card-meta" style="padding:12px;text-align:center;">${q ? '没有匹配该关键词的 User' : '没有其他可合并的 User'}</div>`;
+      return;
+    }
+
+    const renderRow = (p, isOverlap) => {
+      const checked = absorbSet.has(p.avatar_id);
+      const expanded = previewSet.has(p.avatar_id);
+      const desc = String(p.description || '');
+      const snippet = desc.replace(/\s+/g, ' ').trim();
+      const aid = escapeHtml(p.avatar_id);
+      return `
+        <div class="upp-merge-row ${checked ? 'is-checked' : ''}">
+          <div class="upp-merge-top">
+            <label>
+              <input type="checkbox" data-merge-absorb="${aid}" ${checked ? 'checked' : ''} style="accent-color:var(--accent);margin:0;flex-shrink:0;" />
+              <span class="upp-merge-name">${escapeHtml(p.name)}</span>
+              ${isOverlap ? '<span class="upp-badge accent">相似分身</span>' : ''}
+              <span class="upp-card-meta">${desc.length} 字</span>
+            </label>
+            <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" data-merge-preview="${aid}">${expanded ? '收起正文' : '查看正文'}</button>
+          </div>
+          ${!expanded ? `<div class="upp-merge-snippet">${escapeHtml(snippet || '（空描述）')}</div>` : `
+            <pre class="upp-inline-pre" style="max-height:180px;">${escapeHtml(desc || '（空描述）')}</pre>
+          `}
+        </div>
+      `;
+    };
+
+    let html = '';
+    if (topItems.length) {
+      html += `<div class="upp-wb-sec-head"><span>推荐合并 · 重合与已选分身（${topItems.length}）</span></div>`;
+      html += topItems.map(p => renderRow(p, overlapIds.has(p.avatar_id))).join('');
+    }
+    if (restItems.length) {
+      html += `<div class="upp-wb-sec-head"><span>其他 User（${restItems.length}）</span></div>`;
+      html += restItems.map(p => renderRow(p, false)).join('');
+    }
+    listEl.innerHTML = html;
+  }
+
+  function renderBindCharList(d) {
+    const listEl = shadow.getElementById('upp-bind-char-list');
+    if (!listEl) return;
+    const s = d.snapshot;
+    const allChars = d.allChars || [];
+    const q = normalizeText(d.charQuery || '');
+    const snapNameById = new Map(state.store.snapshots.map(x => [x.id, x.name]));
+
+    const filtered = allChars
+      .filter(ch => !q || normalizeText(ch.name + ' ' + ch.id).includes(q))
+      .sort((a, b) => {
+        const aThis = state.store.bindings.characters[a.id] === s.id ? 2 : (a.id === state.charInfo.id ? 1 : 0);
+        const bThis = state.store.bindings.characters[b.id] === s.id ? 2 : (b.id === state.charInfo.id ? 1 : 0);
+        if (aThis !== bThis) return bThis - aThis;
+        return a.name.localeCompare(b.name, 'zh-CN');
+      });
+
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="upp-empty" style="padding:18px;">${allChars.length ? '没有匹配的角色' : '酒馆中暂无角色卡'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(ch => {
+      const boundId = state.store.bindings.characters[ch.id] || '';
+      const isThis = boundId === s.id;
+      const otherName = boundId && !isThis ? (snapNameById.get(boundId) || '其他快照') : '';
+      const isActive = ch.id === state.charInfo.id;
+      return `
+        <div class="upp-entry-row ${isThis ? 'is-on' : ''}">
+          <div class="upp-entry-text">
+            <div class="upp-entry-name">
+              ${escapeHtml(ch.name)}
+              ${isActive ? '<span class="upp-badge" style="margin-left:4px;">当前角色</span>' : ''}
+              ${isThis ? '<span class="upp-badge ok" style="margin-left:4px;">已绑此快照</span>' : ''}
+              ${otherName ? `<span class="upp-badge warn" style="margin-left:4px;">已绑: ${escapeHtml(otherName)}</span>` : ''}
+            </div>
+          </div>
+          ${ch.avatar ? `<button type="button" class="upp-btn" data-bind-scan-char="${escapeHtml(ch.avatar)}" title="扫描该角色的聊天记录">扫聊天档</button>` : ''}
+          <button type="button" class="upp-btn ${isThis ? 'danger' : 'primary'}" data-bind-toggle-char="${escapeHtml(ch.id)}">${isThis ? '解绑' : '绑定'}</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderBindChatList(d) {
+    const listEl = shadow.getElementById('upp-bind-chat-list');
+    if (!listEl) return;
+    if (d.chatsLoading) {
+      listEl.innerHTML = '<div class="upp-empty" style="padding:20px;">正在扫描该角色的聊天档…</div>';
+      return;
+    }
+    if (d.chatsError) {
+      listEl.innerHTML = `<div class="upp-empty" style="padding:20px;">${escapeHtml(d.chatsError)}</div>`;
+      return;
+    }
+    const s = d.snapshot;
+    const chats = Array.isArray(d.scannedChats) ? d.scannedChats : [];
+    if (!d.scanCharAvatar) {
+      listEl.innerHTML = '<div class="upp-empty" style="padding:20px;">请在上方选择一个角色，自动扫描其全部聊天档</div>';
+      return;
+    }
+    const q = normalizeText(d.chatQuery || '');
+    const snapNameById = new Map(state.store.snapshots.map(x => [x.id, x.name]));
+    const filtered = chats.filter(c => !q || normalizeText(`${c.chatId} ${c.preview} ${c.lastMes}`).includes(q));
+
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="upp-empty" style="padding:20px;">${chats.length ? '没有匹配的聊天档' : '该角色暂无已保存的聊天记录'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(c => {
+      const boundId = state.store.bindings.chats[c.chatId] || '';
+      const isThis = boundId === s.id;
+      const otherName = boundId && !isThis ? (snapNameById.get(boundId) || '其他快照') : '';
+      const isCur = c.chatId === state.chatId;
+      const metaParts = [];
+      if (c.count) metaParts.push(`${c.count} 条消息`);
+      if (c.lastMes) metaParts.push(c.lastMes);
+      if (c.preview) metaParts.push(c.preview);
+      return `
+        <div class="upp-entry-row ${isThis ? 'is-on' : ''}">
+          <div class="upp-entry-text">
+            <div class="upp-entry-name">
+              ${escapeHtml(c.chatId)}
+              ${isCur ? '<span class="upp-badge" style="margin-left:4px;">当前聊天</span>' : ''}
+              ${isThis ? '<span class="upp-badge ok" style="margin-left:4px;">已绑此快照</span>' : ''}
+              ${otherName ? `<span class="upp-badge warn" style="margin-left:4px;">已绑: ${escapeHtml(otherName)}</span>` : ''}
+            </div>
+            <div class="upp-entry-preview">${escapeHtml(metaParts.join(' · ') || '聊天记录')}</div>
+          </div>
+          <button type="button" class="upp-btn ${isThis ? 'danger' : 'primary'}" data-bind-toggle-chat="${escapeHtml(c.chatId)}">${isThis ? '解绑' : '绑定'}</button>
+        </div>
+      `;
+    }).join('');
+  }
+
   function renderBookPickerList(d) {
     const listEl = shadow.getElementById('upp-book-picker-list');
     if (!listEl) return;
@@ -3189,41 +3448,105 @@ function initExtension() {
       return;
     }
 
-    if (d.type === 'bindSnapshot') {
+    if (d.type === 'confirmOverwrite') {
       const s = d.snapshot;
-      const isChat = state.chatId && state.store.bindings.chats[state.chatId] === s.id;
-      const isChar = state.charInfo.id && state.store.bindings.characters[state.charInfo.id] === s.id;
+      const scopes = [];
+      if (s.scope.persona) scopes.push(`User（当前：${state.currentPersona?.name || '无'}）`);
+      if (s.scope.worldbooks) {
+        const bkCount = s.worldbooks?.entries ? Object.keys(s.worldbooks.entries).length : getDefaultSnapshotBooks(state.store).length;
+        scopes.push(`世界书（${bkCount} 本及全局绑定）`);
+      }
+      if (s.scope.preset) scopes.push(`预设（当前：${state.loadedPresetName || '无'}）`);
+      if (s.scope.regex) scopes.push('正则开关');
+
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer" style="width:min(420px,100%);">
+        <div class="upp-drawer" style="width:min(440px,100%);">
           <div class="upp-drawer-head">
-            <span>绑定快照 · ${escapeHtml(s.name)}</span>
+            <span>确认覆盖更新</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-card">
               <div class="upp-card-head">
-                <span>当前聊天</span>
-                <span class="upp-card-meta">${escapeHtml(state.chatId || '未打开聊天')}</span>
+                <span class="upp-card-title">将用当前酒馆状态覆盖「${escapeHtml(s.name)}」</span>
               </div>
-              <div class="upp-row">
-                <button class="upp-btn ${isChat ? 'danger' : 'primary'}" id="upp-bind-chat-btn" ${state.chatId ? '' : 'disabled'}>${isChat ? '解除本聊天绑定' : '绑定到本聊天'}</button>
-              </div>
+              <div class="upp-card-meta">本次覆盖范围：</div>
+              <div class="upp-card-meta">${scopes.map(x => `<span class="upp-badge accent">${escapeHtml(x)}</span>`).join('')}</div>
             </div>
-            <div class="upp-card">
-              <div class="upp-card-head">
-                <span>当前角色默认</span>
-                <span class="upp-card-meta">${escapeHtml(state.charInfo.name || '未打开角色')}</span>
-              </div>
-              <div class="upp-row">
-                <button class="upp-btn ${isChar ? 'danger' : 'primary'}" id="upp-bind-char-btn" ${state.charInfo.id ? '' : 'disabled'}>${isChar ? '解除本角色绑定' : '设为本角色默认'}</button>
-              </div>
-            </div>
+            <div class="upp-card-meta">覆盖后该快照内原有记录的开关状态将被替换为当前最新状态，请确认。</div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>完成</button>
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-confirm-overwrite-btn">确认覆盖更新</button>
           </div>
         </div>
       `;
+      return;
+    }
+
+    if (d.type === 'bindSnapshot') {
+      const s = d.snapshot;
+      const boundChats = Object.keys(state.store.bindings.chats || {}).filter(k => state.store.bindings.chats[k] === s.id);
+      const boundChars = Object.keys(state.store.bindings.characters || {}).filter(k => state.store.bindings.characters[k] === s.id);
+      const charNameById = new Map((d.allChars || []).map(c => [c.id, c.name]));
+      const isCurChat = state.chatId && state.store.bindings.chats[state.chatId] === s.id;
+      const isCurChar = state.charInfo.id && state.store.bindings.characters[state.charInfo.id] === s.id;
+      const tab = d.bindTab || 'char';
+
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer is-fixed-box">
+          <div class="upp-drawer-head">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">绑定快照 · ${escapeHtml(s.name)}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-tabs" style="padding:7px 14px;">
+            <button class="upp-tab ${tab === 'char' ? 'active' : ''}" data-bind-tab="char"><span>按角色绑定</span></button>
+            <button class="upp-tab ${tab === 'chat' ? 'active' : ''}" data-bind-tab="chat"><span>按角色扫描聊天档</span></button>
+          </div>
+          <div class="upp-drawer-body">
+            ${(boundChats.length || boundChars.length) ? `
+              <div class="upp-card" style="padding:8px 10px;gap:6px;">
+                <div class="upp-sec-title" style="margin:0;"><span>此快照已绑定（点 × 快速解绑）</span><span>${boundChars.length + boundChats.length} 项</span></div>
+                <div class="upp-row">
+                  ${boundChars.map(cid => `<button type="button" class="upp-pill active" data-bind-toggle-char="${escapeHtml(cid)}" title="点击解绑该角色">角色: ${escapeHtml(charNameById.get(cid) || cid)} ×</button>`).join('')}
+                  ${boundChats.map(chatId => `<button type="button" class="upp-pill active" data-bind-toggle-chat="${escapeHtml(chatId)}" title="点击解绑该聊天档">聊天: ${escapeHtml(chatId)} ×</button>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+            ${(state.chatId || state.charInfo.id) ? `
+              <div class="upp-row">
+                ${state.chatId ? `<button type="button" class="upp-btn ${isCurChat ? 'danger' : ''}" data-bind-toggle-chat="${escapeHtml(state.chatId)}">${isCurChat ? '解绑当前聊天' : '快捷绑定当前聊天'}</button>` : ''}
+                ${state.charInfo.id ? `<button type="button" class="upp-btn ${isCurChar ? 'danger' : ''}" data-bind-toggle-char="${escapeHtml(state.charInfo.id)}">${isCurChar ? '解绑当前角色' : '快捷绑定当前角色'}</button>` : ''}
+              </div>
+            ` : ''}
+            ${tab === 'char' ? `
+              <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+                ${ICONS.search}
+                <input type="text" id="upp-bind-char-search" placeholder="搜索角色名称，可绑定角色默认或点击扫聊天档…" value="${escapeHtml(d.charQuery || '')}" />
+              </div>
+              <div class="upp-pop-list is-fill" id="upp-bind-char-list"></div>
+            ` : `
+              <div class="upp-row">
+                <select class="upp-select" id="upp-bind-chat-char-sel" style="flex:1;max-width:none;">
+                  <option value="">选择角色扫描其聊天档…</option>
+                  ${(d.allChars || []).filter(c => c.avatar).map(c => `<option value="${escapeHtml(c.avatar)}" ${d.scanCharAvatar === c.avatar ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                </select>
+                <button type="button" class="upp-btn" id="upp-bind-rescan-btn" ${d.scanCharAvatar ? '' : 'disabled'}>${ICONS.refresh}<span>扫描</span></button>
+              </div>
+              <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+                ${ICONS.search}
+                <input type="text" id="upp-bind-chat-search" placeholder="筛选聊天档名称或消息片段…" value="${escapeHtml(d.chatQuery || '')}" />
+              </div>
+              <div class="upp-pop-list is-fill" id="upp-bind-chat-list"></div>
+            `}
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn primary" data-drawer-close>完成</button>
+          </div>
+        </div>
+      `;
+      if (tab === 'char') renderBindCharList(d);
+      else renderBindChatList(d);
       return;
     }
 
@@ -3318,12 +3641,13 @@ function initExtension() {
     if (d.type === 'mergePersonas') {
       const dupGroups = detectProliferatedPersonas(state.personas);
       const keepId = d.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
+      const keepObj = state.personas.find(p => p.avatar_id === keepId);
       const absorbSet = new Set(d.absorbIds || []);
       const orphans = Array.isArray(d.orphanAvatars) ? d.orphanAvatars : [];
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
-            <span>整理同名与旧分身 User</span>
+            <span>整理同名与换姓分身</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
@@ -3335,30 +3659,27 @@ function initExtension() {
             ` : ''}
             ${dupGroups.length ? `
               <div class="upp-field">
-                <label>快速选中检测到的相似分身组</label>
+                <label>快速切到相似分身组</label>
                 <div class="upp-pill-strip">
                   ${dupGroups.map((g, idx) => `<button type="button" class="upp-pill" data-merge-preset-group="${idx}">${escapeHtml(g.baseName)}（${g.items.length}）</button>`).join('')}
                 </div>
               </div>
             ` : ''}
             <div class="upp-field">
-              <label>保留的主 User</label>
-              <select class="upp-select" id="upp-merge-keep" style="max-width:none;width:100%;">
-                ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-              </select>
-            </div>
-            <div class="upp-field">
-              <label>勾选要收回为内部描述版本的旧分身</label>
-              <div class="upp-pop-list">
-                ${state.personas.filter(p => p.avatar_id !== keepId).map(p => `
-                  <label class="upp-check-item" style="border:none;background:transparent;padding:5px 6px;">
-                    <input type="checkbox" data-merge-absorb="${escapeHtml(p.avatar_id)}" ${absorbSet.has(p.avatar_id) ? 'checked' : ''} />
-                    <span style="font-weight:550;">${escapeHtml(p.name)}</span>
-                    <span class="upp-card-meta" style="margin-left:auto;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((p.description || '').replace(/\s+/g, ' ').slice(0, 36) || '空描述')}</span>
-                  </label>
-                `).join('') || '<div class="upp-card-meta" style="padding:8px;">没有其他可合并的 User</div>'}
+              <div class="upp-sec-title" style="margin:0;">
+                <span>保留的主 User（其他勾选项会收进它的内部版本）</span>
+                ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-merge-keep-preview-btn">${d.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
               </div>
+              <select class="upp-select" id="upp-merge-keep" style="max-width:none;width:100%;">
+                ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}（${String(p.description || '').length} 字）</option>`).join('')}
+              </select>
+              ${keepObj && d.showKeepPreview ? `<pre class="upp-inline-pre" style="max-height:150px;">${escapeHtml(keepObj.description || '（主 User 暂无描述）')}</pre>` : ''}
             </div>
+            <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+              ${ICONS.search}
+              <input type="text" id="upp-merge-search" placeholder="筛选分身名称或正文关键词（重合项已自动置顶）…" value="${escapeHtml(d.query || '')}" />
+            </div>
+            <div class="upp-pop-list is-fill" id="upp-merge-candidate-list"></div>
             <label class="upp-check-item">
               <input type="checkbox" id="upp-merge-delete-old" ${d.deleteOld ? 'checked' : ''} />
               <span>收回后同时从酒馆删除已选中的旧分身</span>
@@ -3370,6 +3691,7 @@ function initExtension() {
           </div>
         </div>
       `;
+      renderMergeCandidateList(d);
       return;
     }
 
@@ -3789,6 +4111,59 @@ function initExtension() {
     if (state.open) await refreshAll(true);
   }
 
+  function openConfirmOverwriteDrawer(sid) {
+    const snap = state.store.snapshots.find(x => x.id === sid);
+    if (!snap) return;
+    state.drawer = { type: 'confirmOverwrite', snapshot: snap };
+    renderDrawer();
+  }
+
+  async function scanChatsIntoBindDrawer(d, avatar) {
+    d.scanCharAvatar = avatar || '';
+    d.scannedChats = [];
+    d.chatsError = '';
+    if (!d.scanCharAvatar) {
+      d.chatsLoading = false;
+      renderBindChatList(d);
+      return;
+    }
+    d.chatsLoading = true;
+    renderBindChatList(d);
+    try {
+      const list = await Host.listCharacterChats(d.scanCharAvatar);
+      if (state.drawer === d) {
+        d.scannedChats = list;
+        d.chatsLoading = false;
+        renderBindChatList(d);
+      }
+    } catch (err) {
+      if (state.drawer === d) {
+        d.chatsLoading = false;
+        d.chatsError = err?.message || '扫描聊天记录失败';
+        renderBindChatList(d);
+      }
+    }
+  }
+
+  function openBindSnapshotDrawer(snap) {
+    if (!snap) return;
+    const allChars = Host.listAllCharacters();
+    const d = {
+      type: 'bindSnapshot',
+      snapshot: snap,
+      bindTab: 'char',
+      allChars,
+      charQuery: '',
+      scanCharAvatar: state.charInfo.avatar || '',
+      chatQuery: '',
+      scannedChats: [],
+      chatsLoading: false,
+      chatsError: '',
+    };
+    state.drawer = d;
+    renderDrawer();
+  }
+
   async function overwriteSnapshotById(sid) {
     const idx = state.store.snapshots.findIndex(x => x.id === sid);
     if (idx < 0) return;
@@ -3827,7 +4202,7 @@ function initExtension() {
     const t = ev.target;
     if (t.closest('#upp-foot-save-snap-btn')) { openSaveSnapshotDrawer(); return; }
     const updBtn = t.closest('#upp-foot-update-btn');
-    if (updBtn) await overwriteSnapshotById(updBtn.getAttribute('data-snap-update'));
+    if (updBtn) openConfirmOverwriteDrawer(updBtn.getAttribute('data-snap-update'));
   });
 
   elTabs.addEventListener('click', async ev => {
@@ -3891,7 +4266,7 @@ function initExtension() {
         absorbIds = g.items.filter(x => x.avatar_id !== keepId).map(x => x.avatar_id);
       }
       const orphanAvatars = await Host.listOrphanAvatars();
-      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false, orphanAvatars };
+      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false, orphanAvatars, query: '', previewIds: new Set(), showKeepPreview: false };
       renderDrawer(); return;
     }
 
@@ -4047,11 +4422,11 @@ function initExtension() {
       return;
     }
     const updBtn = t.closest('[data-snap-update]');
-    if (updBtn) { await overwriteSnapshotById(updBtn.getAttribute('data-snap-update')); return; }
+    if (updBtn) { openConfirmOverwriteDrawer(updBtn.getAttribute('data-snap-update')); return; }
     const bindBtn = t.closest('[data-snap-bind]');
     if (bindBtn) {
       const snap = state.store.snapshots.find(x => x.id === bindBtn.getAttribute('data-snap-bind'));
-      if (snap) { state.drawer = { type: 'bindSnapshot', snapshot: snap }; renderDrawer(); }
+      if (snap) openBindSnapshotDrawer(snap);
       return;
     }
     const delBtn = t.closest('[data-snap-del]');
@@ -4304,6 +4679,15 @@ function initExtension() {
       renderBookPickerList(d);
       return;
     }
+    if (d.type === 'mergePersonas' && ev.target.id === 'upp-merge-search') {
+      d.query = ev.target.value;
+      renderMergeCandidateList(d);
+      return;
+    }
+    if (d.type === 'bindSnapshot') {
+      if (ev.target.id === 'upp-bind-char-search') { d.charQuery = ev.target.value; renderBindCharList(d); return; }
+      if (ev.target.id === 'upp-bind-chat-search') { d.chatQuery = ev.target.value; renderBindChatList(d); return; }
+    }
     if (d.type === 'presetSync' && ev.target.id === 'upp-ps-ov-search') {
       const pos = ev.target.selectionStart;
       d.overrideSearch = ev.target.value;
@@ -4414,6 +4798,13 @@ function initExtension() {
       else if (ev.target.id === 'upp-diff-right') { d.rightId = ev.target.value; renderDrawer(); }
       return;
     }
+    if (d.type === 'bindSnapshot' && ev.target.id === 'upp-bind-chat-char-sel') {
+      const avatar = ev.target.value || '';
+      const rescanBtn = shadow.getElementById('upp-bind-rescan-btn');
+      if (rescanBtn) rescanBtn.disabled = !avatar;
+      void scanChatsIntoBindDrawer(d, avatar);
+      return;
+    }
     if (d.type === 'mergePersonas') {
       if (ev.target.id === 'upp-merge-keep') {
         d.keepId = ev.target.value;
@@ -4424,6 +4815,7 @@ function initExtension() {
         const set = new Set(d.absorbIds || []);
         if (ev.target.checked) set.add(aid); else set.delete(aid);
         d.absorbIds = Array.from(set);
+        ev.target.closest('.upp-merge-row')?.classList.toggle('is-checked', ev.target.checked);
         const btn = shadow.getElementById('upp-merge-run-btn');
         if (btn) { btn.disabled = !set.size; btn.textContent = `收回 ${set.size} 个分身`; }
       } else if (ev.target.id === 'upp-merge-delete-old') {
@@ -4983,18 +5375,64 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'confirmOverwrite') {
+      if (t.closest('#upp-confirm-overwrite-btn')) {
+        const sid = d.snapshot.id;
+        state.drawer = null;
+        await overwriteSnapshotById(sid);
+        return;
+      }
+      return;
+    }
+
     if (d.type === 'bindSnapshot') {
       const sid = d.snapshot.id;
-      if (t.closest('#upp-bind-chat-btn') && state.chatId) {
-        if (state.store.bindings.chats[state.chatId] === sid) delete state.store.bindings.chats[state.chatId];
-        else state.store.bindings.chats[state.chatId] = sid;
-        persistStore(state.store); render(); return;
+      const tabBtn = t.closest('[data-bind-tab]');
+      if (tabBtn) {
+        d.bindTab = tabBtn.getAttribute('data-bind-tab') || 'char';
+        renderDrawer();
+        if (d.bindTab === 'chat' && d.scanCharAvatar && !d.scannedChats.length && !d.chatsLoading) {
+          void scanChatsIntoBindDrawer(d, d.scanCharAvatar);
+        }
+        return;
       }
-      if (t.closest('#upp-bind-char-btn') && state.charInfo.id) {
-        if (state.store.bindings.characters[state.charInfo.id] === sid) delete state.store.bindings.characters[state.charInfo.id];
-        else state.store.bindings.characters[state.charInfo.id] = sid;
-        persistStore(state.store); render(); return;
+      const scanBtn = t.closest('[data-bind-scan-char]');
+      if (scanBtn) {
+        const avatar = scanBtn.getAttribute('data-bind-scan-char') || '';
+        d.bindTab = 'chat';
+        d.scanCharAvatar = avatar;
+        d.chatQuery = '';
+        renderDrawer();
+        void scanChatsIntoBindDrawer(d, avatar);
+        return;
       }
+      if (t.closest('#upp-bind-rescan-btn') && d.scanCharAvatar) {
+        void scanChatsIntoBindDrawer(d, d.scanCharAvatar);
+        return;
+      }
+      const toggleCharBtn = t.closest('[data-bind-toggle-char]');
+      if (toggleCharBtn) {
+        const cid = toggleCharBtn.getAttribute('data-bind-toggle-char');
+        if (cid) {
+          if (state.store.bindings.characters[cid] === sid) delete state.store.bindings.characters[cid];
+          else state.store.bindings.characters[cid] = sid;
+          persistStore(state.store);
+          render();
+        }
+        return;
+      }
+      const toggleChatBtn = t.closest('[data-bind-toggle-chat]');
+      if (toggleChatBtn) {
+        const chatId = toggleChatBtn.getAttribute('data-bind-toggle-chat');
+        if (chatId) {
+          if (state.store.bindings.chats[chatId] === sid) delete state.store.bindings.chats[chatId];
+          else state.store.bindings.chats[chatId] = sid;
+          persistStore(state.store);
+          render();
+        }
+        return;
+      }
+      return;
     }
 
     if (d.type === 'savePersonaVersion' && state.currentPersona) {
@@ -5044,6 +5482,25 @@ function initExtension() {
     }
 
     if (d.type === 'mergePersonas') {
+      if (t.closest('#upp-merge-keep-preview-btn')) {
+        d.showKeepPreview = !d.showKeepPreview;
+        renderDrawer();
+        return;
+      }
+      const prevBtn = t.closest('[data-merge-preview]');
+      if (prevBtn) {
+        const aid = prevBtn.getAttribute('data-merge-preview');
+        if (aid) {
+          if (!d.previewIds) d.previewIds = new Set();
+          const listEl = shadow.getElementById('upp-merge-candidate-list');
+          const st = listEl ? listEl.scrollTop : 0;
+          if (d.previewIds.has(aid)) d.previewIds.delete(aid);
+          else d.previewIds.add(aid);
+          renderMergeCandidateList(d);
+          if (listEl) listEl.scrollTop = st;
+        }
+        return;
+      }
       if (t.closest('#upp-clean-orphans-btn')) {
         const list = Array.isArray(d.orphanAvatars) ? [...d.orphanAvatars] : [];
         let cleaned = 0;
@@ -5277,11 +5734,14 @@ function initExtension() {
           const isBound = bound && bound.snapshotId === s.id;
           return `
             <div class="upp-fab-snap-row ${isBound ? 'is-bound' : ''}">
-              <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="查看快照详情">
-                <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
-                ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+              <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="${escapeHtml(s.note ? `${s.name}：${s.note}` : '点击查看快照详情')}">
+                <div class="upp-fab-snap-top">
+                  <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
+                  ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+                </div>
+                ${s.note ? `<div class="upp-fab-snap-note">${escapeHtml(s.note)}</div>` : ''}
               </button>
-              <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}" title="应用此快照" aria-label="应用快照">${ICONS.play}</button>
+              <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}">应用</button>
             </div>
           `;
         }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">暂无快照，先保存一套吧</div>`}

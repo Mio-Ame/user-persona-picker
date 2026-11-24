@@ -1,7 +1,7 @@
-// Pure core logic for 快照管家 (Native SillyTavern Extension v7.6.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.7.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.6.0';
+export const APP_VERSION = '7.7.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
