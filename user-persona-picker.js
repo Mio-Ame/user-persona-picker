@@ -1,761 +1,480 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '5.1.0';
+  const APP_VERSION = '6.0.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
   const BUTTON_NAME = 'User人设';
-  const VAR_KEY = 'user_picker';
-  const LIB_BOOK = '__lib__';
-  const OPENING_BOOK = 'User·总控入口';
-  const STORE_KEY = 'userPersonaPicker.v5';
-  const LEGACY_STORE_KEY = 'userPersonaPicker.v4';
-  const KEY_SEP = '\u0000';
-
-  const BUILTIN_LIBRARY = [{"cat":"外貌与发色","title":"清冷美人","content":"五官清隽疏朗，眉眼线条干净利落，不笑时自带淡然疏离的距离感，笑起来反差格外明显。"},{"cat":"外貌与发色","title":"浓颜明艳","content":"五官立体深邃、眉眼浓郁有神，红唇雪肤对比鲜明，在人群里第一眼就很抓人视线。"},{"cat":"外貌与发色","title":"邻家甜妹","content":"脸型柔和讨喜，眼尾微圆，笑起来眉眼弯弯带软意，气质亲近自然、让人不自觉放软语气。"},{"cat":"外貌与发色","title":"元气少女","content":"神态鲜活明快，眼神清亮有光，情绪外露而真诚，举手投足带着轻盈的朝气。"},{"cat":"外貌与发色","title":"冷艳御姐","content":"骨相利落大气，眼型偏长带几分凌厉感，气质从容笃定，气场沉稳压得住场。"},{"cat":"外貌与发色","title":"清俊少年感","content":"轮廓清爽舒展，眉骨清晰，身材修长匀称，带着干净坦荡、不加修饰的少年气息。"},{"cat":"外貌与发色","title":"娇小纤细","content":"个子偏娇小，骨架纤细单薄，肩颈与腕骨线条秀气，在对方身边显得很需要照顾。"},{"cat":"外貌与发色","title":"高挑修长","content":"身材高挑匀称，肩背舒展、腿型笔直修长，站姿挺拔有存在感。"},{"cat":"外貌与发色","title":"黑长直","content":"留着一头顺滑乌黑的长直发，垂落肩背，衬得肤色更显白皙干净。"},{"cat":"外貌与发色","title":"波浪长卷发","content":"留着蓬松柔顺的长卷发，发尾自然垂卷，低头或转身时带着柔和的慵懒氛围。"},{"cat":"外貌与发色","title":"利落短发","content":"留着干净利落的短发，露出清晰的下颌线与颈侧线条，显得清爽有精神。"},{"cat":"外貌与发色","title":"浅色长发","content":"留着浅金、浅棕或银白系长发，光线照过时发丝泛着柔和光泽，视觉辨识度很高。"},{"cat":"穿搭与气质","title":"简约日常风","content":"穿衣偏爱剪裁利落的纯色基础款，注重版型与舒适度，干净清爽不过度堆砌配饰。"},{"cat":"穿搭与气质","title":"温柔知性风","content":"常穿针织、衬衫与柔和低饱和色系，举止从容得体，自带沉静温和的书卷气。"},{"cat":"穿搭与气质","title":"甜酷辣妹风","content":"擅长把明快剪裁与利落配饰混搭，既有精致明艳的一面，也带着随性洒脱的锋芒。"},{"cat":"穿搭与气质","title":"精致大小姐风","content":"衣着面料考究、细节精致，举止自带优渥教养养出的从容感，但不刻意炫耀。"},{"cat":"穿搭与气质","title":"松弛学院风","content":"偏爱卫衣、针织开衫、百褶裙或直筒裤等轻便单品，自然减龄、没有紧绷感。"},{"cat":"穿搭与气质","title":"古风雅致风","content":"衣袂飘逸、配色清雅，佩饰克制而有细节，行止间合乎古韵礼度而不失灵气。"},{"cat":"性格底色","title":"温柔体贴","content":"性格温和细腻，能敏锐察觉他人情绪并照顾分寸，说话轻声但心里有主见，不是无底线迁就。"},{"cat":"性格底色","title":"娇气爱撒娇","content":"有点小娇气，面对亲近的人习惯软声撒娇、求抱求哄，受委屈会眼眶泛红，顺毛哄两句就会心软。"},{"cat":"性格底色","title":"傲娇嘴硬","content":"嘴上爱逞强拌嘴、不肯轻易服软，其实心软护短，被直球夸奖或靠近时容易耳根发红。"},{"cat":"性格底色","title":"独立清醒","content":"情绪稳定、边界清晰，遇事冷静有判断力，不内耗也不轻易被言语画饼或道德绑架。"},{"cat":"性格底色","title":"呆萌迷糊","content":"日常偶尔慢半拍、带点天然的迷糊感，对弯弯绕绕反应不敏锐，但对在乎的事格外执着认真。"},{"cat":"性格底色","title":"社恐慢热","content":"面对陌生人拘谨话少、不喜多余寒暄，混熟并确认安全感后才会卸下防备露出柔软或话痨一面。"},{"cat":"性格底色","title":"活泼直球","content":"性格外向坦率，喜欢和不满都直接摆在明面上，不藏弯弯绕绕，聊天节奏明快自然。"},{"cat":"性格底色","title":"腹黑绿茶","content":"表面软糯无辜、很懂示弱拿捏情绪，心里却精明通透，擅长不动声色地把主动权握在手里。"},{"cat":"性格底色","title":"高冷少言","content":"平时话不多、表情克制，习惯用眼神和动作代替废话，只在真正在意的人面前展露细微偏爱。"},{"cat":"性格底色","title":"咸鱼摆烂","content":"随性松弛、能躺绝不站，对琐事佛系不内卷，人生最高优先级是吃好睡好和舒服自在。"},{"cat":"性格底色","title":"猫系若即若离","content":"像猫一样看心情亲近，需要空间时不爱被步步紧逼，放松时又会主动贴过来蹭一蹭。"},{"cat":"性格底色","title":"犬系粘人热情","content":"情绪热忱真诚，对喜欢的人藏不住开心，习惯主动贴近、分享日常和求夸求回应。"},{"cat":"性格底色","title":"毒舌心软","content":"嘴上吐槽犀利一针见血，真遇上事却总是第一个帮忙兜底，属于刀子嘴豆腐心。"},{"cat":"性格底色","title":"理智克制","content":"习惯先观察再表态，哪怕心动也会保持体面与分寸，情绪很少失控，越克制越显张力。"},{"cat":"恋爱与依恋","title":"粘人恋爱脑","content":"确认喜欢后会把对方放在很靠前的位置，喜欢频繁贴贴、报备日常，很吃偏爱与回应。"},{"cat":"恋爱与依恋","title":"慢热观察型","content":"不会因一时冲动交出真心，需要通过长期细节观察对方是否可靠，动心后反而极其长情。"},{"cat":"恋爱与依恋","title":"口是心非","content":"心里明明在意得要命，嘴上偏说“随便”“无所谓”，细微眼神和小动作却总会露馅。"},{"cat":"恋爱与依恋","title":"护短偏爱","content":"对外客气有礼，对认定的人极其护短，哪怕对方嘴硬也会不动声色地站在同一边。"},{"cat":"恋爱与依恋","title":"回避试探型","content":"害怕受伤与落空，关系一升温就容易下意识退半步试探，需要坚定而耐心的确认才敢靠近。"},{"cat":"恋爱与依恋","title":"占有欲偏强","content":"表面不动声色，心里却极在意唯一性，看到对方和旁人过近会安静吃醋或暗暗宣示存在感。"},{"cat":"恋爱与依恋","title":"情感洁癖","content":"对待感情纯粹认真，容不得含糊不清的暧昧与欺瞒，爱则全心投入，越界则干脆抽身。"},{"cat":"恋爱与依恋","title":"直球偏爱","content":"不玩推拉猜心，喜欢就会大方夸奖和靠近，用坦荡的态度把安全感直接递到对方手里。"},{"cat":"表达方式","title":"语气温软","content":"说话尾音偏轻偏软，即使生气也不大吼大叫，更像轻声控诉或冷着脸憋着不理人。"},{"cat":"表达方式","title":"话少精简","content":"开口言简意赅，不爱长篇大论解释，很多态度藏在停顿、目光和短句里。"},{"cat":"表达方式","title":"爱吐槽接梗","content":"反应快、有幽默感，擅长在紧张或暧昧气氛里冷不丁接一句俏皮吐槽打破僵局。"},{"cat":"表达方式","title":"爱撒娇拖尾音","content":"和熟人说话时偶尔会拖长尾音或软声喊人，自然娇憨而不做作。"},{"cat":"表达方式","title":"克制礼貌","content":"对不熟的人措辞客气周全，哪怕拒绝也带着礼貌的疏离，让人挑不出错却难再进一步。"},{"cat":"表达方式","title":"脑回路清奇","content":"思考角度偶尔跳脱出人意料，常在严肃场景里冒出认真又荒诞的直白结论。"},{"cat":"关系阶段","title":"初见陌生","content":"与{{char}}刚刚相识，彼此还停留在礼貌试探阶段，尚未建立亲密信任与越界习惯。"},{"cat":"关系阶段","title":"熟人暗恋","content":"与{{char}}原本相熟，关系里藏着尚未挑明的心动与试探，日常互动带着微妙的克制。"},{"cat":"关系阶段","title":"暧昧拉扯","content":"与{{char}}处于心照不宣的暧昧期，言语和肢体都在试探边界，谁都还没正式捅破那层纸。"},{"cat":"关系阶段","title":"热恋交往","content":"已与{{char}}正式确定恋爱关系，相处自然亲密，习惯彼此的陪伴、偏爱与日常小腻歪。"},{"cat":"关系阶段","title":"欢喜冤家","content":"与{{char}}平时见面就爱互相斗嘴拆台，表面针锋相对，真遇上事却最护着对方。"},{"cat":"关系阶段","title":"冷战僵持","content":"与{{char}}因误会或分歧正在冷战，表面各自端着架子不肯先低头，暗地里却都在意对方动静。"},{"cat":"关系阶段","title":"分手前任","content":"曾与{{char}}有过一段认真感情但已分手，再次照面时熟悉感与疏离感并存，旧账未清。"},{"cat":"关系阶段","title":"破镜重圆","content":"与{{char}}分开一段时间后再度重逢，彼此都有成长与未尽的情意，旧情与心结交织拉扯。"},{"cat":"关系阶段","title":"契约关系","content":"与{{char}}因约定或利益结成契约关系，台面上按协议各取所需，私下界限却在悄然松动。"},{"cat":"关系阶段","title":"已婚同居","content":"已与{{char}}领证结婚并同居生活，熟悉彼此生活习惯，兼具琐碎烟火气与亲密默契。"},{"cat":"背景身份","title":"在校学生","content":"当前身份为在校大学生或研究生，生活围绕校园、学业、社团与年轻人的日常展开。"},{"cat":"背景身份","title":"职场新人","content":"初入职场不久，经济独立、努力适应社会节奏，偶尔会因工作疲惫但仍保留鲜活劲头。"},{"cat":"背景身份","title":"独立从业者","content":"从事自由职业、设计、创作或独立经营，时间相对灵活，有自己的专业底气与生活秩序。"},{"cat":"背景身份","title":"豪门世家","content":"出身优渥的豪门家庭，自小受过良好教养，见识开阔、处事从容，低调但不缺底气。"},{"cat":"背景身份","title":"普通温馨家庭","content":"成长于普通和睦的家庭，三观端正、内心有底气，懂得珍惜日常烟火与真诚待人。"},{"cat":"背景身份","title":"古风世家","content":"身处古代背景，出身书香或勋贵之家，知礼守度却不迂腐，言行藏着自己的玲珑心思。"},{"cat":"背景身份","title":"西幻冒险者","content":"身处剑与魔法的奇幻世界，具备一定自保与探索能力，游历于城镇、学院或秘境之间。"},{"cat":"背景身份","title":"修仙宗门","content":"身处修真世界，为宗门弟子或散修，日常修行历练，兼顾道心、师门与红尘因果。"},{"cat":"互动规则","title":"禁止代写User言行","isRule":true,"content":"严格禁止替{{user}}描写对话、动作、神态、心理活动或擅自替{{user}}做决定，所有反应留给{{user}}本人。"},{"cat":"互动规则","title":"尊重User自主权","isRule":true,"content":"{{char}}不得无视{{user}}的拒绝或单方面包办剧情走向，关键节点必须留出回应与选择空间。"},{"cat":"互动规则","title":"称呼自然少喊全名","isRule":true,"content":"关系亲近后称呼自然贴合语境，非严肃、生疏或生气场合不频繁生硬地连名带姓喊全名。"},{"cat":"互动规则","title":"保持角色本色","isRule":true,"content":"{{char}}始终保持原有性格、立场与说话习惯，不因迎合{{user}}而突然变得谄媚或失去个性。"},{"cat":"互动规则","title":"不擅自推进亲密进度","isRule":true,"content":"感情与肢体亲密须随剧情自然铺垫，未经{{user}}回应或默许不突然跳过阶段强行升级。"},{"cat":"互动规则","title":"重动作与细节描写","isRule":true,"content":"多通过具体动作、微表情、语气停顿与环境细节展现情绪，少用空洞抽象的心理总结。"},{"cat":"互动规则","title":"允许自然拉扯与分歧","isRule":true,"content":"互动中允许存在观念差异、轻微试探与情绪拉扯，不必每句话都顺着说或强行圆场。"},{"cat":"互动规则","title":"避免说教与总结腔","isRule":true,"content":"对话与叙述保持自然生活感，避免结尾升华总结、人生道理说教或反复复述前文。"}];
-  const CONFLICT_GROUPS = [{"id":"body_size","label":"体型身高","items":["娇小纤细","高挑修长"]},{"id":"hair_len","label":"发型冲突","items":["黑长直","波浪长卷发","利落短发"]},{"id":"hair_color","label":"发色冲突","items":["黑长直","浅色长发"]},{"id":"vibe","label":"外貌气质","items":["清冷美人","邻家甜妹","元气少女","冷艳御姐","清俊少年感"]},{"id":"social","label":"社交性格","items":["社恐慢热","活泼直球"]},{"id":"talk","label":"话量冲突","items":["高冷少言","活泼直球"]},{"id":"speech","label":"表达冲突","items":["话少精简","爱吐槽接梗"]},{"id":"love_style","label":"恋爱态度","items":["直球偏爱","口是心非","回避试探型"]},{"id":"stage_core","label":"关系阶段","items":["初见陌生","熟人暗恋","暧昧拉扯","热恋交往","分手前任","已婚同居"]},{"id":"era","label":"时代世界观","items":["在校学生","职场新人","古风世家","西幻冒险者","修仙宗门"]}];
-
-  // Worldbook EJS renders pre-formatted text if provided, or pulls live worldbook entries cleanly
-  const OPENING_BODY_EJS = [
-    '<%_',
-    'const _getPick = function () {',
-    '  let raw = null;',
-    "  try { if (typeof getLocalVar === 'function') raw = getLocalVar('user_picker'); } catch (e) {}",
-    '  if (raw == null) {',
-    "    try { if (typeof getvar === 'function') raw = getvar('user_picker', { scope: 'local' }); } catch (e) {}",
-    '  }',
-    "  if (typeof raw === 'string') {",
-    '    try { raw = JSON.parse(raw); } catch (e) { raw = {}; }',
-    '  }',
-    "  return (raw && typeof raw === 'object') ? raw : {};",
-    '};',
-    'const _fmtBlock = function (title, content) {',
-    "  const c = String(content || '').trim();",
-    '  if (!c) return "";',
-    '  const first = c.split(/\r?\n/)[0].trim();',
-    '  if (/^#/.test(first) || /^【.+】/.test(first) || /^[^\s:#]+:\s*$/.test(first)) return c;',
-    '  return title ? ("【" + title + "】\n" + c) : c;',
-    '};',
-    'const _pk = _getPick();',
-    'const _list = Array.isArray(_pk.wi) ? _pk.wi : [];',
-    'const _body = [], _rules = [];',
-    "if (typeof _pk.profileText === 'string' && _pk.profileText.trim()) _body.push(_pk.profileText.trim());",
-    'for (let _i = 0; _i < _list.length; _i++) {',
-    '  const _it = _list[_i] || {};',
-    "  if (_it.title === '红线') continue;",
-    '  let _c = "";',
-    "  if (typeof _it.text === 'string' && _it.text.trim()) _c = _it.text;",
-    '  else if (_it.book && _it.title) _c = await getwi(_it.book, _it.title);',
-    '  if (!_c) continue;',
-    "  if (_c.indexOf('[未找到') >= 0 || _c.indexOf('〔未找到') >= 0) continue;",
-    '  const _block = _fmtBlock(_it.title, _c);',
-    '  if (_it.isRule || /^(写作约束|演绎准则)/.test(_it.title || "")) _rules.push(_block); else _body.push(_block);',
-    '}',
-    '_%><% if (_body.length) { %><USER人设>',
-    '以下是 {{user}} 的设定，只属于 {{user}}，禁止混淆 {{user}} 与 {{char}}。',
-    "<%- _body.join('\n\n') %>",
-    '</USER人设>',
-    '<% } %><% if (_rules.length) { %><USER写作规则>',
-    "<%- _rules.join('\n\n') %>",
-    '</USER写作规则>',
-    '<% } %>',
-  ].join('\n');
-
-  const OPENING_REDLINE_EJS = [
-    '<%_',
-    'const _pk2 = (function () {',
-    '  let raw = null;',
-    "  try { if (typeof getLocalVar === 'function') raw = getLocalVar('user_picker'); } catch (e) {}",
-    '  if (raw == null) {',
-    "    try { if (typeof getvar === 'function') raw = getvar('user_picker', { scope: 'local' }); } catch (e) {}",
-    '  }',
-    "  if (typeof raw === 'string') {",
-    '    try { raw = JSON.parse(raw); } catch (e) { raw = {}; }',
-    '  }',
-    "  return (raw && typeof raw === 'object') ? raw : {};",
-    '})();',
-    'const _l2 = Array.isArray(_pk2.wi) ? _pk2.wi : [];',
-    'let _hit = null;',
-    "for (let _j = 0; _j < _l2.length; _j++) { if (_l2[_j] && _l2[_j].title === '红线') { _hit = _l2[_j]; break; } }",
-    'let _red = "";',
-    "if (_hit) { _red = _hit.text || (_hit.book ? await getwi(_hit.book, '红线') : ''); }",
-    "const _redSafe = (_red && _red.indexOf('[未找到') < 0 && _red.indexOf('〔未找到') < 0) ? _red : '';",
-    '_%><%- _redSafe %>',
-  ].join('\n');
+  const GLOBAL_VAR_KEY = 'upp_v6_store';
+  const LOCAL_STORE_KEY = 'userPersonaPicker.v6';
 
   // =========================
   // Pure Core (Testable)
   // =========================
 
-  function itemKey(book, title) {
-    return String(book || '') + KEY_SEP + String(title || '');
+  function uid(prefix) {
+    return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
   }
 
-  function parseKey(key) {
-    const str = String(key || '');
-    const idx = str.indexOf(KEY_SEP);
-    if (idx < 0) return { book: '', title: str };
-    return { book: str.slice(0, idx), title: str.slice(idx + 1) };
+  function clone(obj) {
+    if (obj === null || obj === undefined) return obj;
+    try { return JSON.parse(JSON.stringify(obj)); } catch (_) { return obj; }
   }
 
-  function normalizeName(name) {
-    return String(name ?? '').normalize('NFKC').trim();
+  function normalizeText(str) {
+    return String(str || '').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').toLowerCase();
   }
 
-  function sanitizeCharName(name) {
-    const clean = normalizeName(name);
-    if (!clean) return '';
-    if (/^SillyTavern\s+System$/i.test(clean) || /^System$/i.test(clean)) return '';
-    return clean;
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
-  function stripTrailingDigits(name) {
-    return normalizeName(name).replace(/\d+$/, '').trim();
-  }
-
-  function parseBracketTitle(title) {
-    const m = String(title || '').match(/^(?:【([^】]+)】|\[([^\]]+)\])(.*)$/);
-    if (!m) return null;
-    return { tag: (m[1] || m[2] || '').trim(), shortTitle: (m[3] || '').trim(), fullTitle: String(title) };
-  }
-
-  function matchesChar(title, currentChar) {
-    const c = sanitizeCharName(currentChar);
-    if (!c) return false;
-    const bracket = parseBracketTitle(title);
-    if (bracket) {
-      const t = normalizeName(bracket.tag);
-      if (!t || t === '通用' || t === '模板') return false;
-      if (t === c) return true;
-      const tb = stripTrailingDigits(t);
-      const cb = stripTrailingDigits(c);
-      if (tb && cb && tb === cb) return true;
-      if (tb.length >= 2 && cb.length >= 2 && (cb.startsWith(tb) || tb.startsWith(cb))) return true;
-      return false;
-    }
-    const nt = normalizeName(title);
-    const cb = stripTrailingDigits(c);
-    return nt.includes(c) || (cb.length >= 2 && nt.includes(cb));
-  }
-
-  // Smart unit completion for structured basic profile fields (e.g. "20" -> "20岁", "162" -> "162cm")
-  function formatAge(raw) {
-    const s = normalizeName(raw);
-    if (!s) return '';
-    if (/^\d+(?:\.\d+)?$/.test(s)) return s + '岁';
-    return s;
-  }
-
-  function formatHeight(raw) {
-    const s = normalizeName(raw);
-    if (!s) return '';
-    if (/^\d{2,3}(?:\.\d+)?$/.test(s)) return s + 'cm';
-    if (/^1\.\d{1,2}$/.test(s)) return Math.round(Number(s) * 100) + 'cm';
-    return s;
-  }
-
-  function createEmptyProfile() {
-    return { name: '', gender: '', age: '', height: '', role: '', traits: '' };
-  }
-
-  function normalizeProfile(raw) {
-    const base = createEmptyProfile();
-    if (!raw || typeof raw !== 'object') return base;
-    for (const k of Object.keys(base)) {
-      if (typeof raw[k] === 'string') base[k] = raw[k].trim();
-    }
-    return base;
-  }
-
-  function hasProfileData(profile) {
-    if (!profile) return false;
-    return Object.values(profile).some(v => typeof v === 'string' && v.trim().length > 0);
-  }
-
-  function formatProfileBlock(profile, outputFormat) {
-    const p = normalizeProfile(profile);
-    const age = formatAge(p.age);
-    const height = formatHeight(p.height);
-    const fields = [];
-    if (p.name) fields.push(['姓名', p.name]);
-    if (p.gender) fields.push(['性别', p.gender]);
-    if (age) fields.push(['年龄', age]);
-    if (height) fields.push(['身高', height]);
-    if (p.role) fields.push(['身份', p.role]);
-    if (p.traits) fields.push(['外貌与特征', p.traits]);
-    if (!fields.length) return '';
-
-    if (outputFormat === 'prose') {
-      const parts = [];
-      if (p.name) parts.push('姓名' + p.name);
-      if (p.gender) parts.push(p.gender);
-      if (age) parts.push(age);
-      if (height) parts.push('身高' + height);
-      if (p.role) parts.push('身份为' + p.role);
-      const head = parts.length ? parts.join('，') + '。' : '';
-      const tail = p.traits ? (head ? '\n' : '') + '特征：' + p.traits : '';
-      return '【基础信息】\n' + head + tail;
-    }
-
-    // Both 'yaml' and 'hybrid' use clean YAML for structured basic info
-    return '基础信息:\n' + fields.map(([k, v]) => '  ' + k + ': ' + v).join('\n');
-  }
-
-  function isYamlLike(content) {
-    const first = String(content || '').trim().split(/\r?\n/)[0].trim();
-    return /^[^\s:#]+:\s*$/.test(first) || /^[^\s:#]+:\s+\S/.test(first);
-  }
-
-  function formatEntryForStyle(title, content, outputFormat) {
-    const c = String(content || '').trim();
-    if (!c) return '';
-    const first = c.split(/\r?\n/)[0].trim();
-    const alreadyStructured = /^#/.test(first) || /^【.+】/.test(first) || /^[^\s:#]+:\s*$/.test(first);
-
-    if (outputFormat === 'yaml') {
-      if (isYamlLike(c)) return c;
-      const lines = c.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length === 1) return title + ': ' + lines[0];
-      return title + ':\n' + lines.map(l => '  - ' + l).join('\n');
-    }
-
-    if (outputFormat === 'prose') {
-      if (alreadyStructured) return c;
-      return '【' + title + '】\n' + c;
-    }
-
-    // 'hybrid': preserve YAML/heading entries verbatim; cleanly format plain prose with bracket header
-    if (alreadyStructured) return c;
-    return '【' + title + '】\n' + c;
-  }
-
-  // Detect conflicts among selected entries (returns [{ id, label, keys, titles }])
-  function detectConflicts(selectedSet) {
-    const selectedOrder = [...selectedSet];
-    const titleToKeys = new Map();
-    for (const k of selectedOrder) {
-      const { title } = parseKey(k);
-      if (!titleToKeys.has(title)) titleToKeys.set(title, []);
-      titleToKeys.get(title).push(k);
-    }
-
-    const conflicts = [];
-    for (const g of CONFLICT_GROUPS) {
-      const matched = [];
-      for (const t of g.items) {
-        const ks = titleToKeys.get(t);
-        if (ks && ks.length) {
-          for (const k of ks) matched.push({ key: k, title: t, order: selectedOrder.indexOf(k) });
-        }
-      }
-      if (matched.length >= 2) {
-        matched.sort((a, b) => a.order - b.order);
-        conflicts.push({
-          id: g.id,
-          label: g.label,
-          keys: matched.map(m => m.key),
-          titles: matched.map(m => m.title),
-          latestKey: matched[matched.length - 1].key,
-        });
-      }
-    }
-    return conflicts;
-  }
-
-  function resolveConflictsKeepLatest(selectedSet) {
-    const conflicts = detectConflicts(selectedSet);
-    const next = new Set(selectedSet);
-    for (const c of conflicts) {
-      for (const k of c.keys) {
-        if (k !== c.latestKey) next.delete(k);
-      }
-    }
-    return next;
-  }
-
-  function parseRgb(colorStr) {
-    const s = String(colorStr || '').trim();
-    let m = s.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i);
-    if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
-    m = s.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-    if (m) {
-      const hex = m[1];
-      if (hex.length === 3) {
-        return [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16)];
-      }
-      return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
-    }
-    return null;
-  }
-
-  function inferThemeFromTextColor(colorStr, hasLightGlassTokens) {
-    if (hasLightGlassTokens) return 'light';
-    const rgb = parseRgb(colorStr);
-    if (!rgb) return 'light';
-    const lum = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
-    return lum < 0.55 ? 'light' : 'dark';
-  }
-
-  function createDefaultStore() {
+  function createEmptyStore() {
     return {
-      v: 5,
-      outputFormat: 'hybrid', // 'hybrid' | 'yaml' | 'prose'
-      defaultPresetId: '',
-      recentBooks: [],
-      customCategories: ['我的自定义'],
-      customEntries: [], // [{ id, cat, title, content, isRule? }]
-      builtinEdits: {},
-      profile: createEmptyProfile(),
-      presets: [], // [{ id, label, items, profile, outputFormat }]
-      lastItems: [],
-      personaBackup: null,
+      version: 6,
+      settings: {
+        autoApplyBindings: true,
+        pinnedWorldbooks: [],
+        collapsedGroups: {},
+      },
+      personaVersions: {},
+      snapshots: [],
+      bindings: {
+        chats: {},
+        characters: {},
+      },
     };
   }
 
-  function normalizeStore(raw) {
-    const base = createDefaultStore();
-    if (!raw || typeof raw !== 'object') return base;
-    if (raw.outputFormat === 'yaml' || raw.outputFormat === 'prose' || raw.outputFormat === 'hybrid') {
-      base.outputFormat = raw.outputFormat;
-    }
-    if (typeof raw.defaultPresetId === 'string') base.defaultPresetId = raw.defaultPresetId;
-    if (Array.isArray(raw.recentBooks)) {
-      base.recentBooks = [...new Set(raw.recentBooks.filter(x => typeof x === 'string' && x.trim()))].slice(0, 12);
-    }
-    if (Array.isArray(raw.customCategories)) {
-      const cats = [...new Set(raw.customCategories.map(x => String(x || '').trim()).filter(Boolean))];
-      base.customCategories = cats.length ? cats : ['我的自定义'];
-    }
-    if (Array.isArray(raw.customEntries)) {
-      const seen = new Set();
-      for (const e of raw.customEntries) {
-        if (!e || typeof e.title !== 'string' || !e.title.trim()) continue;
-        const title = e.title.trim();
-        if (seen.has(title)) continue;
-        seen.add(title);
-        const cat = typeof e.cat === 'string' && e.cat.trim() ? e.cat.trim() : base.customCategories[0];
-        if (!base.customCategories.includes(cat)) base.customCategories.push(cat);
-        base.customEntries.push({
-          id: typeof e.id === 'string' && e.id ? e.id : 'c_' + Date.now().toString(36) + '_' + seen.size,
-          cat,
-          title,
-          content: typeof e.content === 'string' ? e.content : '',
-          isRule: Boolean(e.isRule),
+  function sanitizePlainMap(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+    Object.keys(obj).forEach(k => {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
+      out[k] = obj[k];
+    });
+    return out;
+  }
+
+  function sanitizeBoolMap(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+    Object.keys(obj).forEach(k => {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
+      if (typeof obj[k] === 'boolean') out[k] = obj[k];
+    });
+    return out;
+  }
+
+  function sanitizeStore(raw) {
+    const base = createEmptyStore();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
+
+    const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
+    base.settings.autoApplyBindings = st.autoApplyBindings !== false;
+    base.settings.pinnedWorldbooks = Array.isArray(st.pinnedWorldbooks)
+      ? Array.from(new Set(st.pinnedWorldbooks.map(x => String(x || '').trim()).filter(Boolean)))
+      : [];
+    base.settings.collapsedGroups = sanitizeBoolMap(st.collapsedGroups);
+
+    const pvRaw = sanitizePlainMap(raw.personaVersions);
+    Object.keys(pvRaw).forEach(avatarId => {
+      const list = Array.isArray(pvRaw[avatarId]) ? pvRaw[avatarId] : [];
+      const cleanList = list
+        .filter(v => v && typeof v === 'object')
+        .map(v => ({
+          id: String(v.id || uid('pv')),
+          name: String(v.name || '未命名版本').slice(0, 60),
+          description: String(v.description || ''),
+          lorebook: typeof v.lorebook === 'string' ? v.lorebook : '',
+          updatedAt: Number(v.updatedAt) || Date.now(),
+        }));
+      if (cleanList.length) base.personaVersions[avatarId] = cleanList;
+    });
+
+    if (Array.isArray(raw.snapshots)) {
+      base.snapshots = raw.snapshots
+        .filter(s => s && typeof s === 'object' && typeof s.name === 'string')
+        .map(s => {
+          const sc = s.scope && typeof s.scope === 'object' ? s.scope : {};
+          const wbRaw = s.worldbooks && typeof s.worldbooks === 'object' ? s.worldbooks : null;
+          let cleanWb = null;
+          if (wbRaw) {
+            const entriesOut = {};
+            const eMap = sanitizePlainMap(wbRaw.entries);
+            Object.keys(eMap).forEach(bk => {
+              entriesOut[bk] = sanitizeBoolMap(eMap[bk]);
+            });
+            cleanWb = {
+              global: Array.isArray(wbRaw.global) ? wbRaw.global.map(String) : null,
+              char: wbRaw.char && typeof wbRaw.char === 'object'
+                ? {
+                    primary: wbRaw.char.primary ? String(wbRaw.char.primary) : null,
+                    additional: Array.isArray(wbRaw.char.additional) ? wbRaw.char.additional.map(String) : [],
+                  }
+                : null,
+              chat: typeof wbRaw.chat === 'string' ? wbRaw.chat : null,
+              entries: entriesOut,
+            };
+          }
+          const prRaw = s.preset && typeof s.preset === 'object' ? s.preset : null;
+          const rgRaw = s.regex && typeof s.regex === 'object' ? s.regex : null;
+          const psRaw = s.persona && typeof s.persona === 'object' ? s.persona : null;
+          return {
+            id: String(s.id || uid('snap')),
+            name: String(s.name || '未命名快照').slice(0, 60),
+            group: String(s.group || '').trim().slice(0, 30),
+            note: String(s.note || '').trim().slice(0, 120),
+            updatedAt: Number(s.updatedAt) || Date.now(),
+            scope: {
+              persona: sc.persona !== false && !!psRaw,
+              worldbooks: sc.worldbooks !== false && !!cleanWb,
+              preset: sc.preset !== false && !!prRaw,
+              regex: sc.regex !== false && !!rgRaw,
+            },
+            persona: psRaw
+              ? {
+                  avatarId: String(psRaw.avatarId || ''),
+                  name: String(psRaw.name || ''),
+                  versionId: psRaw.versionId ? String(psRaw.versionId) : '',
+                  versionName: psRaw.versionName ? String(psRaw.versionName) : '',
+                  description: typeof psRaw.description === 'string' ? psRaw.description : '',
+                  lorebook: typeof psRaw.lorebook === 'string' ? psRaw.lorebook : '',
+                }
+              : null,
+            worldbooks: cleanWb,
+            preset: prRaw
+              ? {
+                  name: String(prRaw.name || ''),
+                  prompts: sanitizeBoolMap(prRaw.prompts),
+                }
+              : null,
+            regex: rgRaw
+              ? {
+                  global: sanitizeBoolMap(rgRaw.global),
+                  character: sanitizeBoolMap(rgRaw.character),
+                  preset: sanitizeBoolMap(rgRaw.preset),
+                }
+              : null,
+          };
         });
-      }
     }
-    if (raw.builtinEdits && typeof raw.builtinEdits === 'object') {
-      for (const [k, v] of Object.entries(raw.builtinEdits)) {
-        if (typeof k === 'string' && typeof v === 'string') base.builtinEdits[k] = v;
-      }
-    }
-    if (raw.profile) base.profile = normalizeProfile(raw.profile);
-    if (Array.isArray(raw.presets)) {
-      for (let i = 0; i < raw.presets.length; i++) {
-        const p = raw.presets[i];
-        if (!p || typeof p !== 'object' || !Array.isArray(p.items)) continue;
-        const items = p.items
-          .filter(it => it && typeof it.book === 'string' && typeof it.title === 'string' && it.book && it.title)
-          .map(it => ({ book: it.book, title: it.title }));
-        base.presets.push({
-          id: typeof p.id === 'string' && p.id ? p.id : 'p_' + Date.now().toString(36) + '_' + i,
-          label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : '方案 ' + (i + 1),
-          items,
-          profile: p.profile ? normalizeProfile(p.profile) : createEmptyProfile(),
-          outputFormat: (p.outputFormat === 'yaml' || p.outputFormat === 'prose' || p.outputFormat === 'hybrid') ? p.outputFormat : 'hybrid',
-        });
-      }
-    }
-    const lastSrc = Array.isArray(raw.lastItems) ? raw.lastItems : raw.lastPersonaItems;
-    if (Array.isArray(lastSrc)) {
-      base.lastItems = lastSrc
-        .filter(it => it && typeof it.book === 'string' && typeof it.title === 'string' && it.book && it.title)
-        .map(it => ({ book: it.book, title: it.title }));
-    }
-    if (raw.personaBackup && typeof raw.personaBackup === 'object' && typeof raw.personaBackup.description === 'string') {
-      base.personaBackup = {
-        name: String(raw.personaBackup.name || ''),
-        description: raw.personaBackup.description,
-        savedAt: Number(raw.personaBackup.savedAt) || 0,
-      };
-    }
+
+    const bd = raw.bindings && typeof raw.bindings === 'object' ? raw.bindings : {};
+    const validIds = new Set(base.snapshots.map(s => s.id));
+    const chatsMap = sanitizePlainMap(bd.chats);
+    Object.keys(chatsMap).forEach(k => {
+      const v = String(chatsMap[k] || '');
+      if (v && validIds.has(v)) base.bindings.chats[k] = v;
+    });
+    const charsMap = sanitizePlainMap(bd.characters);
+    Object.keys(charsMap).forEach(k => {
+      const v = String(charsMap[k] || '');
+      if (v && validIds.has(v)) base.bindings.characters[k] = v;
+    });
+
     return base;
   }
 
-  function getBuiltinCategories() {
-    const cats = [];
-    for (const item of BUILTIN_LIBRARY) {
-      if (!cats.includes(item.cat)) cats.push(item.cat);
-    }
-    return cats;
+  function exportStoreJson(store) {
+    return JSON.stringify({
+      format: 'user-persona-snapshot-v6',
+      version: 6,
+      exportedAt: Date.now(),
+      data: sanitizeStore(store),
+    }, null, 2);
   }
 
-  function getAllCategories(store) {
-    const builtin = getBuiltinCategories();
-    const custom = (store.customCategories || []).filter(c => !builtin.includes(c));
-    return [...builtin, ...custom];
+  function parseImportJson(rawText) {
+    let parsed;
+    try { parsed = JSON.parse(String(rawText || '')); } catch (_) {
+      throw new Error('JSON 格式无效，请检查文件内容');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('备份文件结构无效');
+    }
+    if (parsed.format === 'user-persona-snapshot-v6' && parsed.data) {
+      return sanitizeStore(parsed.data);
+    }
+    if (parsed.version === 6 && (Array.isArray(parsed.snapshots) || parsed.personaVersions)) {
+      return sanitizeStore(parsed);
+    }
+    throw new Error('不是本插件导出的快照备份文件');
   }
 
-  function getEntriesForCategory(store, cat) {
-    const out = [];
-    for (const item of BUILTIN_LIBRARY) {
-      if (item.cat !== cat) continue;
-      const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
-        ? store.builtinEdits[item.title]
-        : item.content;
-      out.push({ book: LIB_BOOK, cat, title: item.title, content, isRule: Boolean(item.isRule), isCustom: false });
-    }
-    for (const e of store.customEntries || []) {
-      if (e.cat !== cat) continue;
-      out.push({ book: LIB_BOOK, cat, title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true });
-    }
-    return out;
-  }
+  // XML / Wrapper tag hygiene inspector (never mutates user content)
+  const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']);
 
-  function searchAllLibraryEntries(store, query) {
-    const q = normalizeName(query).toLocaleLowerCase();
-    if (!q) return [];
-    const out = [];
-    for (const cat of getAllCategories(store)) {
-      for (const item of getEntriesForCategory(store, cat)) {
-        if (normalizeName(item.title).toLocaleLowerCase().includes(q) || normalizeName(item.content).toLocaleLowerCase().includes(q)) {
-          out.push(item);
-        }
-      }
-    }
-    return out;
-  }
+  function analyzeEntryTags(content) {
+    const raw = String(content || '');
+    // Strip EJS blocks and HTML comments before tag check
+    const cleaned = raw.replace(/<%[\s\S]*?%>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+    const re = /<\s*(\/?)\s*([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+[^<>]*)?(\/?)\s*>/g;
+    const stack = [];
+    const unclosed = [];
+    const topWrappers = [];
+    let match;
 
-  function findLibraryEntry(store, title) {
-    for (const e of store.customEntries || []) {
-      if (e.title === title) return { cat: e.cat, title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true };
-    }
-    for (const item of BUILTIN_LIBRARY) {
-      if (item.title === title) {
-        const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
-          ? store.builtinEdits[item.title]
-          : item.content;
-        return { cat: item.cat, title: item.title, content, isRule: Boolean(item.isRule), isCustom: false };
-      }
-    }
-    return null;
-  }
+    while ((match = re.exec(cleaned)) !== null) {
+      const isClose = match[1] === '/';
+      const tagName = match[2];
+      const tagKey = tagName.toLowerCase();
+      const isSelf = match[3] === '/' || VOID_TAGS.has(tagKey);
+      if (isSelf) continue;
 
-  function filterWorldbookNames(bookNames, query) {
-    const q = normalizeName(query).toLocaleLowerCase();
-    if (!q) return bookNames;
-    return bookNames.filter(name => normalizeName(name).toLocaleLowerCase().includes(q));
-  }
-
-  function organizeWorldbookEntries(entries, currentChar, showAllChars, query) {
-    const q = normalizeName(query).toLocaleLowerCase();
-    const list = (entries || [])
-      .filter(e => e && typeof e.name === 'string' && e.name.trim())
-      .filter(e => !q || normalizeName(e.name).toLocaleLowerCase().includes(q) || normalizeName(e.content || '').toLocaleLowerCase().includes(q));
-
-    const bracketCount = list.filter(e => Boolean(parseBracketTitle(e.name))).length;
-    if (list.length >= 3 && bracketCount / list.length >= 0.4) {
-      const current = [], common = [], others = [];
-      for (const e of list) {
-        const b = parseBracketTitle(e.name);
-        if (b && b.tag === '模板') continue;
-        if (matchesChar(e.name, currentChar)) current.push(e);
-        else if ((b && b.tag === '通用') || /^通用[·\-\s_:：/]/.test(e.name)) common.push(e);
-        else others.push(e);
-      }
-      const sections = [];
-      if (current.length) sections.push({ cat: sanitizeCharName(currentChar) || '当前角色', stripBracket: true, items: current });
-      if (common.length) sections.push({ cat: '通用', stripBracket: true, items: common });
-      if (showAllChars && others.length) sections.push({ cat: '其他角色', stripBracket: false, items: others });
-      return { kind: 'if', hasHiddenOthers: !showAllChars && others.length > 0, hiddenCount: others.length, sections };
-    }
-
-    const prefixCounts = new Map();
-    for (const e of list) {
-      const m = e.name.match(/^([^·]{1,10})·(.+)$/);
-      if (m) prefixCounts.set(m[1].trim(), (prefixCounts.get(m[1].trim()) || 0) + 1);
-    }
-    let groupedHits = 0;
-    for (const c of prefixCounts.values()) if (c >= 2) groupedHits += c;
-
-    if (groupedHits >= 4) {
-      const buckets = new Map();
-      for (const e of list) {
-        const m = e.name.match(/^([^·]{1,10})·(.+)$/);
-        const cat = (m && (prefixCounts.get(m[1].trim()) || 0) >= 2) ? m[1].trim() : '其他';
-        if (!buckets.has(cat)) buckets.set(cat, []);
-        buckets.get(cat).push(e);
-      }
-      const sections = [];
-      for (const [cat, items] of buckets.entries()) {
-        if (cat !== '其他') sections.push({ cat, stripPrefix: true, items });
-      }
-      if (buckets.has('其他')) sections.push({ cat: '其他', stripPrefix: false, items: buckets.get('其他') });
-      return { kind: 'prefix', hasHiddenOthers: false, hiddenCount: 0, sections };
-    }
-
-    return { kind: 'flat', hasHiddenOthers: false, hiddenCount: 0, sections: list.length ? [{ cat: '', stripPrefix: false, items: list }] : [] };
-  }
-
-  function displayEntryLabel(name, section) {
-    if (section?.stripBracket) {
-      const b = parseBracketTitle(name);
-      if (b && b.shortTitle) return b.shortTitle;
-    }
-    if (section?.stripPrefix && section.cat && name.startsWith(section.cat + '·')) {
-      const s = name.slice(section.cat.length + 1).trim();
-      if (s) return s;
-    }
-    return name;
-  }
-
-  function assembleOutput(selectedSet, store, wbContentMap, outputFormatOverride) {
-    const fmt = outputFormatOverride || store.outputFormat || 'hybrid';
-    const body = [];
-    const rules = [];
-    const redlines = [];
-    const wiPayload = [];
-
-    const profileBlock = formatProfileBlock(store.profile, fmt);
-    if (profileBlock) body.push(profileBlock);
-
-    for (const k of selectedSet) {
-      const { book, title } = parseKey(k);
-      if (!book || !title) continue;
-      if (book === LIB_BOOK) {
-        const entry = findLibraryEntry(store, title);
-        if (!entry) continue;
-        const text = String(entry.content || '').trim();
-        if (!text) continue;
-        const formatted = formatEntryForStyle(title, text, fmt);
-        wiPayload.push({ book: LIB_BOOK, title, text: formatted, isRule: entry.isRule });
-        if (entry.isRule) rules.push(formatted);
-        else body.push(formatted);
+      if (!isClose) {
+        if (stack.length === 0) topWrappers.push(tagName);
+        stack.push({ name: tagName, key: tagKey });
       } else {
-        const text = String(wbContentMap?.[book]?.[title] || '').trim();
-        wiPayload.push({ book, title });
-        if (!text) continue;
-        const formatted = formatEntryForStyle(title, text, fmt);
-        if (title === '红线') redlines.push(formatted);
-        else if (/^(写作约束|演绎准则)/.test(title)) rules.push(formatted);
-        else body.push(formatted);
+        let found = -1;
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].key === tagKey) { found = i; break; }
+        }
+        if (found >= 0) {
+          for (let j = stack.length - 1; j > found; j--) {
+            unclosed.push(stack[j].name);
+          }
+          stack.length = found;
+        } else {
+          unclosed.push('/' + tagName);
+        }
+      }
+    }
+    while (stack.length) {
+      unclosed.push(stack.pop().name);
+    }
+
+    return {
+      unclosed: Array.from(new Set(unclosed)),
+      topWrappers: Array.from(new Set(topWrappers)),
+    };
+  }
+
+  function inspectTagHygiene(entries) {
+    const byUid = {};
+    const wrapperOwners = {};
+    const list = Array.isArray(entries) ? entries : [];
+
+    list.forEach(entry => {
+      if (!entry || !entry.enabled) return;
+      const res = analyzeEntryTags(entry.content || '');
+      const key = String(entry.uid);
+      byUid[key] = { unclosed: res.unclosed, duplicateTags: [] };
+      res.topWrappers.forEach(tag => {
+        const lk = tag.toLowerCase();
+        if (!wrapperOwners[lk]) wrapperOwners[lk] = { display: tag, uids: [] };
+        wrapperOwners[lk].uids.push(key);
+      });
+    });
+
+    const duplicateTags = [];
+    Object.keys(wrapperOwners).forEach(lk => {
+      const info = wrapperOwners[lk];
+      if (info.uids.length >= 2) {
+        duplicateTags.push({ tag: info.display, count: info.uids.length, uids: info.uids });
+        info.uids.forEach(u => {
+          if (byUid[u]) byUid[u].duplicateTags.push(info.display);
+        });
+      }
+    });
+
+    let unclosedCount = 0;
+    Object.keys(byUid).forEach(u => {
+      if (byUid[u].unclosed.length) unclosedCount++;
+    });
+
+    return { byUid, duplicateTags, unclosedCount };
+  }
+
+  // LCS line diff for Persona description version comparison
+  function computeLineDiff(beforeText, afterText) {
+    const a = String(beforeText || '').replace(/\r\n/g, '\n').split('\n');
+    const b = String(afterText || '').replace(/\r\n/g, '\n').split('\n');
+    if (a.length === 1 && a[0] === '' && b.length === 1 && b[0] === '') return [];
+
+    // Cap DP matrix for extremely long texts to stay instant
+    if (a.length * b.length > 160000) {
+      const out = [];
+      const maxLen = Math.max(a.length, b.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (a[i] === b[i]) out.push({ type: 'same', text: a[i] });
+        else {
+          if (i < a.length) out.push({ type: 'del', text: a[i] });
+          if (i < b.length) out.push({ type: 'add', text: b[i] });
+        }
+      }
+      return out;
+    }
+
+    const m = a.length;
+    const n = b.length;
+    const dp = new Array(m + 1);
+    for (let i = 0; i <= m; i++) dp[i] = new Uint16Array(n + 1);
+
+    for (let i = m - 1; i >= 0; i--) {
+      for (let j = n - 1; j >= 0; j--) {
+        if (a[i] === b[j]) dp[i][j] = dp[i + 1][j + 1] + 1;
+        else dp[i][j] = dp[i + 1][j] >= dp[i][j + 1] ? dp[i + 1][j] : dp[i][j + 1];
       }
     }
 
-    const blocks = [];
-    if (body.length) blocks.push('<USER人设>\n' + body.join('\n\n') + '\n</USER人设>');
-    if (rules.length) blocks.push('<USER写作规则>\n' + rules.join('\n\n') + '\n</USER写作规则>');
-    if (redlines.length) blocks.push('<USER红线>\n' + redlines.join('\n\n') + '\n</USER红线>');
-
-    return {
-      text: blocks.join('\n\n'),
-      profileText: profileBlock,
-      wi: wiPayload,
-      count: wiPayload.length + (profileBlock ? 1 : 0),
-    };
-  }
-
-  function mergeIntoPersonaDescription(existingDesc, generatedBlock, replaceAll) {
-    const block = String(generatedBlock || '').trim();
-    if (replaceAll) return block;
-    const cleaned = String(existingDesc || '')
-      .replace(/\n*<USER人设>[\s\S]*?<\/USER人设>/g, '')
-      .replace(/\n*<USER写作规则>[\s\S]*?<\/USER写作规则>/g, '')
-      .replace(/\n*<USER红线>[\s\S]*?<\/USER红线>/g, '')
-      .trim();
-    if (!block) return cleaned;
-    if (!cleaned) return block;
-    return cleaned + '\n\n' + block;
-  }
-
-  function parseSavedChatPicker(raw) {
-    let obj = raw;
-    if (typeof obj === 'string') {
-      try { obj = JSON.parse(obj); } catch (_) { obj = null; }
+    const out = [];
+    let i = 0;
+    let j = 0;
+    while (i < m && j < n) {
+      if (a[i] === b[j]) {
+        out.push({ type: 'same', text: a[i] });
+        i++; j++;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        out.push({ type: 'del', text: a[i] });
+        i++;
+      } else {
+        out.push({ type: 'add', text: b[j] });
+        j++;
+      }
     }
-    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.wi)) {
-      return { hasSaved: false, items: [], profile: null };
-    }
-    const items = [];
-    const seen = new Set();
-    for (const it of obj.wi) {
-      if (!it || typeof it !== 'object') continue;
-      const book = typeof it.book === 'string' && it.book ? it.book : (typeof it.text === 'string' ? LIB_BOOK : '');
-      const title = typeof it.title === 'string' ? it.title : '';
-      if (!book || !title) continue;
-      const k = itemKey(book, title);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      items.push({ book, title });
-    }
-    return { hasSaved: true, items, profile: obj.profile ? normalizeProfile(obj.profile) : null };
+    while (i < m) { out.push({ type: 'del', text: a[i++] }); }
+    while (j < n) { out.push({ type: 'add', text: b[j++] }); }
+    return out;
   }
 
-  function buildWorldbookEntry(name, content) {
-    return {
-      name,
-      enabled: true,
-      content,
-      strategy: {
-        type: 'selective',
-        keys: [],
-        keys_secondary: { logic: 'and_any', keys: [] },
-        scan_depth: 'same_as_global',
-      },
-      position: { type: 'after_character_definition', role: 'system', depth: 4, order: 100 },
-      probability: 100,
-      recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
-      effect: { sticky: null, cooldown: null, delay: null },
-    };
+  // Extract base name to help merge proliferated personas like "名字1", "名字2", "名字_现代版", "名字（古风）"
+  function extractPersonaBaseName(name) {
+    let s = String(name || '').trim();
+    if (!s) return '';
+    // Remove bracketed suffixes e.g. (现代版) （古风） [AU] 【测试】
+    s = s.replace(/\s*[\(（\[【][^\)）\]】]{1,20}[\)）\]】]\s*$/g, '');
+    // Remove separator + version/edition suffix e.g. _v2, -现代版, ·日常, 空格+2
+    s = s.replace(/[\s_\-·・/]+(v?\d+|第?\d+版|[\u4e00-\u9fa5a-zA-Z0-9]{1,8}版|au|日常|现代|古风|校园|战损|黑化|备份|测试)$/i, '');
+    // Remove trailing digits or "版"
+    s = s.replace(/\d+$/g, '').trim();
+    return s || String(name || '').trim();
   }
 
-  function buildOpeningWorldbookEntries() {
-    return [
-      {
-        uid: 0,
-        name: '【常开】User人设总控',
-        enabled: true,
-        content: OPENING_BODY_EJS,
-        strategy: {
-          type: 'constant',
-          keys: [],
-          keys_secondary: { logic: 'and_any', keys: [] },
-          scan_depth: 'same_as_global',
-        },
-        // order: 99999 stays cleanly outside author worldbook wrappers (even those ending at 999 or 9999)
-        position: { type: 'after_character_definition', role: 'system', depth: 4, order: 99999 },
-        probability: 100,
-        recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
-        effect: { sticky: null, cooldown: null, delay: null },
-      },
-      {
-        uid: 1,
-        name: '【常开】User红线',
-        enabled: true,
-        content: OPENING_REDLINE_EJS,
-        strategy: {
-          type: 'constant',
-          keys: [],
-          keys_secondary: { logic: 'and_any', keys: [] },
-          scan_depth: 'same_as_global',
-        },
-        position: { type: 'at_depth', role: 'system', depth: 1, order: 1 },
-        probability: 100,
-        recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
-        effect: { sticky: null, cooldown: null, delay: null },
-      },
-    ];
+  function detectProliferatedPersonas(personas) {
+    const groups = new Map();
+    (Array.isArray(personas) ? personas : []).forEach(p => {
+      if (!p || !p.avatar_id) return;
+      const base = extractPersonaBaseName(p.name);
+      const key = base.toLowerCase();
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, { baseName: base, items: [] });
+      groups.get(key).items.push(p);
+    });
+    return Array.from(groups.values()).filter(g => g.items.length >= 2);
+  }
+
+  function resolveBindingForContext(bindings, chatId, charId) {
+    if (!bindings || typeof bindings !== 'object') return null;
+    if (chatId && bindings.chats && bindings.chats[chatId]) {
+      return { snapshotId: bindings.chats[chatId], source: 'chat' };
+    }
+    if (charId && bindings.characters && bindings.characters[charId]) {
+      return { snapshotId: bindings.characters[charId], source: 'character' };
+    }
+    return null;
+  }
+
+  function buildCleanCopyText(entries) {
+    return (Array.isArray(entries) ? entries : [])
+      .filter(e => e && e.enabled && String(e.content || '').trim())
+      .map(e => String(e.content || '').trim())
+      .join('\n\n');
+  }
+
+  function formatTimeShort(ts) {
+    const n = Number(ts);
+    if (!n) return '';
+    const d = new Date(n);
+    const pad = v => String(v).padStart(2, '0');
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function inferThemeFromTextColor(colorStr, hasIgLight) {
+    if (hasIgLight) return 'light';
+    const m = String(colorStr || '').match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (!m) return 'light';
+    const r = Number(m[1]), g = Number(m[2]), b = Number(m[3]);
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    return lum < 140 ? 'light' : 'dark';
   }
 
   const Core = {
     APP_VERSION,
-    LIB_BOOK,
-    BUILTIN_LIBRARY,
-    CONFLICT_GROUPS,
-    itemKey,
-    parseKey,
-    normalizeName,
-    sanitizeCharName,
-    matchesChar,
-    formatAge,
-    formatHeight,
-    createEmptyProfile,
-    normalizeProfile,
-    hasProfileData,
-    formatProfileBlock,
-    formatEntryForStyle,
-    detectConflicts,
-    resolveConflictsKeepLatest,
+    createEmptyStore,
+    sanitizeStore,
+    exportStoreJson,
+    parseImportJson,
+    analyzeEntryTags,
+    inspectTagHygiene,
+    computeLineDiff,
+    extractPersonaBaseName,
+    detectProliferatedPersonas,
+    resolveBindingForContext,
+    buildCleanCopyText,
+    formatTimeShort,
     inferThemeFromTextColor,
-    createDefaultStore,
-    normalizeStore,
-    getBuiltinCategories,
-    getAllCategories,
-    getEntriesForCategory,
-    searchAllLibraryEntries,
-    findLibraryEntry,
-    filterWorldbookNames,
-    organizeWorldbookEntries,
-    displayEntryLabel,
-    assembleOutput,
-    mergeIntoPersonaDescription,
-    parseSavedChatPicker,
-    buildWorldbookEntry,
-    buildOpeningWorldbookEntries,
+    normalizeText,
   };
 
-  if (typeof globalThis.__UPP_EXPORT__ === 'function') {
-    globalThis.__UPP_EXPORT__(Core);
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__USER_PERSONA_PICKER_CORE__ = Core;
+  }
+
+  // Stop here in non-DOM test runtimes
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
     return;
   }
 
   // =========================
-  // Host Runtime Wiring
+  // Host Environment & APIs
   // =========================
 
   const Env = (function () {
     let pwin = window;
     let pdoc = document;
     try {
-      if (window.parent && window.parent.document) { pwin = window.parent; pdoc = pwin.document; }
+      if (window.parent && window.parent !== window && window.parent.document) {
+        pwin = window.parent;
+        pdoc = window.parent.document;
+      }
     } catch (_) {}
-    return { win: window, pwin, pdoc };
+    return { pwin, pdoc };
   })();
 
   function getApi(name) {
-    const owners = [window, globalThis, Env.pwin, window.TavernHelper, Env.pwin.TavernHelper, window.SillyTavern, Env.pwin.SillyTavern];
-    for (const owner of owners) {
-      try { if (owner && owner[name] != null) return { value: owner[name], owner }; } catch (_) {}
-    }
+    try { if (typeof window[name] !== 'undefined') return { owner: window, value: window[name] }; } catch (_) {}
+    try { if (typeof Env.pwin[name] !== 'undefined') return { owner: Env.pwin, value: Env.pwin[name] }; } catch (_) {}
     return null;
   }
 
   function getFn(name) {
     const api = getApi(name);
-    return api && typeof api.value === 'function' ? api.value.bind(api.owner) : null;
+    if (api && typeof api.value === 'function') {
+      return api.value.bind(api.owner);
+    }
+    return null;
   }
 
-  function getStContext() {
-    try { return getApi('SillyTavern')?.value?.getContext?.() || null; } catch (_) { return null; }
-  }
-
-  function notify(msg, type) {
+  function toast(msg, type) {
     const t = Env.pwin.toastr || window.toastr;
-    const level = type || 'info';
-    if (t && typeof t[level] === 'function') {
-      try { t[level](msg); return; } catch (_) {}
+    if (t && typeof t[type || 'info'] === 'function') {
+      t[type || 'info'](String(msg), 'User 快照');
+    } else {
+      console.log('[User快照]', msg);
     }
-    console.log('[User人设]', msg);
-  }
-
-  function copyToClipboard(text) {
-    const copyFn = getApi('builtin')?.value?.copyText;
-    if (typeof copyFn === 'function') {
-      try { copyFn(text); return Promise.resolve(true); } catch (_) {}
-    }
-    if (Env.pwin.navigator?.clipboard?.writeText) {
-      return Env.pwin.navigator.clipboard.writeText(text).then(() => true, () => false);
-    }
-    return Promise.resolve(false);
-  }
-
-  function loadStore() {
-    try {
-      const raw = Env.pwin.localStorage?.getItem(STORE_KEY) || Env.pwin.localStorage?.getItem(LEGACY_STORE_KEY);
-      if (raw) return normalizeStore(JSON.parse(raw));
-    } catch (_) {}
-    return createDefaultStore();
-  }
-
-  function saveStore(store) {
-    try { Env.pwin.localStorage?.setItem(STORE_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
   function detectHostTheme() {
     try {
       const rootStyle = Env.pwin.getComputedStyle(Env.pdoc.documentElement);
-      const hasIgLight = Boolean(rootStyle.getPropertyValue('--ig-panel-bg').trim());
+      const hasIgLight = !!rootStyle.getPropertyValue('--ig-panel-bg').trim();
       const bodyColor = Env.pwin.getComputedStyle(Env.pdoc.body || Env.pdoc.documentElement).color;
       const smartColor = rootStyle.getPropertyValue('--SmartThemeBodyColor').trim();
       return inferThemeFromTextColor(bodyColor || smartColor, hasIgLight);
@@ -764,137 +483,407 @@
     }
   }
 
-  function readCurrentCharName() {
-    const ctx = getStContext();
-    if (ctx && (ctx.characterId === undefined || ctx.characterId === null) && !ctx.groupId) return '';
-    const fn = getFn('getCurrentCharacterName');
-    if (fn) {
-      try { const n = sanitizeCharName(fn()); if (n) return n; } catch (_) {}
+  function getSTContext() {
+    try {
+      const st = Env.pwin.SillyTavern || window.SillyTavern;
+      if (st && typeof st.getContext === 'function') return st.getContext();
+    } catch (_) {}
+    return null;
+  }
+
+  function readCurrentCharInfo() {
+    const getName = getFn('getCurrentCharacterName');
+    const getId = getFn('getCurrentCharacterId');
+    let name = '';
+    let id = '';
+    try { name = String(getName ? (getName() || '') : '').trim(); } catch (_) {}
+    try { id = String(getId ? (getId() || '') : '').trim(); } catch (_) {}
+    if (name === 'SillyTavern System') { name = ''; id = ''; }
+    if (!id && !name) {
+      const ctx = getSTContext();
+      if (ctx && ctx.characterId !== undefined && ctx.characterId !== null && Array.isArray(ctx.characters)) {
+        const ch = ctx.characters[ctx.characterId];
+        if (ch && ch.name && ch.name !== 'SillyTavern System') {
+          name = String(ch.name);
+          id = String(ch.avatar || ch.name);
+        }
+      }
     }
-    if (ctx && ctx.characterId != null && typeof ctx.name2 === 'string') return sanitizeCharName(ctx.name2);
+    return { id: id || name, name };
+  }
+
+  function readCurrentChatId() {
+    try {
+      const ctx = getSTContext();
+      if (ctx) {
+        const cid = typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId;
+        if (cid && String(cid).trim()) return String(cid).trim();
+      }
+    } catch (_) {}
     return '';
   }
 
-  function readCurrentPersona() {
-    const fn = getFn('getPersona');
-    if (!fn) return null;
-    try { return fn('current') || null; } catch (_) { return null; }
-  }
-
-  function listPersonaNames() {
-    const fn = getFn('getPersonaNames');
-    if (!fn) return [];
-    try { const r = fn(); return Array.isArray(r) ? r : []; } catch (_) { return []; }
-  }
-
-  async function replaceCurrentPersonaDesc(nextDesc) {
-    const fn = getFn('replacePersona');
-    if (!fn) throw new Error('当前酒馆助手版本不支持写入用户人设');
-    await Promise.resolve(fn('current', { description: nextDesc }, { render: 'immediate' }));
-  }
-
-  async function createNewPersonaWithDesc(name, desc) {
-    const fn = getFn('createPersona');
-    if (!fn) throw new Error('当前酒馆助手版本不支持新建用户人设');
-    const ok = await Promise.resolve(fn(name, { description: desc }, { render: 'immediate' }));
-    if (!ok) throw new Error('新建失败（可能已存在同名用户人设）');
-  }
-
-  function hasActiveChat() {
-    const ctx = getStContext();
-    if (!ctx) return true;
-    return Boolean(ctx.chatId || ctx.groupId || ctx.characterId != null);
-  }
-
-  function readChatPickerVar() {
-    const fn = getFn('getVariables');
-    if (fn) {
-      try { const v = fn({ type: 'chat' }); if (v && typeof v === 'object') return v[VAR_KEY]; } catch (_) {}
-    }
-    return getStContext()?.chatMetadata?.variables?.[VAR_KEY];
-  }
-
-  async function writeChatPickerVar(payload) {
-    const insertFn = getFn('insertOrAssignVariables');
-    if (insertFn) {
-      await Promise.resolve(insertFn({ [VAR_KEY]: payload }, { type: 'chat' }));
-      return;
-    }
-    const updateFn = getFn('updateVariablesWith');
-    if (updateFn) {
-      await Promise.resolve(updateFn(vars => ({ ...(vars || {}), [VAR_KEY]: payload }), { type: 'chat' }));
-      return;
-    }
-    throw new Error('未找到聊天变量接口');
-  }
-
-  async function listHostWorldbooks() {
-    const fn = getFn('getWorldbookNames');
-    if (!fn) return [];
+  // Dual persistence: localStorage + ST global variables
+  function loadStoreSync() {
+    let fromGlobal = null;
     try {
-      const names = await Promise.resolve(fn());
-      return Array.isArray(names) ? names.filter(n => typeof n === 'string' && n && n !== OPENING_BOOK) : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function listGlobalWorldbooks() {
-    const fn = getFn('getGlobalWorldbookNames');
-    if (!fn) return [];
-    try {
-      const names = await Promise.resolve(fn());
-      return Array.isArray(names) ? names : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function loadWorldbookEntries(bookName) {
-    const fn = getFn('getWorldbook');
-    if (!fn) return [];
-    try {
-      const entries = await Promise.resolve(fn(bookName));
-      return Array.isArray(entries) ? entries : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function ensureOpeningBookSilent() {
-    const namesFn = getFn('getWorldbookNames');
-    const createFn = getFn('createWorldbook');
-    const globalFn = getFn('getGlobalWorldbookNames');
-    const rebindFn = getFn('rebindGlobalWorldbooks');
-    if (!namesFn || !createFn || !globalFn || !rebindFn) return;
-    try {
-      const all = await Promise.resolve(namesFn());
-      if (Array.isArray(all) && !all.includes(OPENING_BOOK)) {
-        await Promise.resolve(createFn(OPENING_BOOK, buildOpeningWorldbookEntries()));
+      const getVars = getFn('getVariables');
+      if (getVars) {
+        const gv = getVars({ type: 'global' });
+        if (gv && gv[GLOBAL_VAR_KEY] && typeof gv[GLOBAL_VAR_KEY] === 'object') {
+          fromGlobal = gv[GLOBAL_VAR_KEY];
+        }
       }
-      const globals = await Promise.resolve(globalFn());
-      if (Array.isArray(globals) && !globals.includes(OPENING_BOOK)) {
-        await Promise.resolve(rebindFn([...globals, OPENING_BOOK]));
-      }
-    } catch (err) {
-      console.warn('[User人设] 自动启用总控世界书跳过', err);
+    } catch (_) {}
+
+    let fromLocal = null;
+    try {
+      const raw = Env.pwin.localStorage.getItem(LOCAL_STORE_KEY);
+      if (raw) fromLocal = JSON.parse(raw);
+    } catch (_) {}
+
+    // Pick whichever has more recent data or prefer global ST variable when present
+    if (fromGlobal && fromLocal) {
+      const gCount = (fromGlobal.snapshots?.length || 0) + Object.keys(fromGlobal.personaVersions || {}).length;
+      const lCount = (fromLocal.snapshots?.length || 0) + Object.keys(fromLocal.personaVersions || {}).length;
+      return sanitizeStore(gCount >= lCount ? fromGlobal : fromLocal);
     }
+    return sanitizeStore(fromGlobal || fromLocal || createEmptyStore());
   }
 
-  async function createEntryInWorldbook(bookName, entry) {
-    const fn = getFn('createWorldbookEntries');
-    if (!fn) throw new Error('缺少写入世界书接口');
-    await Promise.resolve(fn(bookName, [entry], { render: 'debounced' }));
+  let saveGlobalTimer = null;
+  function persistStore(store) {
+    const clean = sanitizeStore(store);
+    try {
+      Env.pwin.localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify(clean));
+    } catch (e) {
+      console.warn('[User快照] localStorage 写入失败', e);
+    }
+    if (saveGlobalTimer) Env.pwin.clearTimeout(saveGlobalTimer);
+    saveGlobalTimer = Env.pwin.setTimeout(async () => {
+      saveGlobalTimer = null;
+      if (dead) return;
+      try {
+        const upsert = getFn('insertOrAssignVariables');
+        if (upsert) {
+          await upsert({ [GLOBAL_VAR_KEY]: clean }, { type: 'global' });
+        }
+      } catch (e) {
+        console.warn('[User快照] 全局变量同步失败', e);
+      }
+    }, 250);
+    return clean;
   }
 
-  async function updateEntryInWorldbook(bookName, oldTitle, newTitle, newContent) {
-    const fn = getFn('updateWorldbookWith');
-    if (!fn) throw new Error('缺少更新世界书接口');
-    await Promise.resolve(fn(bookName, entries => entries.map(e => (e && e.name === oldTitle ? { ...e, name: newTitle, content: newContent } : e)), { render: 'debounced' }));
-  }
+  // Host Adapters
+  const Host = {
+    listPersonas() {
+      const getIds = getFn('getPersonaIds');
+      const getP = getFn('getPersona');
+      if (!getIds || !getP) return [];
+      const ids = getIds() || [];
+      const out = [];
+      ids.forEach(id => {
+        try {
+          const p = getP(id);
+          if (p) out.push(p);
+        } catch (_) {}
+      });
+      return out;
+    },
+    getCurrentPersona() {
+      const getP = getFn('getPersona');
+      const getId = getFn('getCurrentPersonaId');
+      if (!getP) return null;
+      try {
+        const id = getId ? getId() : null;
+        if (id) return getP(id);
+        return getP('current');
+      } catch (_) {
+        return null;
+      }
+    },
+    async switchPersona(avatarId, name) {
+      const getCurId = getFn('getCurrentPersonaId');
+      if (getCurId && getCurId() === avatarId) return true;
+
+      // Method 1: click native persona avatar card by exact avatar_id (handles duplicate names safely)
+      try {
+        const escaped = String(avatarId || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const el = Env.pdoc.querySelector(`#user_avatar_block .avatar-container[data-avatar-id="${escaped}"]`);
+        if (el && typeof el.click === 'function') {
+          el.click();
+          await new Promise(r => Env.pwin.setTimeout(r, 80));
+          if (!getCurId || getCurId() === avatarId) return true;
+        }
+      } catch (_) {}
+
+      // Method 2: ST native /persona slash command by unique name
+      try {
+        const slash = getFn('triggerSlash');
+        if (slash && name) {
+          await slash('/persona mode=lookup ' + String(name).replace(/[\r\n|]/g, ' ').trim());
+          await new Promise(r => Env.pwin.setTimeout(r, 80));
+          if (!getCurId || getCurId() === avatarId) return true;
+        }
+      } catch (_) {}
+
+      return !!(getCurId && getCurId() === avatarId);
+    },
+    async updatePersonaInPlace(avatarId, description, lorebook) {
+      const rep = getFn('replacePersona');
+      if (!rep) throw new Error('当前酒馆助手版本不支持 replacePersona');
+      const patch = { description: String(description || '') };
+      if (typeof lorebook === 'string') patch.lorebook = lorebook;
+      await rep(avatarId || 'current', patch, { render: 'immediate' });
+    },
+    async deletePersonaById(avatarId) {
+      const del = getFn('deletePersona');
+      if (!del) throw new Error('当前酒馆助手版本不支持 deletePersona');
+      return await del(avatarId);
+    },
+
+    listWorldbooks() {
+      const fn = getFn('getWorldbookNames');
+      try { return fn ? (fn() || []) : []; } catch (_) { return []; }
+    },
+    getGlobalWorldbooks() {
+      const fn = getFn('getGlobalWorldbookNames');
+      try { return fn ? (fn() || []) : []; } catch (_) { return []; }
+    },
+    async setGlobalWorldbooks(names) {
+      const fn = getFn('rebindGlobalWorldbooks');
+      if (fn) await fn(names);
+    },
+    getCharWorldbooks() {
+      const fn = getFn('getCharWorldbookNames');
+      try {
+        const ch = readCurrentCharInfo();
+        if (!ch.name) return { primary: null, additional: [] };
+        return fn ? (fn('current') || { primary: null, additional: [] }) : { primary: null, additional: [] };
+      } catch (_) {
+        return { primary: null, additional: [] };
+      }
+    },
+    async setCharWorldbooks(wbObj) {
+      const fn = getFn('rebindCharWorldbooks');
+      if (fn && wbObj) await fn('current', wbObj);
+    },
+    getChatWorldbook() {
+      const fn = getFn('getChatWorldbookName');
+      try { return fn ? (fn('current') || null) : null; } catch (_) { return null; }
+    },
+    async setChatWorldbook(name) {
+      const fn = getFn('rebindChatWorldbook');
+      if (fn) await fn('current', name || '');
+    },
+    async getWorldbookEntries(bookName) {
+      const fn = getFn('getWorldbook');
+      if (!fn || !bookName) return [];
+      try { return (await fn(bookName)) || []; } catch (_) { return []; }
+    },
+    async toggleWorldbookEntry(bookName, uidNum, enabled) {
+      const fn = getFn('updateWorldbookWith');
+      if (!fn) throw new Error('不支持 updateWorldbookWith');
+      await fn(bookName, entries => {
+        entries.forEach(e => {
+          if (String(e.uid) === String(uidNum)) e.enabled = !!enabled;
+        });
+        return entries;
+      });
+    },
+    async batchToggleWorldbookEntries(bookName, uidMap) {
+      const fn = getFn('updateWorldbookWith');
+      if (!fn) throw new Error('不支持 updateWorldbookWith');
+      let changed = 0;
+      let skipped = 0;
+      const wantedKeys = Object.keys(uidMap || {});
+      const matched = new Set();
+      await fn(bookName, entries => {
+        entries.forEach(e => {
+          const k = String(e.uid);
+          if (Object.prototype.hasOwnProperty.call(uidMap, k)) {
+            matched.add(k);
+            const target = !!uidMap[k];
+            if (e.enabled !== target) {
+              e.enabled = target;
+              changed++;
+            }
+          }
+        });
+        return entries;
+      });
+      wantedKeys.forEach(k => { if (!matched.has(k)) skipped++; });
+      return { changed, skipped };
+    },
+    async updateWorldbookEntry(bookName, uidNum, name, content, strategyType) {
+      const fn = getFn('updateWorldbookWith');
+      if (!fn) throw new Error('不支持 updateWorldbookWith');
+      await fn(bookName, entries => {
+        entries.forEach(e => {
+          if (String(e.uid) === String(uidNum)) {
+            e.name = name;
+            e.content = content;
+            if (strategyType && e.strategy) e.strategy.type = strategyType;
+          }
+        });
+        return entries;
+      });
+    },
+    async createWorldbookEntry(bookName, { name, content, strategyType }) {
+      const fn = getFn('createWorldbookEntries');
+      if (!fn) throw new Error('不支持 createWorldbookEntries');
+      await fn(bookName, [{
+        name: name || '新条目',
+        enabled: true,
+        content: content || '',
+        strategy: {
+          type: strategyType || 'constant',
+          keys: [],
+          keys_secondary: { logic: 'and_any', keys: [] },
+          scan_depth: 'same_as_global',
+        },
+        position: {
+          type: 'after_character_definition',
+          role: 'system',
+          depth: 2,
+          order: 100,
+        },
+      }]);
+    },
+
+    listPresets() {
+      const fn = getFn('getPresetNames');
+      try { return fn ? (fn() || []) : []; } catch (_) { return []; }
+    },
+    getLoadedPresetName() {
+      const fn = getFn('getLoadedPresetName');
+      try { return fn ? (fn() || '') : ''; } catch (_) { return ''; }
+    },
+    loadPreset(name) {
+      const fn = getFn('loadPreset');
+      return fn ? !!fn(name) : false;
+    },
+    getInUsePreset() {
+      const fn = getFn('getPreset');
+      try { return fn ? fn('in_use') : null; } catch (_) { return null; }
+    },
+    async togglePresetPrompt(promptId, enabled) {
+      const fn = getFn('updatePresetWith');
+      if (!fn) throw new Error('不支持 updatePresetWith');
+      await fn('in_use', preset => {
+        (preset.prompts || []).forEach(p => {
+          if (p.id === promptId) p.enabled = !!enabled;
+        });
+        return preset;
+      }, { render: 'debounced' });
+    },
+    async batchTogglePresetPrompts(promptMap) {
+      const fn = getFn('updatePresetWith');
+      if (!fn) throw new Error('不支持 updatePresetWith');
+      let changed = 0;
+      let skipped = 0;
+      const wantedKeys = Object.keys(promptMap || {});
+      const matched = new Set();
+      await fn('in_use', preset => {
+        (preset.prompts || []).forEach(p => {
+          if (Object.prototype.hasOwnProperty.call(promptMap, p.id)) {
+            matched.add(p.id);
+            const target = !!promptMap[p.id];
+            if (p.enabled !== target) {
+              p.enabled = target;
+              changed++;
+            }
+          }
+        });
+        return preset;
+      }, { render: 'immediate' });
+      wantedKeys.forEach(k => { if (!matched.has(k)) skipped++; });
+      return { changed, skipped };
+    },
+    async updatePresetPrompt(promptId, name, content) {
+      const fn = getFn('updatePresetWith');
+      if (!fn) throw new Error('不支持 updatePresetWith');
+      await fn('in_use', preset => {
+        (preset.prompts || []).forEach(p => {
+          if (p.id === promptId) {
+            p.name = name;
+            if (typeof p.content === 'string' || content !== undefined) {
+              p.content = content;
+            }
+          }
+        });
+        return preset;
+      }, { render: 'immediate' });
+    },
+
+    getRegexes(scope) {
+      const fn = getFn('getTavernRegexes');
+      if (!fn) return [];
+      try {
+        if (scope === 'character') {
+          const ch = readCurrentCharInfo();
+          if (!ch.name) return [];
+          return fn({ type: 'character', name: 'current' }) || [];
+        }
+        if (scope === 'preset') {
+          return fn({ type: 'preset', name: 'in_use' }) || [];
+        }
+        return fn({ type: 'global' }) || [];
+      } catch (_) {
+        return [];
+      }
+    },
+    async toggleRegex(scope, id, enabled) {
+      const fn = getFn('updateTavernRegexesWith');
+      if (!fn) throw new Error('不支持 updateTavernRegexesWith');
+      const opt = scope === 'character'
+        ? { type: 'character', name: 'current' }
+        : scope === 'preset'
+          ? { type: 'preset', name: 'in_use' }
+          : { type: 'global' };
+      await fn(list => {
+        list.forEach(r => { if (r.id === id) r.enabled = !!enabled; });
+        return list;
+      }, opt);
+    },
+    async batchToggleRegexes(scope, idMap) {
+      const fn = getFn('updateTavernRegexesWith');
+      if (!fn) return { changed: 0, skipped: 0 };
+      const wantedKeys = Object.keys(idMap || {});
+      if (!wantedKeys.length) return { changed: 0, skipped: 0 };
+      const opt = scope === 'character'
+        ? { type: 'character', name: 'current' }
+        : scope === 'preset'
+          ? { type: 'preset', name: 'in_use' }
+          : { type: 'global' };
+      let changed = 0;
+      let skipped = 0;
+      const matched = new Set();
+      try {
+        await fn(list => {
+          list.forEach(r => {
+            if (Object.prototype.hasOwnProperty.call(idMap, r.id)) {
+              matched.add(r.id);
+              const target = !!idMap[r.id];
+              if (r.enabled !== target) {
+                r.enabled = target;
+                changed++;
+              }
+            }
+          });
+          return list;
+        }, opt);
+      } catch (_) {
+        return { changed: 0, skipped: wantedKeys.length };
+      }
+      wantedKeys.forEach(k => { if (!matched.has(k)) skipped++; });
+      return { changed, skipped };
+    },
+  };
 
   // =========================
-  // Cleanup Previous Instance
+  // Cleanup Old Instance
   // =========================
 
   const prevHost = Env.pdoc.getElementById(APP_ID);
@@ -914,1585 +903,2839 @@
     return id;
   }
 
-  function listen(target, eventName, handler, options) {
+  function listen(target, type, fn, opts) {
     if (!target || typeof target.addEventListener !== 'function') return;
-    target.addEventListener(eventName, handler, options);
-    cleanup.push(() => { try { target.removeEventListener(eventName, handler, options); } catch (_) {} });
+    target.addEventListener(type, fn, opts);
+    cleanup.push(() => { try { target.removeEventListener(type, fn, opts); } catch (_) {} });
   }
 
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
-
   // =========================
-  // Adaptive iOS Liquid Glass UI
+  // Snapshot Capture & Apply
   // =========================
 
-  const host = Env.pdoc.createElement('div');
-  host.id = APP_ID;
-  host.dataset.version = APP_VERSION;
-  const shadow = host.attachShadow({ mode: 'open' });
+  function getDefaultSnapshotBooks(store) {
+    const set = new Set();
+    (store.settings.pinnedWorldbooks || []).forEach(b => set.add(b));
+    Host.getGlobalWorldbooks().forEach(b => set.add(b));
+    const cw = Host.getCharWorldbooks();
+    if (cw.primary) set.add(cw.primary);
+    (cw.additional || []).forEach(b => set.add(b));
+    const chatWb = Host.getChatWorldbook();
+    if (chatWb) set.add(chatWb);
+    const curP = Host.getCurrentPersona();
+    if (curP && curP.lorebook) set.add(curP.lorebook);
+    return Array.from(set).filter(Boolean);
+  }
 
-  const STYLE = `
-    :host {
-      all: initial;
-      font-family: "PingFang SC", "PingFang TC", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Microsoft YaHei", system-ui, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      --upp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  function findMatchingPersonaVersion(store, avatarId, liveDesc) {
+    const list = (store.personaVersions && store.personaVersions[avatarId]) || [];
+    return list.find(v => String(v.description || '') === String(liveDesc || '')) || null;
+  }
 
-    .upp-backdrop[data-theme="light"] {
-      --upp-veil: rgba(18, 24, 38, 0.26);
-      --upp-shell-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.94) 0%, rgba(244, 247, 252, 0.90) 100%);
-      --upp-shell-border: rgba(255, 255, 255, 0.90);
-      --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 24px 64px rgba(15, 23, 42, 0.18), 0 4px 16px rgba(15, 23, 42, 0.06);
-      --upp-divider: rgba(27, 30, 40, 0.08);
-      --upp-card-bg: rgba(255, 255, 255, 0.68);
-      --upp-card-border: rgba(255, 255, 255, 0.88);
-      --upp-card-shadow: 0 2px 10px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.90);
-      --upp-tx: #1b1e28;
-      --upp-tx2: rgba(27, 30, 40, 0.62);
-      --upp-tx3: rgba(27, 30, 40, 0.45);
-      --upp-track-bg: rgba(27, 30, 40, 0.055);
-      --upp-seg-active-bg: #ffffff;
-      --upp-seg-active-shadow: 0 2px 8px rgba(15, 23, 42, 0.09), 0 0.5px 1px rgba(15, 23, 42, 0.05);
-      --upp-chip-bg: rgba(255, 255, 255, 0.88);
-      --upp-chip-hover: #ffffff;
-      --upp-chip-border: rgba(27, 30, 40, 0.10);
-      --upp-chip-tx: #262b38;
-      --upp-accent: #3a7bd5;
-      --upp-accent-bg: rgba(58, 123, 213, 0.13);
-      --upp-accent-border: rgba(58, 123, 213, 0.46);
-      --upp-accent-tx: #1b52a4;
-      --upp-badge-bg: rgba(58, 123, 213, 0.12);
-      --upp-badge-tx: #245db3;
-      --upp-btn-bg: rgba(27, 30, 40, 0.055);
-      --upp-btn-hover: rgba(27, 30, 40, 0.10);
-      --upp-btn-border: rgba(27, 30, 40, 0.08);
-      --upp-btn-tx: #2c3140;
-      --upp-primary-bg: linear-gradient(180deg, #4b8ae2 0%, #3472cb 100%);
-      --upp-primary-hover: linear-gradient(180deg, #5793e8 0%, #3d7bd4 100%);
-      --upp-primary-shadow: 0 4px 14px rgba(58, 123, 213, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.30);
-      --upp-foot-bg: rgba(255, 255, 255, 0.70);
-      --upp-inspect-bg: rgba(247, 250, 255, 0.94);
-      --upp-input-bg: rgba(255, 255, 255, 0.92);
-      --upp-input-border: rgba(27, 30, 40, 0.14);
-      --upp-warn-bg: rgba(217, 130, 43, 0.11);
-      --upp-warn-border: rgba(217, 130, 43, 0.50);
-      --upp-warn-tx: #94510c;
-      --upp-danger-tx: #b52b2b;
-      --upp-scroll: rgba(27, 30, 40, 0.16);
-      --upp-handle: rgba(27, 30, 40, 0.16);
-    }
+  function autoBackupPersonaBeforeOverwrite(store, persona) {
+    if (!persona || !persona.avatar_id) return;
+    const desc = String(persona.description || '');
+    if (!desc.trim()) return;
+    const list = store.personaVersions[persona.avatar_id] || [];
+    const exists = list.some(v => v.description === desc);
+    if (exists) return;
+    const backupName = '切换前备份';
+    const next = list.filter(v => v.name !== backupName);
+    next.unshift({
+      id: uid('pv'),
+      name: backupName,
+      description: desc,
+      lorebook: persona.lorebook || '',
+      updatedAt: Date.now(),
+    });
+    store.personaVersions[persona.avatar_id] = next;
+  }
 
-    .upp-backdrop[data-theme="dark"] {
-      --upp-veil: rgba(6, 8, 14, 0.62);
-      --upp-shell-bg: linear-gradient(165deg, rgba(28, 31, 41, 0.94) 0%, rgba(20, 22, 30, 0.96) 100%);
-      --upp-shell-border: rgba(255, 255, 255, 0.13);
-      --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 24px 64px rgba(0, 0, 0, 0.52);
-      --upp-divider: rgba(255, 255, 255, 0.08);
-      --upp-card-bg: rgba(255, 255, 255, 0.045);
-      --upp-card-border: rgba(255, 255, 255, 0.08);
-      --upp-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-      --upp-tx: #eff2f8;
-      --upp-tx2: rgba(239, 242, 248, 0.64);
-      --upp-tx3: rgba(239, 242, 248, 0.45);
-      --upp-track-bg: rgba(255, 255, 255, 0.06);
-      --upp-seg-active-bg: rgba(255, 255, 255, 0.13);
-      --upp-seg-active-shadow: 0 2px 8px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-      --upp-chip-bg: rgba(255, 255, 255, 0.06);
-      --upp-chip-hover: rgba(255, 255, 255, 0.11);
-      --upp-chip-border: rgba(255, 255, 255, 0.10);
-      --upp-chip-tx: #e3e7f0;
-      --upp-accent: #6ea2f8;
-      --upp-accent-bg: rgba(110, 162, 248, 0.18);
-      --upp-accent-border: rgba(124, 174, 255, 0.56);
-      --upp-accent-tx: #eaf2ff;
-      --upp-badge-bg: rgba(110, 162, 248, 0.18);
-      --upp-badge-tx: #b8d3ff;
-      --upp-btn-bg: rgba(255, 255, 255, 0.07);
-      --upp-btn-hover: rgba(255, 255, 255, 0.13);
-      --upp-btn-border: rgba(255, 255, 255, 0.10);
-      --upp-btn-tx: #e5e9f2;
-      --upp-primary-bg: linear-gradient(180deg, #5691eb 0%, #3d79d6 100%);
-      --upp-primary-hover: linear-gradient(180deg, #649cf0 0%, #4984df 100%);
-      --upp-primary-shadow: 0 4px 16px rgba(61, 121, 214, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.22);
-      --upp-foot-bg: rgba(255, 255, 255, 0.04);
-      --upp-inspect-bg: rgba(32, 36, 48, 0.96);
-      --upp-input-bg: rgba(0, 0, 0, 0.28);
-      --upp-input-border: rgba(255, 255, 255, 0.12);
-      --upp-warn-bg: rgba(234, 169, 79, 0.15);
-      --upp-warn-border: rgba(234, 169, 79, 0.55);
-      --upp-warn-tx: #f6d19a;
-      --upp-danger-tx: #fbb8b8;
-      --upp-scroll: rgba(255, 255, 255, 0.16);
-      --upp-handle: rgba(255, 255, 255, 0.22);
+  async function captureLiveSnapshot(opts, store) {
+    const scope = {
+      persona: !!opts.scope.persona,
+      worldbooks: !!opts.scope.worldbooks,
+      preset: !!opts.scope.preset,
+      regex: !!opts.scope.regex,
+    };
+
+    const snap = {
+      id: opts.id || uid('snap'),
+      name: String(opts.name || '未命名快照').trim().slice(0, 60),
+      group: String(opts.group || '').trim().slice(0, 30),
+      note: String(opts.note || '').trim().slice(0, 120),
+      updatedAt: Date.now(),
+      scope,
+      persona: null,
+      worldbooks: null,
+      preset: null,
+      regex: null,
+    };
+
+    if (scope.persona) {
+      const p = Host.getCurrentPersona();
+      if (p) {
+        const matched = findMatchingPersonaVersion(store, p.avatar_id, p.description);
+        snap.persona = {
+          avatarId: p.avatar_id,
+          name: p.name,
+          versionId: matched ? matched.id : '',
+          versionName: matched ? matched.name : '',
+          description: p.description || '',
+          lorebook: p.lorebook || '',
+        };
+      } else {
+        snap.scope.persona = false;
+      }
     }
 
-    @keyframes upp-fade-in { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes upp-pop-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-    @keyframes upp-sheet-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
-
-    .upp-backdrop {
-      position: fixed; inset: 0; z-index: 2147483000;
-      background: var(--upp-veil);
-      display: flex; align-items: center; justify-content: center; padding: 16px;
-      color: var(--upp-tx); animation: upp-fade-in 0.14s var(--upp-ease);
-    }
-    .upp-backdrop[hidden] { display: none; }
-
-    .upp-modal {
-      width: min(590px, calc(100vw - 32px));
-      height: min(650px, 84dvh);
-      background: var(--upp-shell-bg);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-      contain: layout paint;
-      color: var(--upp-tx); border: 1px solid var(--upp-shell-border); border-radius: 22px;
-      box-shadow: var(--upp-shell-shadow); display: flex; flex-direction: column; overflow: hidden;
-      animation: upp-pop-in 0.16s var(--upp-ease);
+    if (scope.worldbooks) {
+      const booksToCapture = Array.isArray(opts.selectedBooks) ? opts.selectedBooks : getDefaultSnapshotBooks(store);
+      const entries = {};
+      for (const bk of booksToCapture) {
+        const list = await Host.getWorldbookEntries(bk);
+        if (!list.length) continue;
+        const map = {};
+        list.forEach(e => { map[String(e.uid)] = !!e.enabled; });
+        entries[bk] = map;
+      }
+      const ch = readCurrentCharInfo();
+      snap.worldbooks = {
+        global: Host.getGlobalWorldbooks(),
+        char: ch.name ? Host.getCharWorldbooks() : null,
+        chat: readCurrentChatId() ? Host.getChatWorldbook() : null,
+        entries,
+      };
     }
 
-    .upp-grab { display: none; width: 36px; height: 4px; border-radius: 999px; background: var(--upp-handle); margin: 8px auto 0; flex-shrink: 0; }
-
-    .upp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px 10px; flex-shrink: 0; }
-    .upp-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .upp-title { font-size: 16px; font-weight: 600; color: var(--upp-tx); white-space: nowrap; }
-    .upp-char-tag {
-      font-size: 12px; font-weight: 500; line-height: 1; padding: 5px 10px; border-radius: 999px;
-      background: var(--upp-badge-bg); color: var(--upp-badge-tx);
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
-    }
-    .upp-char-tag[hidden] { display: none; }
-    .upp-close-btn {
-      width: 30px; height: 30px; border-radius: 999px;
-      border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-tx2);
-      font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
-    }
-    .upp-close-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-
-    .upp-tabs-wrap { padding: 0 16px 10px; flex-shrink: 0; border-bottom: 1px solid var(--upp-divider); }
-    .upp-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 13px; background: var(--upp-track-bg); }
-    .upp-tab {
-      height: 33px; border-radius: 10px; border: none; background: transparent; color: var(--upp-tx2);
-      font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-      cursor: pointer; white-space: nowrap;
-      transition: background 0.16s var(--upp-ease), color 0.16s ease, box-shadow 0.16s var(--upp-ease);
-    }
-    .upp-tab:hover { color: var(--upp-tx); }
-    .upp-tab.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
-    .upp-tab-count { font-size: 11px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--upp-badge-bg); color: var(--upp-badge-tx); }
-
-    .upp-toolbar {
-      padding: 10px 16px 9px; border-bottom: 1px solid var(--upp-divider);
-      display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
-    }
-    .upp-toolbar:empty { display: none; }
-    .upp-toolbar-row { display: flex; align-items: center; gap: 7px; }
-
-    .upp-cat-strip {
-      display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px;
-    }
-    .upp-cat-strip::-webkit-scrollbar { display: none; }
-    .upp-cat-pill {
-      height: 29px; padding: 0 11px; border-radius: 999px; flex-shrink: 0;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-tx2);
-      font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
-    }
-    .upp-cat-pill:hover { background: var(--upp-chip-hover); color: var(--upp-tx); }
-    .upp-cat-pill.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 600; }
-
-    .upp-body {
-      flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-      padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px;
-      scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
-    }
-    .upp-body > * { flex-shrink: 0; }
-    .upp-body::-webkit-scrollbar { width: 5px; }
-    .upp-body::-webkit-scrollbar-track { background: transparent; }
-    .upp-body::-webkit-scrollbar-thumb { background: var(--upp-scroll); border-radius: 999px; }
-
-    .upp-select, .upp-search-input, .upp-input, .upp-textarea {
-      width: 100%; border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
-      border-radius: 10px; font: inherit; font-size: 13px; outline: none;
-    }
-    .upp-select { height: 34px; padding: 0 10px; flex: 1 1 auto; min-width: 0; cursor: pointer; }
-    .upp-search-input { height: 34px; padding: 0 11px; flex: 1 1 auto; min-width: 0; }
-    .upp-input { padding: 8px 11px; }
-    .upp-textarea { padding: 8px 11px; resize: vertical; min-height: 84px; line-height: 1.5; }
-    .upp-textarea.is-tall { min-height: 140px; }
-    .upp-search-input::placeholder, .upp-input::placeholder, .upp-textarea::placeholder { color: var(--upp-tx3); }
-    .upp-select:focus, .upp-search-input:focus, .upp-input:focus, .upp-textarea:focus {
-      border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg);
+    if (scope.preset) {
+      const pName = Host.getLoadedPresetName();
+      const preset = Host.getInUsePreset();
+      if (preset && Array.isArray(preset.prompts)) {
+        const map = {};
+        preset.prompts.forEach(p => { map[p.id] = !!p.enabled; });
+        snap.preset = { name: pName, prompts: map };
+      } else {
+        snap.scope.preset = false;
+      }
     }
 
-    .upp-warn-strip {
-      border: 1px solid var(--upp-warn-border); background: var(--upp-warn-bg); color: var(--upp-warn-tx);
-      border-radius: 11px; padding: 7px 11px; font-size: 12px; line-height: 1.4;
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    if (scope.regex) {
+      const mapList = list => {
+        const m = {};
+        (list || []).forEach(r => { if (r && r.id) m[r.id] = !!r.enabled; });
+        return m;
+      };
+      snap.regex = {
+        global: mapList(Host.getRegexes('global')),
+        character: mapList(Host.getRegexes('character')),
+        preset: mapList(Host.getRegexes('preset')),
+      };
     }
 
-    .upp-group {
-      background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
-      box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 11px 12px;
-      display: flex; flex-direction: column; gap: 9px;
-    }
-    .upp-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .upp-group-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); display: inline-flex; align-items: center; gap: 6px; }
-    .upp-group-badge { font-size: 11px; font-weight: 600; color: var(--upp-badge-tx); background: var(--upp-badge-bg); border-radius: 999px; padding: 1px 7px; }
+    return snap;
+  }
 
-    /* Dual-zone Chip: tap text to READ content, tap right circle to CHECK! */
-    .upp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-    .upp-chip-wrap {
-      display: inline-flex; align-items: center; border-radius: 11px; overflow: hidden;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
-      transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-    }
-    .upp-chip-wrap:hover { background: var(--upp-chip-hover); }
-    .upp-chip-wrap.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); }
-    .upp-chip-wrap.is-conflict { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); }
-    .upp-chip-wrap.is-inspected { box-shadow: 0 0 0 2px var(--upp-accent-border); }
+  let isApplyingSnapshot = false;
+  async function applySnapshotLive(snap, store, silentPrefix) {
+    if (!snap || isApplyingSnapshot) return;
+    isApplyingSnapshot = true;
+    let totalSkipped = 0;
 
-    .upp-chip-read {
-      min-height: 34px; padding: 6px 4px 6px 11px; border: none; background: transparent;
-      color: var(--upp-chip-tx); font: inherit; font-size: 13px; line-height: 1.25;
-      cursor: pointer; text-align: left; word-break: break-word;
-    }
-    .upp-chip-wrap.is-selected .upp-chip-read { color: var(--upp-accent-tx); font-weight: 500; }
-    .upp-chip-wrap.is-conflict .upp-chip-read { color: var(--upp-warn-tx); }
+    try {
+      // 1. Persona (single Persona per name, update description in place)
+      if (snap.scope.persona && snap.persona && snap.persona.avatarId) {
+        const personas = Host.listPersonas();
+        const target = personas.find(p => p.avatar_id === snap.persona.avatarId)
+          || personas.find(p => p.name === snap.persona.name);
+        if (target) {
+          await Host.switchPersona(target.avatar_id, target.name);
+          // Resolve latest text if linked to an internal version, else fallback snapshot text
+          let desc = snap.persona.description;
+          let lorebook = snap.persona.lorebook;
+          if (snap.persona.versionId) {
+            const verList = (store.personaVersions && store.personaVersions[target.avatar_id]) || [];
+            const foundVer = verList.find(v => v.id === snap.persona.versionId);
+            if (foundVer) {
+              desc = foundVer.description;
+              lorebook = foundVer.lorebook;
+            }
+          }
+          if (target.description !== desc || (typeof lorebook === 'string' && target.lorebook !== lorebook)) {
+            autoBackupPersonaBeforeOverwrite(store, target);
+            persistStore(store);
+            await Host.updatePersonaInPlace(target.avatar_id, desc, lorebook);
+          }
+        } else {
+          totalSkipped++;
+        }
+      }
 
-    .upp-chip-check {
-      width: 30px; min-height: 34px; padding-right: 4px; border: none;
-      background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .upp-chip-circle {
-      width: 18px; height: 18px; border-radius: 999px; border: 1.5px solid var(--upp-chip-border);
-      background: rgba(127, 136, 154, 0.06);
-      display: inline-flex; align-items: center; justify-content: center; color: transparent;
-      transition: background 0.12s ease, border-color 0.12s ease, transform 0.10s ease;
-    }
-    .upp-chip-circle svg { opacity: 0; transform: scale(0.65); transition: opacity 0.12s ease, transform 0.12s var(--upp-ease); }
-    .upp-chip-check:hover .upp-chip-circle { border-color: var(--upp-accent-border); }
-    .upp-chip-wrap.is-selected .upp-chip-circle { border-color: var(--upp-accent); background: var(--upp-accent); color: #ffffff; }
-    .upp-chip-wrap.is-selected .upp-chip-circle svg { opacity: 1; transform: scale(1); }
-    .upp-chip-wrap.is-conflict .upp-chip-circle { border-color: #d9822b; background: #d9822b; color: #ffffff; }
+      // 2. Worldbooks (bindings + entry enabled flags ONLY, never overwrite content!)
+      if (snap.scope.worldbooks && snap.worldbooks) {
+        const allBooks = new Set(Host.listWorldbooks());
+        if (Array.isArray(snap.worldbooks.global)) {
+          const validGlobal = snap.worldbooks.global.filter(b => allBooks.has(b));
+          totalSkipped += snap.worldbooks.global.length - validGlobal.length;
+          await Host.setGlobalWorldbooks(validGlobal);
+        }
+        if (snap.worldbooks.char && readCurrentCharInfo().name) {
+          const primary = snap.worldbooks.char.primary && allBooks.has(snap.worldbooks.char.primary)
+            ? snap.worldbooks.char.primary : null;
+          const additional = (snap.worldbooks.char.additional || []).filter(b => allBooks.has(b));
+          await Host.setCharWorldbooks({ primary, additional });
+        }
+        if (snap.worldbooks.chat !== null && readCurrentChatId()) {
+          if (!snap.worldbooks.chat || allBooks.has(snap.worldbooks.chat)) {
+            await Host.setChatWorldbook(snap.worldbooks.chat || '');
+          } else {
+            totalSkipped++;
+          }
+        }
+        const entriesMap = snap.worldbooks.entries || {};
+        for (const bk of Object.keys(entriesMap)) {
+          if (!allBooks.has(bk)) {
+            totalSkipped++;
+            continue;
+          }
+          const res = await Host.batchToggleWorldbookEntries(bk, entriesMap[bk]);
+          totalSkipped += res.skipped;
+        }
+      }
 
-    /* Structured Profile Form */
-    .upp-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
-    .upp-field { display: flex; flex-direction: column; gap: 5px; }
-    .upp-field.is-full { grid-column: 1 / -1; }
-    .upp-label { font-size: 12px; font-weight: 500; color: var(--upp-tx2); display: flex; justify-content: space-between; }
-    .upp-quick-row { display: flex; flex-wrap: wrap; gap: 5px; }
-    .upp-qpill {
-      height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--upp-chip-border);
-      background: var(--upp-chip-bg); color: var(--upp-tx2); font-size: 11px; cursor: pointer;
+      // 3. Preset (load preset + toggle prompt enabled flags ONLY, never overwrite content!)
+      if (snap.scope.preset && snap.preset) {
+        const allPresets = Host.listPresets();
+        if (snap.preset.name && allPresets.includes(snap.preset.name)) {
+          if (Host.getLoadedPresetName() !== snap.preset.name) {
+            Host.loadPreset(snap.preset.name);
+            await new Promise(r => Env.pwin.setTimeout(r, 120));
+          }
+          const res = await Host.batchTogglePresetPrompts(snap.preset.prompts || {});
+          totalSkipped += res.skipped;
+        } else if (snap.preset.name) {
+          totalSkipped++;
+        }
+      }
+
+      // 4. Regex (toggle enabled flags ONLY, never overwrite regex patterns!)
+      if (snap.scope.regex && snap.regex) {
+        for (const sc of ['global', 'character', 'preset']) {
+          if (sc === 'character' && !readCurrentCharInfo().name) continue;
+          const res = await Host.batchToggleRegexes(sc, snap.regex[sc] || {});
+          totalSkipped += res.skipped;
+        }
+      }
+
+      const prefix = silentPrefix || '已应用快照';
+      toast(totalSkipped > 0
+        ? `${prefix}「${snap.name}」（跳过 ${totalSkipped} 项缺失引用）`
+        : `${prefix}「${snap.name}」`, 'success');
+    } catch (err) {
+      console.error('[User快照] 应用失败', err);
+      toast('应用快照失败：' + (err?.message || err), 'error');
+    } finally {
+      isApplyingSnapshot = false;
     }
-    .upp-qpill.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 600; }
+  }
 
-    .upp-mini-btn {
-      height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 12px; font-weight: 500;
-      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap; flex-shrink: 0;
-    }
-    .upp-mini-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-    .upp-mini-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
-    .upp-mini-btn.is-danger { color: var(--upp-danger-tx); }
+  // =========================
+  // Icons (Crisp Inline SVG)
+  // =========================
 
-    .upp-inspector {
-      flex-shrink: 0; border-top: 1px solid var(--upp-divider); background: var(--upp-inspect-bg);
-      padding: 10px 16px; display: flex; flex-direction: column; gap: 6px;
-    }
-    .upp-inspector[hidden] { display: none; }
-    .upp-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .upp-inspector-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .upp-inspector-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .upp-inspector-body {
-      font-size: 12px; line-height: 1.5; color: var(--upp-tx2); white-space: pre-wrap; word-break: break-word;
-      max-height: 96px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
-    }
+  const ICONS = {
+    close: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+    plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    star: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21 7 14.2 2 9.3l6.9-1z"/></svg>',
+    starFill: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21 7 14.2 2 9.3l6.9-1z"/></svg>',
+    copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>',
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    diff: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8h4M7 6v4M15 16h4"/></svg>',
+    merge: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M6 8.5v2a3.5 3.5 0 0 0 3.5 3.5h5A3.5 3.5 0 0 0 18 10.5v-2M12 14v1.5"/></svg>',
+    backup: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    eye: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    link: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/></svg>',
+    trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+    chevron: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
+    warn: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  };
 
-    .upp-conflicts { flex-shrink: 0; padding: 8px 16px 0; }
-    .upp-conflicts:empty { display: none; }
+  // =========================
+  // Styles (Liquid Glass, Fixed Height, Zero Flicker)
+  // =========================
 
-    .upp-inline-save { display: flex; gap: 7px; }
-    .upp-form {
-      background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
-      box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 13px;
-      display: flex; flex-direction: column; gap: 10px;
-    }
-    .upp-form-error { font-size: 12px; color: var(--upp-danger-tx); }
-    .upp-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  const STYLE_CSS = `
+:host {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
-    .upp-row-list { display: flex; flex-direction: column; gap: 7px; }
-    .upp-row-item {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 9px 11px; border-radius: 12px; border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
-    }
-    .upp-row-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
-    .upp-star-btn {
-      width: 26px; height: 26px; border-radius: 999px; border: none; background: transparent;
-      color: var(--upp-tx3); font-size: 15px; cursor: pointer; flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center;
-    }
-    .upp-star-btn.is-default { color: #e2a024; }
-    .upp-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .upp-row-title { font-size: 13px; font-weight: 500; color: var(--upp-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .upp-row-sub { font-size: 11px; color: var(--upp-tx3); }
-    .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.upp-backdrop {
+  --bg: rgba(247, 249, 253, 0.94);
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --surface-hover: rgba(58, 123, 213, 0.08);
+  --border: rgba(25, 36, 56, 0.11);
+  --border-strong: rgba(25, 36, 56, 0.18);
+  --text: #1c2434;
+  --muted: #647087;
+  --accent: #3a7bd5;
+  --accent-soft: rgba(58, 123, 213, 0.12);
+  --accent-text: #ffffff;
+  --ok: #1d9a6c;
+  --ok-soft: rgba(29, 154, 108, 0.13);
+  --warn: #c77716;
+  --warn-soft: rgba(199, 119, 22, 0.13);
+  --danger: #d64545;
+  --danger-soft: rgba(214, 69, 69, 0.11);
+  --switch-off: rgba(28, 36, 52, 0.18);
+  --shadow: 0 22px 60px rgba(18, 28, 48, 0.18);
 
-    .upp-seg-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 11px; background: var(--upp-track-bg); }
-    .upp-seg-btn {
-      height: 28px; border-radius: 8px; border: none; background: transparent; color: var(--upp-tx2);
-      font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
-    }
-    .upp-seg-btn.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: rgba(16, 22, 34, 0.36);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  color: var(--text);
+}
 
-    .upp-radio-group { display: flex; flex-direction: column; gap: 6px; }
-    .upp-radio-opt {
-      display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 10px;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); font-size: 12px; color: var(--upp-tx); cursor: pointer; text-align: left;
-    }
-    .upp-radio-opt.is-active { border-color: var(--upp-accent-border); background: var(--upp-accent-bg); color: var(--upp-accent-tx); font-weight: 500; }
+.upp-backdrop[data-theme="dark"] {
+  --bg: rgba(24, 28, 37, 0.95);
+  --surface: rgba(36, 42, 56, 0.78);
+  --surface-strong: rgba(42, 49, 64, 0.96);
+  --surface-hover: rgba(104, 160, 245, 0.13);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: #edf1f8;
+  --muted: #98a3b8;
+  --accent: #68a0f5;
+  --accent-soft: rgba(104, 160, 245, 0.16);
+  --accent-text: #0f1624;
+  --ok: #42c994;
+  --ok-soft: rgba(66, 201, 148, 0.16);
+  --warn: #f0ab4c;
+  --warn-soft: rgba(240, 171, 76, 0.16);
+  --danger: #f06a6a;
+  --danger-soft: rgba(240, 106, 106, 0.16);
+  --switch-off: rgba(255, 255, 255, 0.2);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  background: rgba(5, 8, 14, 0.62);
+}
 
-    .upp-preview-pre {
-      margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55;
-      color: var(--upp-tx); background: var(--upp-input-bg); border: 1px solid var(--upp-input-border);
-      border-radius: 12px; padding: 11px; max-height: 36dvh; overflow-y: auto;
-    }
+.upp-modal {
+  position: relative;
+  width: min(760px, calc(100vw - 24px));
+  height: min(680px, 86dvh);
+  background: var(--bg);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-    .upp-empty { font-size: 12px; color: var(--upp-tx3); padding: 4px 0; }
+/* Header */
+.upp-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.upp-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.upp-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.upp-ctx-chip {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upp-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
-    .upp-foot {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 10px 16px 12px; border-top: 1px solid var(--upp-divider); background: var(--upp-foot-bg); flex-shrink: 0;
-    }
-    .upp-action-left, .upp-action-right { display: flex; align-items: center; gap: 8px; }
-    .upp-total { font-size: 12px; font-weight: 500; color: var(--upp-tx2); white-space: nowrap; }
+/* Nav Tabs */
+.upp-tabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.upp-tab {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.upp-tab:hover { color: var(--text); background: var(--surface-hover); }
+.upp-tab.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgba(58, 123, 213, 0.25);
+}
+.upp-tab-count {
+  font-size: 11px;
+  opacity: 0.8;
+}
 
-    .upp-btn {
-      height: 36px; min-width: 66px; padding: 0 14px; border-radius: 999px;
-      border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-btn-tx);
-      font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center;
-      cursor: pointer; white-space: nowrap;
-    }
-    .upp-btn:hover { background: var(--upp-btn-hover); }
-    .upp-btn:disabled { opacity: 0.52; cursor: not-allowed; }
-    .upp-btn-primary { background: var(--upp-primary-bg); border-color: transparent; color: #ffffff; font-weight: 600; box-shadow: var(--upp-primary-shadow); }
-    .upp-btn-primary:hover { background: var(--upp-primary-hover); }
+/* Pinned Toolbar */
+.upp-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.upp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.upp-row-nowrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.upp-spacer { flex: 1; min-width: 4px; }
 
-    @media (max-width: 640px) {
-      .upp-backdrop { padding: 0; align-items: flex-end; }
-      .upp-modal { width: 100%; height: 84dvh; border-radius: 24px 24px 0 0; border-left: none; border-right: none; border-bottom: none; animation: upp-sheet-up 0.18s var(--upp-ease); }
-      .upp-grab { display: block; }
-      .upp-head { padding: 10px 16px 8px; }
-      .upp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-      .upp-profile-grid { grid-template-columns: 1fr; }
-    }
-  `;
+/* Uniform Controls (height 30px, radius 9px) */
+.upp-btn, .upp-select, .upp-input-wrap {
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.upp-btn {
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.upp-btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.upp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.upp-btn.icon-only { width: 30px; padding: 0; }
+.upp-btn.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 550;
+}
+.upp-btn.primary:hover { filter: brightness(1.06); }
+.upp-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(58, 123, 213, 0.35);
+}
+.upp-btn.danger { color: var(--danger); }
+.upp-btn.danger:hover { background: var(--danger-soft); border-color: rgba(214, 69, 69, 0.35); }
+.upp-btn.pinned { color: var(--warn); background: var(--warn-soft); border-color: rgba(199, 119, 22, 0.32); }
 
-  shadow.innerHTML = `
-    <style>${STYLE}</style>
-    <div class="upp-backdrop" data-theme="light" hidden>
-      <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 人设">
-        <div class="upp-grab" aria-hidden="true"></div>
-        <div class="upp-head">
-          <div class="upp-head-left">
-            <span class="upp-title">User 人设</span>
-            <span class="upp-char-tag" hidden></span>
-          </div>
-          <button type="button" class="upp-close-btn" data-act="close" aria-label="关闭">×</button>
-        </div>
-        <div class="upp-tabs-wrap">
-          <div class="upp-tabs" role="tablist">
-            <button type="button" class="upp-tab is-active" data-tab="lib" role="tab">条目库</button>
-            <button type="button" class="upp-tab" data-tab="wb" role="tab">世界书</button>
-            <button type="button" class="upp-tab" data-tab="presets" role="tab">方案</button>
-          </div>
-        </div>
-        <div class="upp-toolbar"></div>
-        <div class="upp-body"></div>
-        <div class="upp-conflicts"></div>
-        <div class="upp-inspector" hidden></div>
-        <div class="upp-foot">
-          <div class="upp-action-left">
-            <button type="button" class="upp-btn" data-act="clear">取消全选</button>
-            <button type="button" class="upp-btn" data-act="quick-copy">复制文本</button>
-          </div>
-          <div class="upp-action-right">
-            <span class="upp-total">已选 0</span>
-            <button type="button" class="upp-btn upp-btn-primary" data-act="open-apply">应用 / 保存</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+.upp-select {
+  padding: 0 24px 0 9px;
+  cursor: pointer;
+  max-width: 240px;
+  outline: none;
+}
+.upp-select:focus { border-color: var(--accent); }
 
-  const $ = sel => shadow.querySelector(sel);
-  const elBackdrop = $('.upp-backdrop');
-  const elCharTag = $('.upp-char-tag');
-  const elTabs = $('.upp-tabs');
-  const elToolbar = $('.upp-toolbar');
-  const elBody = $('.upp-body');
-  const elConflicts = $('.upp-conflicts');
-  const elInspector = $('.upp-inspector');
-  const elTotal = $('.upp-total');
-  const elClearBtn = $('[data-act="clear"]');
-  const elApplyBtn = $('[data-act="open-apply"]');
-  const elFoot = $('.upp-foot');
+.upp-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  flex: 1;
+  min-width: 120px;
+}
+.upp-input-wrap svg { color: var(--muted); flex-shrink: 0; }
+.upp-input-wrap input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.upp-input-wrap input::placeholder { color: var(--muted); }
+
+/* Toggle Switch (iOS crisp) */
+.upp-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: none;
+  background: var(--switch-off);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.16s ease;
+}
+.upp-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 0.16s ease;
+}
+.upp-switch[aria-checked="true"] { background: var(--accent); }
+.upp-switch[aria-checked="true"]::after { transform: translateX(14px); }
+
+.upp-switch-label {
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Scroll Body */
+.upp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.upp-body > * { flex-shrink: 0; }
+.upp-body::-webkit-scrollbar,
+.upp-drawer-body::-webkit-scrollbar,
+.upp-pop-list::-webkit-scrollbar { width: 5px; height: 5px; }
+.upp-body::-webkit-scrollbar-thumb,
+.upp-drawer-body::-webkit-scrollbar-thumb,
+.upp-pop-list::-webkit-scrollbar-thumb {
+  background: rgba(120, 132, 154, 0.35);
+  border-radius: 999px;
+}
+
+/* Pill Chips */
+.upp-pill-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 1px;
+  scrollbar-width: none;
+}
+.upp-pill-strip::-webkit-scrollbar { display: none; }
+.upp-pill {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.upp-pill:hover { color: var(--text); border-color: var(--border-strong); }
+.upp-pill.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgba(58, 123, 213, 0.35);
+  font-weight: 550;
+}
+
+/* Cards & Xiaotian-style Entry Rows */
+.upp-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.upp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.upp-card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upp-card-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.upp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.upp-badge.accent { color: var(--accent); background: var(--accent-soft); border-color: rgba(58, 123, 213, 0.28); }
+.upp-badge.ok { color: var(--ok); background: var(--ok-soft); border-color: rgba(29, 154, 108, 0.28); }
+.upp-badge.warn { color: var(--warn); background: var(--warn-soft); border-color: rgba(199, 119, 22, 0.3); }
+
+.upp-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.upp-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: background 0.12s, border-color 0.12s;
+}
+.upp-entry-row:hover {
+  background: var(--surface-strong);
+  border-color: var(--border-strong);
+}
+.upp-entry-row.is-on {
+  border-color: rgba(58, 123, 213, 0.28);
+  background: var(--surface-strong);
+}
+.upp-entry-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.upp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.upp-dot.constant { background: #3b82f6; }
+.upp-dot.selective { background: #22c55e; }
+.upp-dot.vectorized { background: #a855f7; }
+.upp-role-tag {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.upp-role-tag.placeholder {
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.upp-entry-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.upp-entry-name {
+  font-size: 13px;
+  font-weight: 520;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upp-entry-preview {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Persona Bar */
+.upp-persona-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.upp-persona-preview {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 10px;
+  max-height: 54px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  cursor: pointer;
+}
+.upp-persona-preview:hover { border-color: var(--border-strong); color: var(--text); }
+
+/* Book Selector Popover */
+.upp-book-trigger {
+  flex: 1;
+  min-width: 140px;
+  max-width: 280px;
+  justify-content: space-between;
+}
+.upp-book-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Binding Strip */
+.upp-bind-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(58, 123, 213, 0.25);
+  font-size: 12px;
+}
+
+/* Empty State */
+.upp-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 36px 16px;
+  font-size: 13px;
+}
+
+/* Sub-Drawer / Overlay inside Modal */
+.upp-drawer-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(15, 22, 36, 0.34);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.upp-drawer {
+  width: min(620px, 100%);
+  max-height: 100%;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.upp-drawer-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+}
+.upp-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.upp-drawer-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.upp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.upp-field label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 550;
+}
+.upp-text-input, .upp-textarea {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  outline: none;
+}
+.upp-text-input:focus, .upp-textarea:focus { border-color: var(--accent); }
+.upp-textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.55;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+}
+
+.upp-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.upp-check-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.upp-check-item input { accent-color: var(--accent); margin: 0; }
+.upp-check-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.upp-pop-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--bg);
+}
+
+/* Diff View */
+.upp-diff-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.upp-diff-line { padding: 1px 6px; border-radius: 4px; }
+.upp-diff-line.del { background: var(--danger-soft); color: var(--danger); }
+.upp-diff-line.add { background: var(--ok-soft); color: var(--ok); }
+.upp-diff-line.same { color: var(--muted); }
+
+/* Detail Section inside Snapshot View */
+.upp-sec-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+.upp-detail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  width: 100%;
+}
+.upp-detail-item:hover { border-color: var(--accent); background: var(--surface-hover); }
+
+@media (max-width: 640px) {
+  .upp-backdrop { padding: 0; align-items: flex-end; }
+  .upp-modal {
+    width: 100vw;
+    height: 86dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+  }
+  .upp-header { padding: 10px 12px 8px; }
+  .upp-tabs { padding: 7px 12px; gap: 4px; }
+  .upp-tab { padding: 0 9px; font-size: 12px; }
+  .upp-toolbar { padding: 8px 12px; }
+  .upp-body { padding: 10px 12px 14px; }
+  .upp-check-grid { grid-template-columns: 1fr; }
+}
+`;
+
+  // =========================
+  // UI State & Shadow Host
+  // =========================
 
   const state = {
     open: false,
-    loading: false,
-    saving: false,
-    tab: 'lib', // 'lib' | 'wb' | 'presets'
-    activeCat: '__profile__', // '__profile__' | '__selected__' | <category name>
-    subView: '', // '' | 'edit' | 'new' | 'new_cat' | 'apply'
-    charName: '',
-    store: loadStore(),
-    selected: new Set(),
-    inspected: null, // { book, title }
-    hostBooks: [],
-    globalBooks: [],
-    activeWb: '',
-    wbBookSearch: '',
+    tab: 'snapshots', // snapshots | assembly | preset | regex
+    store: loadStoreSync(),
+    charInfo: { id: '', name: '' },
+    chatId: '',
+
+    // Snapshots tab
+    snapGroup: '',
+    snapSearch: '',
+
+    // Assembly tab (User + Worldbooks)
+    personas: [],
+    currentPersona: null,
+    worldbooks: [],
+    globalWorldbooks: [],
+    charWorldbooks: { primary: null, additional: [] },
+    chatWorldbook: null,
+    activeBook: '',
+    bookEntriesCache: {}, // bookName -> WorldbookEntry[]
     wbEntrySearch: '',
-    wbCache: Object.create(null),
-    libSearch: '',
-    showAllChars: false,
-    presetNameInput: '',
-    newCatName: '',
-    importOpen: false,
-    importText: '',
-    draft: { book: '', cat: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false },
-    applyCfg: { target: 'persona_update', replaceAll: false, newPersonaName: '', currentPersonaName: '', existingDesc: '', error: '' },
+    wbOnlyOn: false,
+
+    // Preset tab
+    presets: [],
+    loadedPresetName: '',
+    inUsePreset: null,
+    presetSearch: '',
+    presetOnlyOn: false,
+
+    // Regex tab
+    regexScope: 'global', // global | character | preset
+    regexList: [],
+    regexSearch: '',
+    regexOnlyOn: false,
+
+    // Drawer overlay
+    drawer: null, // { type, ... }
   };
 
-  function countSelectedBySource() {
-    let lib = 0, wb = 0;
-    for (const k of state.selected) {
-      if (parseKey(k).book === LIB_BOOK) lib++;
-      else wb++;
+  const host = Env.pdoc.createElement('div');
+  host.id = APP_ID;
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `<style>${STYLE_CSS}</style>
+<div class="upp-backdrop" hidden>
+  <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 组装与快照">
+    <div class="upp-header">
+      <div class="upp-title-wrap">
+        <span class="upp-title">User 组装与快照</span>
+        <span class="upp-ctx-chip" id="upp-ctx-chip" hidden></span>
+      </div>
+      <div class="upp-head-actions">
+        <button class="upp-btn icon-only" id="upp-refresh-btn" title="刷新">${ICONS.refresh}</button>
+        <button class="upp-btn icon-only" id="upp-close-btn" title="关闭">${ICONS.close}</button>
+      </div>
+    </div>
+    <div class="upp-tabs" id="upp-tabs"></div>
+    <div class="upp-toolbar" id="upp-toolbar"></div>
+    <div class="upp-body" id="upp-body"></div>
+    <div class="upp-drawer-mask" id="upp-drawer-mask" hidden></div>
+  </div>
+</div>`;
+
+  const elBackdrop = shadow.querySelector('.upp-backdrop');
+  const elCtxChip = shadow.getElementById('upp-ctx-chip');
+  const elTabs = shadow.getElementById('upp-tabs');
+  const elToolbar = shadow.getElementById('upp-toolbar');
+  const elBody = shadow.getElementById('upp-body');
+  const elDrawerMask = shadow.getElementById('upp-drawer-mask');
+
+  // =========================
+  // Data Refresh
+  // =========================
+
+  async function ensureBookEntries(bookName, force) {
+    if (!bookName) return [];
+    if (!force && Array.isArray(state.bookEntriesCache[bookName])) {
+      return state.bookEntriesCache[bookName];
     }
-    if (hasProfileData(state.store.profile)) lib++;
-    return { lib, wb };
+    const list = await Host.getWorldbookEntries(bookName);
+    state.bookEntriesCache[bookName] = list;
+    return list;
   }
 
-  function buildWbContentMap() {
-    const map = Object.create(null);
-    for (const [book, entries] of Object.entries(state.wbCache)) {
-      map[book] = Object.create(null);
-      for (const e of entries || []) if (e && e.name) map[book][e.name] = e.content || '';
+  async function refreshAll(forceBookReload) {
+    state.store = loadStoreSync();
+    state.charInfo = readCurrentCharInfo();
+    state.chatId = readCurrentChatId();
+
+    state.personas = Host.listPersonas();
+    state.currentPersona = Host.getCurrentPersona();
+    state.worldbooks = Host.listWorldbooks();
+    state.globalWorldbooks = Host.getGlobalWorldbooks();
+    state.charWorldbooks = Host.getCharWorldbooks();
+    state.chatWorldbook = Host.getChatWorldbook();
+
+    if (!state.activeBook || !state.worldbooks.includes(state.activeBook)) {
+      const preferred = getDefaultSnapshotBooks(state.store).find(b => state.worldbooks.includes(b));
+      state.activeBook = preferred || state.worldbooks[0] || '';
     }
-    return map;
-  }
-
-  async function ensureWbLoaded(bookName) {
-    if (!bookName || bookName === LIB_BOOK) return;
-    if (Array.isArray(state.wbCache[bookName])) return;
-    state.wbCache[bookName] = await loadWorldbookEntries(bookName);
-  }
-
-  async function ensureSelectedWbsLoaded() {
-    const needed = new Set();
-    for (const k of state.selected) {
-      const b = parseKey(k).book;
-      if (b && b !== LIB_BOOK && !Array.isArray(state.wbCache[b])) needed.add(b);
+    if (state.activeBook && (state.tab === 'assembly' || forceBookReload)) {
+      await ensureBookEntries(state.activeBook, !!forceBookReload);
     }
-    await Promise.all([...needed].map(b => ensureWbLoaded(b)));
+
+    state.presets = Host.listPresets();
+    state.loadedPresetName = Host.getLoadedPresetName();
+    state.inUsePreset = Host.getInUsePreset();
+    state.regexList = Host.getRegexes(state.regexScope);
+
+    render();
   }
 
-  function getOrderedHostBooks() {
-    const recentSet = new Set(state.store.recentBooks);
-    return [
-      ...state.store.recentBooks.filter(b => state.hostBooks.includes(b)),
-      ...state.hostBooks.filter(b => !recentSet.has(b)),
-    ];
-  }
+  // =========================
+  // Rendering
+  // =========================
 
-  function getConflictKeySet() {
-    const set = new Set();
-    for (const c of detectConflicts(state.selected)) {
-      for (const k of c.keys) set.add(k);
-    }
-    return set;
-  }
-
-  const CHECK_SVG = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 6.2 4.8 8.8 9.8 3.4"/></svg>';
-
-  function renderChip(book, title, label, conflictKeySet) {
-    const k = itemKey(book, title);
-    const isSel = state.selected.has(k);
-    const isConflict = isSel && conflictKeySet.has(k);
-    const isIns = state.inspected && state.inspected.book === book && state.inspected.title === title;
-    return '<span class="upp-chip-wrap' +
-      (isSel ? ' is-selected' : '') +
-      (isConflict ? ' is-conflict' : '') +
-      (isIns ? ' is-inspected' : '') + '" data-chip-book="' + esc(book) + '" data-chip-title="' + esc(title) + '">' +
-      '<button type="button" class="upp-chip-read" data-read-book="' + esc(book) + '" data-read-title="' + esc(title) + '" title="点击查看正文">' + esc(label) + '</button>' +
-      '<button type="button" class="upp-chip-check" data-toggle-book="' + esc(book) + '" data-toggle-title="' + esc(title) + '" title="' + (isSel ? '取消勾选' : '勾选') + '" aria-label="' + (isSel ? '取消勾选' : '勾选') + '">' +
-        '<span class="upp-chip-circle">' + CHECK_SVG + '</span>' +
-      '</button>' +
-    '</span>';
-  }
-
-  // Fast surgical DOM updates (avoids rebuilding 100+ DOM nodes on every click!)
-  function syncInspectedInPlace() {
-    elBody.querySelectorAll('.upp-chip-wrap.is-inspected').forEach(el => el.classList.remove('is-inspected'));
-    if (!state.inspected) return;
-    elBody.querySelectorAll('.upp-chip-wrap').forEach(el => {
-      if (el.dataset.chipBook === state.inspected.book && el.dataset.chipTitle === state.inspected.title) {
-        el.classList.add('is-inspected');
-      }
-    });
-  }
-
-  function syncChipStatesInPlace() {
-    const conflictSet = getConflictKeySet();
-    elBody.querySelectorAll('.upp-chip-wrap').forEach(el => {
-      const b = el.dataset.chipBook;
-      const t = el.dataset.chipTitle;
-      const k = itemKey(b, t);
-      const isSel = state.selected.has(k);
-      const isConflict = isSel && conflictSet.has(k);
-      const isIns = Boolean(state.inspected && state.inspected.book === b && state.inspected.title === t);
-      el.classList.toggle('is-selected', isSel);
-      el.classList.toggle('is-conflict', isConflict);
-      el.classList.toggle('is-inspected', isIns);
-      const chk = el.querySelector('.upp-chip-check');
-      if (chk) {
-        chk.title = isSel ? '取消勾选' : '勾选';
-        chk.setAttribute('aria-label', chk.title);
-      }
-    });
-    // Refresh category pill counts in place without rebuilding search inputs
-    if (state.tab === 'lib') {
-      elToolbar.querySelectorAll('.upp-cat-pill').forEach(pill => {
-        const c = pill.dataset.cat;
-        if (!c || c === '__profile__') return;
-        if (c === '__selected__') { pill.textContent = '已选 ' + state.selected.size; return; }
-        let sel = 0;
-        for (const it of getEntriesForCategory(state.store, c)) {
-          if (state.selected.has(itemKey(LIB_BOOK, it.title))) sel++;
-        }
-        pill.textContent = sel > 0 ? (c + ' ' + sel) : c;
-      });
+  function renderHeader() {
+    const label = state.charInfo.name || (state.currentPersona ? state.currentPersona.name : '');
+    if (label) {
+      elCtxChip.textContent = label;
+      elCtxChip.hidden = false;
+    } else {
+      elCtxChip.hidden = true;
     }
   }
 
   function renderTabs() {
-    const counts = countSelectedBySource();
-    const map = { lib: ['条目库', counts.lib], wb: ['世界书', counts.wb], presets: ['方案', state.store.presets.length] };
-    elTabs.querySelectorAll('.upp-tab').forEach(btn => {
-      const t = btn.dataset.tab;
-      btn.classList.toggle('is-active', state.tab === t && !state.subView);
-      const [label, n] = map[t];
-      btn.innerHTML = esc(label) + (n > 0 ? '<span class="upp-tab-count">' + n + '</span>' : '');
+    const snapCount = state.store.snapshots.length;
+    const tabs = [
+      { id: 'snapshots', label: '快照', count: snapCount || '' },
+      { id: 'assembly', label: 'User 与世界书', count: '' },
+      { id: 'preset', label: '预设', count: '' },
+      { id: 'regex', label: '正则', count: '' },
+    ];
+    elTabs.innerHTML = tabs.map(t => `
+      <button class="upp-tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
+        <span>${t.label}</span>
+        ${t.count !== '' ? `<span class="upp-tab-count">${t.count}</span>` : ''}
+      </button>
+    `).join('');
+  }
+
+  function renderSnapshotsToolbar() {
+    const snaps = state.store.snapshots;
+    const groups = Array.from(new Set(snaps.map(s => s.group).filter(Boolean)));
+    if (state.snapGroup && !groups.includes(state.snapGroup)) state.snapGroup = '';
+
+    const autoOn = !!state.store.settings.autoApplyBindings;
+    elToolbar.innerHTML = `
+      <div class="upp-row">
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-snap-search" placeholder="搜索快照名称或分组…" value="${escapeHtml(state.snapSearch)}" />
+        </div>
+        <label class="upp-switch-label" title="切换聊天或角色时自动切回绑定快照">
+          <span>自动切换</span>
+          <button type="button" class="upp-switch" id="upp-auto-bind-sw" role="switch" aria-checked="${autoOn}"></button>
+        </label>
+        <button class="upp-btn icon-only" id="upp-backup-btn" title="备份与导入">${ICONS.backup}</button>
+        <button class="upp-btn primary" id="upp-new-snap-btn">${ICONS.plus}<span>保存快照</span></button>
+      </div>
+      ${groups.length ? `
+        <div class="upp-pill-strip">
+          <button class="upp-pill ${state.snapGroup === '' ? 'active' : ''}" data-snap-group="">全部</button>
+          ${groups.map(g => `<button class="upp-pill ${state.snapGroup === g ? 'active' : ''}" data-snap-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+        </div>
+      ` : ''}
+    `;
+  }
+
+  function renderSnapshotsBody() {
+    const snaps = state.store.snapshots;
+    const q = normalizeText(state.snapSearch);
+    const filtered = snaps.filter(s => {
+      if (state.snapGroup && s.group !== state.snapGroup) return false;
+      if (q && !normalizeText(s.name + ' ' + s.group + ' ' + s.note).includes(q)) return false;
+      return true;
     });
-  }
 
-  function renderToolbar() {
-    if (state.subView || state.loading || state.tab === 'presets') {
-      elToolbar.innerHTML = '';
+    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
+    const boundSnap = bound ? snaps.find(s => s.id === bound.snapshotId) : null;
+
+    let html = '';
+    if (boundSnap) {
+      const srcText = bound.source === 'chat' ? '本聊天' : '本角色';
+      html += `
+        <div class="upp-bind-strip">
+          <span>${srcText}已绑定：<strong>${escapeHtml(boundSnap.name)}</strong></span>
+          <div class="upp-row-nowrap">
+            <button class="upp-btn" data-snap-apply="${boundSnap.id}">立即应用</button>
+            <button class="upp-btn" data-unbind-src="${bound.source}">解绑</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!filtered.length) {
+      html += `<div class="upp-empty">${snaps.length ? '没有匹配的快照' : '还没有保存快照，先在右侧点「保存快照」记录当前状态'}</div>`;
+      elBody.innerHTML = html;
       return;
     }
 
-    if (state.tab === 'lib') {
-      const allCats = getAllCategories(state.store);
-      const profFilled = hasProfileData(state.store.profile);
-      const catPills = [
-        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__profile__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__profile__">基础资料' + (profFilled ? ' · 已填' : '') + '</button>',
-        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__selected__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__selected__">已选 ' + state.selected.size + '</button>',
-      ];
-      for (const cat of allCats) {
-        let sel = 0;
-        for (const it of getEntriesForCategory(state.store, cat)) {
-          if (state.selected.has(itemKey(LIB_BOOK, it.title))) sel++;
-        }
-        catPills.push(
-          '<button type="button" class="upp-cat-pill' + (state.activeCat === cat && !state.libSearch ? ' is-active' : '') +
-            '" data-cat="' + esc(cat) + '">' + esc(cat) + (sel > 0 ? ' ' + sel : '') + '</button>'
-        );
+    html += filtered.map(s => {
+      const scopeBadges = [];
+      if (s.scope.persona && s.persona) {
+        const pvLabel = s.persona.versionName ? `${s.persona.name} · ${s.persona.versionName}` : s.persona.name;
+        scopeBadges.push(`<span class="upp-badge accent">User: ${escapeHtml(pvLabel)}</span>`);
       }
-      catPills.push('<button type="button" class="upp-cat-pill" data-act="open-new-cat">+ 分类</button>');
-
-      elToolbar.innerHTML =
-        '<div class="upp-toolbar-row">' +
-          '<input type="text" class="upp-search-input" data-lib-search="1" value="' + esc(state.libSearch) + '" placeholder="搜条目名称或正文（点文字看内容，点圆圈勾选）" />' +
-          '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 新建</button>' +
-        '</div>' +
-        '<div class="upp-cat-strip">' + catPills.join('') + '</div>';
-      return;
-    }
-
-    // Worldbook tab: search worldbooks + select + search entries
-    const ordered = getOrderedHostBooks();
-    if (!ordered.length) { elToolbar.innerHTML = ''; return; }
-    const filteredBooks = filterWorldbookNames(ordered, state.wbBookSearch);
-    if (filteredBooks.length && !filteredBooks.includes(state.activeWb)) {
-      state.activeWb = filteredBooks[0];
-    }
-
-    const opts = filteredBooks.length
-      ? filteredBooks.map(name => {
-          let sel = 0;
-          for (const k of state.selected) if (parseKey(k).book === name) sel++;
-          return '<option value="' + esc(name) + '"' + (state.activeWb === name ? ' selected' : '') + '>' + esc(name + (sel > 0 ? '（已选 ' + sel + '）' : '')) + '</option>';
-        }).join('')
-      : '<option value="">无匹配世界书</option>';
-
-    const isGlobalOn = state.activeWb && state.globalBooks.includes(state.activeWb);
-    elToolbar.innerHTML =
-      '<div class="upp-toolbar-row">' +
-        '<input type="text" class="upp-search-input" style="max-width:165px" data-wb-book-search="1" value="' + esc(state.wbBookSearch) + '" placeholder="搜世界书名" />' +
-        '<select class="upp-select" data-wb-select="1">' + opts + '</select>' +
-        '<button type="button" class="upp-mini-btn" data-act="open-new-wb">+ 新建</button>' +
-      '</div>' +
-      '<div class="upp-toolbar-row">' +
-        '<input type="text" class="upp-search-input" data-wb-entry-search="1" value="' + esc(state.wbEntrySearch) + '" placeholder="搜当前世界书内条目标题或正文" />' +
-      '</div>' +
-      (isGlobalOn ? '<div class="upp-warn-strip"><span>该世界书当前已全局开启，勾选后可能重复注入</span></div>' : '');
-  }
-
-  function renderConflicts() {
-    if (state.subView) { elConflicts.innerHTML = ''; return; }
-    const list = detectConflicts(state.selected);
-    if (!list.length) { elConflicts.innerHTML = ''; return; }
-    const first = list[0];
-    const summary = list.length === 1
-      ? '检测到冲突：' + first.label + '（' + first.titles.join(' / ') + '）'
-      : '检测到 ' + list.length + ' 处冲突：' + list.map(c => c.label).join('、');
-    elConflicts.innerHTML =
-      '<div class="upp-warn-strip">' +
-        '<span>' + esc(summary) + '</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="resolve-conflicts">只留最新</button>' +
-      '</div>';
-  }
-
-  function renderInspector() {
-    if (state.subView || !state.inspected) {
-      elInspector.hidden = true;
-      elInspector.innerHTML = '';
-      return;
-    }
-    const { book, title } = state.inspected;
-    let content = '';
-    if (book === LIB_BOOK) {
-      const entry = findLibraryEntry(state.store, title);
-      if (!entry) { elInspector.hidden = true; return; }
-      content = entry.content;
-    } else {
-      content = buildWbContentMap()[book]?.[title] || '';
-    }
-    const isSel = state.selected.has(itemKey(book, title));
-    elInspector.hidden = false;
-    elInspector.innerHTML =
-      '<div class="upp-inspector-head">' +
-        '<span class="upp-inspector-title">' + esc(title) + '</span>' +
-        '<div class="upp-inspector-actions">' +
-          '<button type="button" class="upp-mini-btn' + (isSel ? ' is-active' : '') + '" data-inspect-toggle="1">' + (isSel ? '取消勾选' : '勾选此条') + '</button>' +
-          '<button type="button" class="upp-mini-btn" data-inspect-edit="1">编辑</button>' +
-          '<button type="button" class="upp-mini-btn" data-inspect-close="1">×</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="upp-inspector-body">' + esc(content || '（正文为空）') + '</div>';
-  }
-
-  function renderFooter() {
-    elFoot.style.display = state.subView === 'apply' ? 'none' : '';
-    const total = state.selected.size + (hasProfileData(state.store.profile) ? 1 : 0);
-    elTotal.textContent = '已选 ' + total;
-    elClearBtn.disabled = state.selected.size === 0;
-    elApplyBtn.disabled = state.loading || state.saving;
-  }
-
-  function renderProfileForm() {
-    const p = state.store.profile;
-    const qp = (field, values) => '<div class="upp-quick-row">' + values.map(v =>
-      '<button type="button" class="upp-qpill' + (p[field] === v ? ' is-active' : '') + '" data-prof-quick="' + field + '" data-prof-val="' + esc(v) + '">' + esc(v) + '</button>'
-    ).join('') + '</div>';
-
-    const agePreview = formatAge(p.age);
-    const heightPreview = formatHeight(p.height);
-
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">基础资料</span>' +
-        (hasProfileData(p) ? '<button type="button" class="upp-mini-btn" data-act="clear-profile">清空资料</button>' : '') +
-      '</div>' +
-      '<div class="upp-profile-grid">' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>姓名</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="name" value="' + esc(p.name) + '" placeholder="留空默认 {{user}}" />' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>性别</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="gender" value="' + esc(p.gender) + '" placeholder="选填" />' +
-          qp('gender', ['女', '男', '双性']) +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>年龄</span><span>' + esc(agePreview) + '</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="age" value="' + esc(p.age) + '" placeholder="输数字自动补「岁」" />' +
-          qp('age', ['18', '20', '22', '25']) +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>身高</span><span>' + esc(heightPreview) + '</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="height" value="' + esc(p.height) + '" placeholder="输数字自动补「cm」" />' +
-          qp('height', ['158', '163', '168', '175']) +
-        '</div>' +
-        '<div class="upp-field is-full">' +
-          '<label class="upp-label"><span>身份 / 职业</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="role" value="' + esc(p.role) + '" placeholder="例如：大三美术生、插画师" />' +
-          qp('role', ['在校大学生', '职场上班族', '自由职业', '豪门千金']) +
-        '</div>' +
-        '<div class="upp-field is-full">' +
-          '<label class="upp-label"><span>外貌特征补充</span></label>' +
-          '<input type="text" class="upp-input" data-prof-field="traits" value="' + esc(p.traits) + '" placeholder="例如：黑发红瞳，左眼下有颗小泪痣" />' +
-        '</div>' +
-      '</div>' +
-    '</section>';
-  }
-
-  function renderLibTab() {
-    const conflictSet = getConflictKeySet();
-
-    if (state.libSearch.trim()) {
-      const hits = searchAllLibraryEntries(state.store, state.libSearch);
-      if (!hits.length) return '<section class="upp-group"><div class="upp-empty">没有找到匹配条目</div></section>';
-      return '<section class="upp-group">' +
-        '<div class="upp-group-head"><span class="upp-group-title">搜索结果<span class="upp-group-badge">' + hits.length + '</span></span></div>' +
-        '<div class="upp-chips">' + hits.map(it => renderChip(LIB_BOOK, it.title, it.title, conflictSet)).join('') + '</div>' +
-      '</section>';
-    }
-
-    if (state.activeCat === '__profile__') return renderProfileForm();
-
-    if (state.activeCat === '__selected__') {
-      const items = [...state.selected].map(parseKey);
-      if (!items.length && !hasProfileData(state.store.profile)) {
-        return '<section class="upp-group"><div class="upp-empty">还没勾选任何条目，切换上方分类即可点选</div></section>';
+      if (s.scope.worldbooks && s.worldbooks) {
+        const bkCount = Object.keys(s.worldbooks.entries || {}).length;
+        scopeBadges.push(`<span class="upp-badge">世界书 ${bkCount} 本</span>`);
       }
-      const parts = [];
-      if (hasProfileData(state.store.profile)) {
-        parts.push('<section class="upp-group"><div class="upp-group-head"><span class="upp-group-title">已填基础资料</span><button type="button" class="upp-mini-btn" data-cat="__profile__">去修改</button></div><pre class="upp-preview-pre">' + esc(formatProfileBlock(state.store.profile, state.store.outputFormat)) + '</pre></section>');
+      if (s.scope.preset && s.preset) {
+        scopeBadges.push(`<span class="upp-badge">预设: ${escapeHtml(s.preset.name || '当前')}</span>`);
       }
-      if (items.length) {
-        parts.push(
-          '<section class="upp-group">' +
-            '<div class="upp-group-head">' +
-              '<span class="upp-group-title">已勾选条目<span class="upp-group-badge">' + items.length + '</span></span>' +
-              '<button type="button" class="upp-mini-btn is-danger" data-act="clear">取消全选</button>' +
-            '</div>' +
-            '<div class="upp-chips">' + items.map(it => renderChip(it.book, it.title, it.title, conflictSet)).join('') + '</div>' +
-          '</section>'
-        );
+      if (s.scope.regex && s.regex) {
+        scopeBadges.push(`<span class="upp-badge">正则</span>`);
       }
-      return parts.join('');
-    }
+      const isChatBound = state.chatId && state.store.bindings.chats[state.chatId] === s.id;
+      const isCharBound = state.charInfo.id && state.store.bindings.characters[state.charInfo.id] === s.id;
 
-    const cat = state.activeCat;
-    const isCustomCat = !getBuiltinCategories().includes(cat);
-    const items = getEntriesForCategory(state.store, cat);
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">' + esc(cat) + '<span class="upp-group-badge">' + items.length + ' 条</span></span>' +
-        '<div class="upp-row-btns">' +
-          (isCustomCat ? '<button type="button" class="upp-mini-btn is-danger" data-del-cat="' + esc(cat) + '">删分类</button>' : '') +
-          '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 加到此分类</button>' +
-        '</div>' +
-      '</div>' +
-      (items.length
-        ? '<div class="upp-chips">' + items.map(it => renderChip(LIB_BOOK, it.title, it.title, conflictSet)).join('') + '</div>'
-        : '<div class="upp-empty">该分类暂无条目，点右上角「+ 加到此分类」新建</div>') +
-    '</section>';
-  }
-
-  function renderWbTab() {
-    if (!state.hostBooks.length) {
-      return '<section class="upp-group"><div class="upp-empty">当前酒馆里没有可用的世界书，可直接用「条目库」。</div></section>';
-    }
-    if (!state.activeWb) {
-      return '<section class="upp-group"><div class="upp-empty">没有匹配的世界书</div></section>';
-    }
-    const entries = state.wbCache[state.activeWb];
-    if (!Array.isArray(entries)) return '<div class="upp-empty">加载世界书…</div>';
-
-    const conflictSet = getConflictKeySet();
-    const org = organizeWorldbookEntries(entries, state.charName, state.showAllChars, state.wbEntrySearch);
-    const parts = [];
-    if (!org.sections.length) {
-      parts.push('<section class="upp-group"><div class="upp-empty">' + (state.wbEntrySearch ? '没有找到匹配条目' : '这本书暂无条目') + '</div></section>');
-    } else {
-      for (const sec of org.sections) {
-        let selCount = 0;
-        for (const e of sec.items) if (state.selected.has(itemKey(state.activeWb, e.name))) selCount++;
-        const chips = sec.items.map(e => renderChip(state.activeWb, e.name, displayEntryLabel(e.name, sec), conflictSet)).join('');
-        parts.push(
-          '<section class="upp-group">' +
-            (sec.cat ? '<div class="upp-group-head"><span class="upp-group-title">' + esc(sec.cat) + (selCount > 0 ? '<span class="upp-group-badge">' + selCount + '</span>' : '') + '</span></div>' : '') +
-            '<div class="upp-chips">' + chips + '</div>' +
-          '</section>'
-        );
-      }
-    }
-    if (org.hasHiddenOthers) {
-      parts.push('<button type="button" class="upp-mini-btn" data-act="show-all-chars">显示其余 ' + org.hiddenCount + ' 条其他角色路线</button>');
-    }
-    return parts.join('');
-  }
-
-  function renderPresetsTab() {
-    const rows = (state.store.presets || []).map(p => {
-      const isDef = p.id === state.store.defaultPresetId;
-      return '<div class="upp-row-item">' +
-        '<div class="upp-row-left">' +
-          '<button type="button" class="upp-star-btn' + (isDef ? ' is-default' : '') + '" data-preset-def="' + esc(p.id) + '" title="设为新聊天默认">' + (isDef ? '★' : '☆') + '</button>' +
-          '<div class="upp-row-main">' +
-            '<span class="upp-row-title">' + esc(p.label) + '</span>' +
-            '<span class="upp-row-sub">' + p.items.length + ' 条' + (hasProfileData(p.profile) ? ' + 基础资料' : '') + '</span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn is-active" data-preset-apply="' + esc(p.id) + '">套用</button>' +
-          '<button type="button" class="upp-mini-btn" data-preset-overwrite="' + esc(p.id) + '">覆盖</button>' +
-          '<button type="button" class="upp-mini-btn is-danger" data-preset-del="' + esc(p.id) + '">删</button>' +
-        '</div>' +
-      '</div>';
+      return `
+        <div class="upp-card">
+          <div class="upp-card-head">
+            <div class="upp-row-nowrap">
+              <span class="upp-card-title">${escapeHtml(s.name)}</span>
+              ${s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : ''}
+              ${isChatBound ? `<span class="upp-badge ok">本聊天</span>` : ''}
+              ${isCharBound ? `<span class="upp-badge ok">本角色</span>` : ''}
+            </div>
+            <span class="upp-card-meta">${formatTimeShort(s.updatedAt)}</span>
+          </div>
+          <div class="upp-card-meta">${scopeBadges.join('')}</div>
+          ${s.note ? `<div class="upp-card-meta">${escapeHtml(s.note)}</div>` : ''}
+          <div class="upp-row">
+            <button class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
+            <button class="upp-btn" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
+            <button class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
+            <button class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
+            <div class="upp-spacer"></div>
+            <button class="upp-btn icon-only danger" data-snap-del="${s.id}" title="删除快照">${ICONS.trash}</button>
+          </div>
+        </div>
+      `;
     }).join('');
 
-    const backupRow = state.store.personaBackup
-      ? '<section class="upp-group">' +
-          '<div class="upp-group-head">' +
-            '<span class="upp-group-title">上次写入前备份</span>' +
-            '<button type="button" class="upp-mini-btn" data-act="restore-persona-backup">恢复原文</button>' +
-          '</div>' +
-          '<div class="upp-empty">已备份「' + esc(state.store.personaBackup.name || '当前人设') + '」原有描述</div>' +
-        '</section>'
+    elBody.innerHTML = html;
+  }
+
+  function renderSnapshotsTab() {
+    renderSnapshotsToolbar();
+    renderSnapshotsBody();
+  }
+
+  function renderAssemblyToolbar() {
+    const activeBook = state.activeBook;
+    const isPinned = activeBook && state.store.settings.pinnedWorldbooks.includes(activeBook);
+    const isGlobal = activeBook && state.globalWorldbooks.includes(activeBook);
+
+    elToolbar.innerHTML = `
+      <div class="upp-row">
+        <button class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="选择或搜索世界书">
+          <span>${escapeHtml(activeBook || '选择世界书')}</span>
+          ${ICONS.chevron}
+        </button>
+        <button class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
+        <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="全局绑定开关" ${activeBook ? '' : 'disabled'}>全局</button>
+        <div class="upp-spacer"></div>
+        <button class="upp-btn" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
+        <button class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制本世界书已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
+      </div>
+      <div class="upp-row">
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-wb-search" placeholder="搜索条目标题或正文…" value="${escapeHtml(state.wbEntrySearch)}" />
+        </div>
+        <button class="upp-btn ${state.wbOnlyOn ? 'active' : ''}" id="upp-wb-only-on-btn">只看已开</button>
+        <button class="upp-btn" id="upp-wb-all-off-btn" ${activeBook ? '' : 'disabled'}>全关</button>
+      </div>
+    `;
+  }
+
+  function renderAssemblyBody() {
+    const activeBook = state.activeBook;
+    const curP = state.currentPersona;
+    const pVersions = curP ? (state.store.personaVersions[curP.avatar_id] || []) : [];
+    const matchedVer = curP ? findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description) : null;
+    const dupGroups = detectProliferatedPersonas(state.personas);
+
+    const personaOptions = state.personas.map(p =>
+      `<option value="${escapeHtml(p.avatar_id)}" ${curP && p.avatar_id === curP.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
+
+    const versionPills = curP && pVersions.length
+      ? `<div class="upp-pill-strip">
+          ${pVersions.map(v => `
+            <button class="upp-pill ${matchedVer && matchedVer.id === v.id ? 'active' : ''}" data-pv-apply="${v.id}">
+              <span>${escapeHtml(v.name)}</span>
+            </button>
+          `).join('')}
+        </div>`
       : '';
 
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head"><span class="upp-group-title">把当前设定存成方案</span><span class="upp-row-sub">含基础资料与已选条目</span></div>' +
-      '<div class="upp-inline-save">' +
-        '<input type="text" class="upp-input" data-preset-input="1" value="' + esc(state.presetNameInput) + '" placeholder="输入方案名，如：甜妹日常" />' +
-        '<button type="button" class="upp-btn upp-btn-primary" data-act="create-preset">保存</button>' +
-      '</div>' +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head"><span class="upp-group-title">已存方案</span></div>' +
-      '<div class="upp-row-list">' + (rows || '<div class="upp-empty">选好设定后在上方输个名字，下次就能一键套用</div>') + '</div>' +
-    '</section>' +
-    backupRow +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">换设备同步</span>' +
-        '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn" data-act="export-store">导出</button>' +
-          '<button type="button" class="upp-mini-btn" data-act="toggle-import">导入</button>' +
-        '</div>' +
-      '</div>' +
-      (state.importOpen
-        ? '<textarea class="upp-textarea" data-import-text="1" placeholder="粘贴导出的 JSON">' + esc(state.importText) + '</textarea>' +
-          '<div class="upp-form-actions"><button type="button" class="upp-mini-btn is-active" data-act="confirm-import">确认导入</button></div>'
-        : '') +
-    '</section>';
-  }
+    let html = `
+      <div class="upp-persona-card">
+        <div class="upp-row">
+          <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
+          <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑</span></button>
+          <button class="upp-btn" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存版本</span></button>
+          <button class="upp-btn" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
+          <div class="upp-spacer"></div>
+          <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或旧分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
+        </div>
+        ${versionPills}
+        ${curP ? `<div class="upp-persona-preview" id="upp-persona-preview-box">${escapeHtml(curP.description || '当前 User 暂无描述，点击编辑')}</div>` : ''}
+      </div>
+    `;
 
-  function renderSubView() {
-    if (state.subView === 'new_cat') {
-      return '<div class="upp-form">' +
-        '<div class="upp-group-head"><span class="upp-group-title">新建条目分类</span></div>' +
-        '<input type="text" class="upp-input" data-new-cat-input="1" value="' + esc(state.newCatName) + '" placeholder="例如：古风设定、常用XP" />' +
-        '<div class="upp-form-actions">' +
-          '<button type="button" class="upp-btn" data-act="close-sub">取消</button>' +
-          '<button type="button" class="upp-btn upp-btn-primary" data-act="confirm-new-cat">创建分类</button>' +
-        '</div>' +
-      '</div>';
+    if (!activeBook) {
+      html += `<div class="upp-empty">酒馆中暂无世界书</div>`;
+      elBody.innerHTML = html;
+      return;
     }
 
-    if (state.subView === 'apply') {
-      const ac = state.applyCfg;
-      const fmt = state.store.outputFormat;
-      const out = assembleOutput(state.selected, state.store, buildWbContentMap(), fmt);
-      const previewText = ac.target === 'persona_update'
-        ? mergeIntoPersonaDescription(ac.existingDesc, out.text, ac.replaceAll)
-        : out.text;
+    const entries = state.bookEntriesCache[activeBook] || [];
+    const hygiene = inspectTagHygiene(entries);
+    const q = normalizeText(state.wbEntrySearch);
+    const filtered = entries.filter(e => {
+      if (state.wbOnlyOn && !e.enabled) return false;
+      if (q && !normalizeText((e.name || '') + ' ' + (e.content || '')).includes(q)) return false;
+      return true;
+    });
 
-      return '<div class="upp-form">' +
-        '<div class="upp-group-head">' +
-          '<span class="upp-group-title">预览与应用</span>' +
-          '<span class="upp-row-sub">' + out.count + ' 项 · ' + previewText.length + ' 字</span>' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>输出格式</span></label>' +
-          '<div class="upp-seg-3">' +
-            '<button type="button" class="upp-seg-btn' + (fmt === 'hybrid' ? ' is-active' : '') + '" data-fmt="hybrid">YAML+自然语言</button>' +
-            '<button type="button" class="upp-seg-btn' + (fmt === 'yaml' ? ' is-active' : '') + '" data-fmt="yaml">纯 YAML</button>' +
-            '<button type="button" class="upp-seg-btn' + (fmt === 'prose' ? ' is-active' : '') + '" data-fmt="prose">自然语言</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>写入目标</span></label>' +
-          '<div class="upp-radio-group">' +
-            '<button type="button" class="upp-radio-opt' + (ac.target === 'persona_update' ? ' is-active' : '') + '" data-apply-target="persona_update">更新当前用户人设「' + esc(ac.currentPersonaName || '未检测到') + '」</button>' +
-            '<button type="button" class="upp-radio-opt' + (ac.target === 'persona_new' ? ' is-active' : '') + '" data-apply-target="persona_new">另存为新的用户人设（不改原人设）</button>' +
-            '<button type="button" class="upp-radio-opt' + (ac.target === 'chat' ? ' is-active' : '') + '" data-apply-target="chat">仅当前聊天生效（按聊天隔离）</button>' +
-          '</div>' +
-        '</div>' +
-        (ac.target === 'persona_update'
-          ? '<div class="upp-quick-row">' +
-              '<button type="button" class="upp-qpill' + (!ac.replaceAll ? ' is-active' : '') + '" data-merge-mode="keep">保留原有简介，仅更新人设块</button>' +
-              '<button type="button" class="upp-qpill' + (ac.replaceAll ? ' is-active' : '') + '" data-merge-mode="replace">完整替换整份描述</button>' +
-            '</div>'
-          : '') +
-        (ac.target === 'persona_new'
-          ? '<input type="text" class="upp-input" data-new-persona-name="1" value="' + esc(ac.newPersonaName) + '" placeholder="输入新用户人设的名称，如：林栀·古风版" />'
-          : '') +
-        '<pre class="upp-preview-pre">' + esc(previewText || '（暂无内容）') + '</pre>' +
-        (ac.error ? '<div class="upp-form-error">' + esc(ac.error) + '</div>' : '') +
-        '<div class="upp-form-actions">' +
-          '<button type="button" class="upp-btn" data-act="close-sub">返回</button>' +
-          '<button type="button" class="upp-btn" data-act="copy-apply-preview">复制文本</button>' +
-          '<button type="button" class="upp-btn upp-btn-primary" data-act="execute-apply"' + (state.saving ? ' disabled' : '') + '>确认执行</button>' +
-        '</div>' +
-      '</div>';
+    if (hygiene.unclosedCount > 0 || hygiene.duplicateTags.length > 0) {
+      const notes = [];
+      if (hygiene.unclosedCount > 0) notes.push(`${hygiene.unclosedCount} 条存在未闭合标签`);
+      if (hygiene.duplicateTags.length > 0) {
+        notes.push(`重复包裹标签：${hygiene.duplicateTags.map(d => '<' + d.tag + '>').join('、')}`);
+      }
+      html += `<div class="upp-card-meta" style="padding: 2px 4px;"><span class="upp-badge warn">${ICONS.warn} ${escapeHtml(notes.join(' · '))}</span></div>`;
     }
 
-    // Edit or New Entry
-    const d = state.draft;
-    const isNew = state.subView === 'new';
-    const canRename = isNew || d.book !== LIB_BOOK || d.isCustom;
-    const allCats = getAllCategories(state.store);
-    const catSelect = d.book === LIB_BOOK && (isNew || d.isCustom)
-      ? '<div class="upp-field"><label class="upp-label"><span>所属分类</span></label><select class="upp-select" data-draft-field="cat">' +
-          allCats.map(c => '<option value="' + esc(c) + '"' + (d.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
-        '</select></div>'
-      : '';
+    if (!filtered.length) {
+      html += `<div class="upp-empty">${entries.length ? '没有匹配的条目' : '当前世界书暂无条目'}</div>`;
+      elBody.innerHTML = html;
+      return;
+    }
 
-    return '<div class="upp-form">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">' + (isNew ? '新建条目' : '修改条目') + '</span>' +
-        (d.book !== LIB_BOOK ? '<span class="upp-row-sub">' + esc(d.book) + '</span>' : '') +
-      '</div>' +
-      catSelect +
-      '<input type="text" class="upp-input" data-draft-field="title" value="' + esc(d.title) + '"' + (canRename ? '' : ' disabled') + ' placeholder="标题" />' +
-      '<textarea class="upp-textarea is-tall" data-draft-field="content" placeholder="写这条人设的具体描述">' + esc(d.content) + '</textarea>' +
-      (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
-      '<div class="upp-form-actions">' +
-        (!isNew && d.book === LIB_BOOK && d.isCustom ? '<button type="button" class="upp-btn" style="color:var(--upp-danger-tx)" data-act="delete-custom">删除</button>' : '') +
-        '<button type="button" class="upp-btn" data-act="close-sub">取消</button>' +
-        '<button type="button" class="upp-btn upp-btn-primary" data-act="save-draft"' + (d.busy ? ' disabled' : '') + '>保存</button>' +
-      '</div>' +
-    '</div>';
+    html += `<div class="upp-entry-list">` + filtered.map(e => {
+      const stType = e.strategy?.type || 'constant';
+      const h = hygiene.byUid[String(e.uid)];
+      const warnTag = h && (h.unclosed.length || h.duplicateTags.length)
+        ? `<span class="upp-badge warn" title="${escapeHtml([
+            h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
+            h.duplicateTags.length ? '重复包裹: ' + h.duplicateTags.join(', ') : '',
+          ].filter(Boolean).join('；'))}">${ICONS.warn}</span>`
+        : '';
+      const snippet = String(e.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      return `
+        <div class="upp-entry-row ${e.enabled ? 'is-on' : ''}" data-wb-row="${e.uid}">
+          <button class="upp-entry-main" data-wb-open="${e.uid}">
+            <span class="upp-dot ${stType}" title="${stType === 'constant' ? '蓝灯常驻' : stType === 'selective' ? '绿灯触发' : '向量'}"></span>
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(e.name || '(未命名条目)')}</div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+            </div>
+            ${warnTag}
+          </button>
+          <button type="button" class="upp-switch" role="switch" aria-checked="${!!e.enabled}" data-wb-toggle="${e.uid}"></button>
+        </div>
+      `;
+    }).join('') + `</div>`;
+
+    elBody.innerHTML = html;
   }
 
-  function renderBody() {
-    if (state.loading) { elBody.innerHTML = '<div class="upp-empty">加载中…</div>'; return; }
-    const prevScroll = elBody.scrollTop;
-    if (state.subView) elBody.innerHTML = renderSubView();
-    else if (state.tab === 'wb') elBody.innerHTML = renderWbTab();
-    else if (state.tab === 'presets') elBody.innerHTML = renderPresetsTab();
-    else elBody.innerHTML = renderLibTab();
-    elBody.scrollTop = prevScroll;
+  function renderAssemblyTab() {
+    renderAssemblyToolbar();
+    renderAssemblyBody();
   }
 
-  function renderAll() {
-    if (state.charName) { elCharTag.textContent = state.charName; elCharTag.hidden = false; }
-    else elCharTag.hidden = true;
+  function renderPresetToolbar() {
+    const presetOpts = state.presets.map(name =>
+      `<option value="${escapeHtml(name)}" ${name === state.loadedPresetName ? 'selected' : ''}>${escapeHtml(name)}</option>`
+    ).join('');
+
+    elToolbar.innerHTML = `
+      <div class="upp-row">
+        <select class="upp-select" id="upp-preset-select" title="切换预设">${presetOpts || '<option value="">无可用预设</option>'}</select>
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-preset-search" placeholder="搜索提示词标题或正文…" value="${escapeHtml(state.presetSearch)}" />
+        </div>
+        <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
+      </div>
+    `;
+  }
+
+  function renderPresetBody() {
+    const prompts = state.inUsePreset && Array.isArray(state.inUsePreset.prompts) ? state.inUsePreset.prompts : [];
+    const q = normalizeText(state.presetSearch);
+    const filtered = prompts.filter(p => {
+      if (state.presetOnlyOn && !p.enabled) return false;
+      if (q && !normalizeText((p.name || '') + ' ' + (p.content || '')).includes(q)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      elBody.innerHTML = `<div class="upp-empty">${prompts.length ? '没有匹配的提示词' : '未能读取当前预设条目'}</div>`;
+      return;
+    }
+
+    const placeholderIds = new Set(['worldInfoBefore', 'personaDescription', 'charDescription', 'charPersonality', 'scenario', 'worldInfoAfter', 'dialogueExamples', 'chatHistory']);
+    elBody.innerHTML = `<div class="upp-entry-list">` + filtered.map(p => {
+      const isPh = placeholderIds.has(p.id);
+      const roleShort = isPh ? '占位' : (p.role === 'user' ? 'USR' : p.role === 'assistant' ? 'AST' : 'SYS');
+      const snippet = isPh ? '酒馆原生占位槽位' : String(p.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      return `
+        <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${escapeHtml(p.id)}">
+          <button class="upp-entry-main" data-pr-open="${escapeHtml(p.id)}">
+            <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(p.name || p.id)}</div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+            </div>
+          </button>
+          <button type="button" class="upp-switch" role="switch" aria-checked="${!!p.enabled}" data-pr-toggle="${escapeHtml(p.id)}"></button>
+        </div>
+      `;
+    }).join('') + `</div>`;
+  }
+
+  function renderPresetTab() {
+    renderPresetToolbar();
+    renderPresetBody();
+  }
+
+  function renderRegexToolbar() {
+    elToolbar.innerHTML = `
+      <div class="upp-row">
+        <button class="upp-btn ${state.regexScope === 'global' ? 'active' : ''}" data-rg-scope="global">全局</button>
+        <button class="upp-btn ${state.regexScope === 'character' ? 'active' : ''}" data-rg-scope="character">当前角色</button>
+        <button class="upp-btn ${state.regexScope === 'preset' ? 'active' : ''}" data-rg-scope="preset">当前预设</button>
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-rg-search" placeholder="搜索正则名称或规则…" value="${escapeHtml(state.regexSearch)}" />
+        </div>
+        <button class="upp-btn ${state.regexOnlyOn ? 'active' : ''}" id="upp-rg-only-on-btn">只看已开</button>
+      </div>
+    `;
+  }
+
+  function renderRegexBody() {
+    const list = state.regexList || [];
+    const q = normalizeText(state.regexSearch);
+    const filtered = list.filter(r => {
+      if (state.regexOnlyOn && !r.enabled) return false;
+      if (q && !normalizeText((r.script_name || '') + ' ' + (r.find_regex || '')).includes(q)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      elBody.innerHTML = `<div class="upp-empty">${list.length ? '没有匹配的正则' : '当前范围暂无正则脚本'}</div>`;
+      return;
+    }
+
+    elBody.innerHTML = `<div class="upp-entry-list">` + filtered.map(r => {
+      const dest = [r.destination?.display ? '显示' : '', r.destination?.prompt ? '提示词' : ''].filter(Boolean).join('/');
+      return `
+        <div class="upp-entry-row ${r.enabled ? 'is-on' : ''}" data-rg-row="${escapeHtml(r.id)}">
+          <button class="upp-entry-main" data-rg-open="${escapeHtml(r.id)}">
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(r.script_name || '(未命名正则)')}</div>
+              <div class="upp-entry-preview">${escapeHtml(r.find_regex || '')}</div>
+            </div>
+            ${dest ? `<span class="upp-badge">${dest}</span>` : ''}
+          </button>
+          <button type="button" class="upp-switch" role="switch" aria-checked="${!!r.enabled}" data-rg-toggle="${escapeHtml(r.id)}"></button>
+        </div>
+      `;
+    }).join('') + `</div>`;
+  }
+
+  function renderRegexTab() {
+    renderRegexToolbar();
+    renderRegexBody();
+  }
+
+  function renderDrawer() {
+    const d = state.drawer;
+    if (!d) {
+      elDrawerMask.hidden = true;
+      elDrawerMask.innerHTML = '';
+      return;
+    }
+    elDrawerMask.hidden = false;
+
+    if (d.type === 'bookPicker') {
+      const q = normalizeText(d.query || '');
+      const pinned = new Set(state.store.settings.pinnedWorldbooks);
+      const globals = new Set(state.globalWorldbooks);
+      const charSet = new Set([state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean));
+      const sorted = [...state.worldbooks].sort((a, b) => {
+        const pa = (pinned.has(a) ? 4 : 0) + (globals.has(a) ? 2 : 0) + (charSet.has(a) ? 1 : 0);
+        const pb = (pinned.has(b) ? 4 : 0) + (globals.has(b) ? 2 : 0) + (charSet.has(b) ? 1 : 0);
+        if (pa !== pb) return pb - pa;
+        return a.localeCompare(b, 'zh-CN');
+      });
+      const shown = sorted.filter(n => !q || normalizeText(n).includes(q));
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>选择世界书</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-input-wrap" style="width:100%;">
+              ${ICONS.search}
+              <input type="text" id="upp-book-search-input" placeholder="输入世界书名称筛选…" value="${escapeHtml(d.query || '')}" />
+            </div>
+            <div class="upp-pop-list" style="max-height:360px;">
+              ${shown.length ? shown.map(name => {
+                const tags = [];
+                if (pinned.has(name)) tags.push('<span class="upp-badge warn">置顶</span>');
+                if (globals.has(name)) tags.push('<span class="upp-badge accent">全局</span>');
+                if (charSet.has(name)) tags.push('<span class="upp-badge ok">角色</span>');
+                if (state.chatWorldbook === name) tags.push('<span class="upp-badge ok">聊天</span>');
+                return `
+                  <button class="upp-detail-item" data-pick-book="${escapeHtml(name)}" style="${name === state.activeBook ? 'border-color:var(--accent);' : ''}">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(name)}</span>
+                    <span class="upp-row-nowrap">${tags.join('')}</span>
+                  </button>
+                `;
+              }).join('') : '<div class="upp-empty" style="padding:18px;">未找到匹配世界书</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+      later(() => { shadow.getElementById('upp-book-search-input')?.focus(); }, 10);
+      return;
+    }
+
+    if (d.type === 'entryEditor') {
+      const readOnly = !!d.readOnly;
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>${escapeHtml(d.heading || '条目详情')}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            ${d.meta ? `<div class="upp-card-meta">${escapeHtml(d.meta)}</div>` : ''}
+            ${d.allowNameEdit ? `
+              <div class="upp-field">
+                <label>标题</label>
+                <input class="upp-text-input" id="upp-ed-name" value="${escapeHtml(d.name || '')}" ${readOnly ? 'readonly' : ''} />
+              </div>
+            ` : ''}
+            ${d.showStrategy ? `
+              <div class="upp-field">
+                <label>激活方式</label>
+                <select class="upp-select" id="upp-ed-strategy" style="max-width:none;width:100%;">
+                  <option value="constant" ${d.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
+                  <option value="selective" ${d.strategyType === 'selective' ? 'selected' : ''}>绿灯关键字触发</option>
+                </select>
+              </div>
+            ` : ''}
+            <div class="upp-field">
+              <label>正文</label>
+              <textarea class="upp-textarea" id="upp-ed-content" ${readOnly ? 'readonly' : ''}>${escapeHtml(d.content || '')}</textarea>
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>关闭</button>
+            ${!readOnly ? `<button class="upp-btn primary" id="upp-ed-save-btn">保存</button>` : ''}
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (d.type === 'saveSnapshot') {
+      const existingGroups = Array.from(new Set(state.store.snapshots.map(s => s.group).filter(Boolean)));
+      const pinned = new Set(state.store.settings.pinnedWorldbooks);
+      const selectedSet = new Set(d.selectedBooks || []);
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>保存快照</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-field">
+              <label>快照名称</label>
+              <input class="upp-text-input" id="upp-ss-name" placeholder="例如：日常甜妹 / 现代线" value="${escapeHtml(d.name || '')}" />
+            </div>
+            <div class="upp-field">
+              <label>分组</label>
+              <input class="upp-text-input" id="upp-ss-group" placeholder="可选，例如：日常 / 现代 / 某角色" value="${escapeHtml(d.group || '')}" />
+              ${existingGroups.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${existingGroups.map(g => `<button type="button" class="upp-pill" data-ss-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}</div>` : ''}
+            </div>
+            <div class="upp-field">
+              <label>备注</label>
+              <input class="upp-text-input" id="upp-ss-note" placeholder="可选简短说明" value="${escapeHtml(d.note || '')}" />
+            </div>
+            <div class="upp-field">
+              <label>保存范围</label>
+              <div class="upp-check-grid">
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-persona" ${d.scope.persona ? 'checked' : ''} /><span>User 人设</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-wb" ${d.scope.worldbooks ? 'checked' : ''} /><span>世界书与条目开关</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-preset" ${d.scope.preset ? 'checked' : ''} /><span>预设与提示词开关</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-regex" ${d.scope.regex ? 'checked' : ''} /><span>正则开关</span></label>
+              </div>
+            </div>
+            <div class="upp-field" id="upp-ss-books-wrap" ${d.scope.worldbooks ? '' : 'hidden'}>
+              <label>记录条目开关的世界书（已选 ${selectedSet.size} 本）</label>
+              <div class="upp-pop-list">
+                ${state.worldbooks.map(bk => `
+                  <label class="upp-check-item" style="border:none;background:transparent;padding:4px 6px;">
+                    <input type="checkbox" data-ss-book="${escapeHtml(bk)}" ${selectedSet.has(bk) ? 'checked' : ''} />
+                    <span>${escapeHtml(bk)}</span>
+                    ${pinned.has(bk) ? '<span class="upp-badge warn" style="margin-left:auto;">置顶</span>' : ''}
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-ss-confirm-btn">保存快照</button>
+          </div>
+        </div>
+      `;
+      later(() => { shadow.getElementById('upp-ss-name')?.focus(); }, 10);
+      return;
+    }
+
+    if (d.type === 'viewSnapshot') {
+      const s = d.snapshot;
+      const wbDetails = d.wbDetails || {};
+      const livePrompts = (state.inUsePreset && state.inUsePreset.prompts) || [];
+      const promptMap = {};
+      livePrompts.forEach(p => { promptMap[p.id] = p; });
+
+      let body = '';
+      if (s.scope.persona && s.persona) {
+        const pvTitle = s.persona.versionName ? `${s.persona.name} · ${s.persona.versionName}` : s.persona.name;
+        body += `
+          <div class="upp-sec-title"><span>User 人设</span></div>
+          <button class="upp-detail-item" data-view-snap-persona>
+            <span>${escapeHtml(pvTitle)}</span>
+            <span class="upp-badge">预览正文</span>
+          </button>
+        `;
+      }
+
+      if (s.scope.worldbooks && s.worldbooks) {
+        const entriesMap = s.worldbooks.entries || {};
+        const bookNames = Object.keys(entriesMap);
+        body += `<div class="upp-sec-title"><span>世界书（${bookNames.length} 本）</span></div>`;
+        if (!bookNames.length) {
+          body += `<div class="upp-card-meta">仅记录绑定关系，未选定条目</div>`;
+        }
+        bookNames.forEach(bk => {
+          const map = entriesMap[bk] || {};
+          const onUids = Object.keys(map).filter(u => map[u]);
+          const liveList = wbDetails[bk] || [];
+          const byUid = {};
+          liveList.forEach(e => { byUid[String(e.uid)] = e; });
+          body += `<div class="upp-card" style="padding:8px 10px;gap:5px;">
+            <div class="upp-card-head">
+              <span style="font-weight:600;font-size:12.5px;">${escapeHtml(bk)}</span>
+              <span class="upp-badge accent">开 ${onUids.length} / 录 ${Object.keys(map).length}</span>
+            </div>
+            ${onUids.length ? onUids.map(u => {
+              const live = byUid[u];
+              return `<button class="upp-detail-item" data-view-snap-wb="${escapeHtml(bk)}" data-view-snap-uid="${escapeHtml(u)}">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(live ? (live.name || '(未命名)') : '已删除条目 #' + u)}</span>
+                <span class="upp-badge">${live ? '查看' : '缺失'}</span>
+              </button>`;
+            }).join('') : '<div class="upp-card-meta">本世界书全部关闭</div>'}
+          </div>`;
+        });
+      }
+
+      if (s.scope.preset && s.preset) {
+        const pMap = s.preset.prompts || {};
+        const onIds = Object.keys(pMap).filter(id => pMap[id]);
+        body += `<div class="upp-sec-title"><span>预设：${escapeHtml(s.preset.name || '当前')}（开 ${onIds.length} 条）</span></div>`;
+        body += `<div class="upp-pop-list" style="max-height:180px;">` + (onIds.length ? onIds.map(id => {
+          const live = promptMap[id];
+          return `<button class="upp-detail-item" data-view-snap-pr="${escapeHtml(id)}">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(live ? (live.name || id) : id)}</span>
+            <span class="upp-badge">${live ? '查看' : '切换后可见'}</span>
+          </button>`;
+        }).join('') : '<div class="upp-card-meta">无开启条目</div>') + `</div>`;
+      }
+
+      if (s.scope.regex && s.regex) {
+        const countOn = m => Object.keys(m || {}).filter(k => m[k]).length;
+        body += `
+          <div class="upp-sec-title"><span>正则开关</span></div>
+          <div class="upp-card-meta">
+            <span class="upp-badge">全局开 ${countOn(s.regex.global)}</span>
+            <span class="upp-badge">角色开 ${countOn(s.regex.character)}</span>
+            <span class="upp-badge">预设开 ${countOn(s.regex.preset)}</span>
+          </div>
+        `;
+      }
+
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>快照详情 · ${escapeHtml(s.name)}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">${body || '<div class="upp-empty">空快照</div>'}</div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>关闭</button>
+            <button class="upp-btn primary" data-snap-apply="${s.id}">应用此快照</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (d.type === 'bindSnapshot') {
+      const s = d.snapshot;
+      const isChat = state.chatId && state.store.bindings.chats[state.chatId] === s.id;
+      const isChar = state.charInfo.id && state.store.bindings.characters[state.charInfo.id] === s.id;
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer" style="width:min(420px,100%);">
+          <div class="upp-drawer-head">
+            <span>绑定快照 · ${escapeHtml(s.name)}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-card">
+              <div class="upp-card-head">
+                <span>当前聊天</span>
+                <span class="upp-card-meta">${escapeHtml(state.chatId || '未打开聊天')}</span>
+              </div>
+              <div class="upp-row">
+                <button class="upp-btn ${isChat ? 'danger' : 'primary'}" id="upp-bind-chat-btn" ${state.chatId ? '' : 'disabled'}>${isChat ? '解除本聊天绑定' : '绑定到本聊天'}</button>
+              </div>
+            </div>
+            <div class="upp-card">
+              <div class="upp-card-head">
+                <span>当前角色默认</span>
+                <span class="upp-card-meta">${escapeHtml(state.charInfo.name || '未打开角色')}</span>
+              </div>
+              <div class="upp-row">
+                <button class="upp-btn ${isChar ? 'danger' : 'primary'}" id="upp-bind-char-btn" ${state.charInfo.id ? '' : 'disabled'}>${isChar ? '解除本角色绑定' : '设为本角色默认'}</button>
+              </div>
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>完成</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (d.type === 'savePersonaVersion') {
+      const p = state.currentPersona;
+      const existing = p ? (state.store.personaVersions[p.avatar_id] || []) : [];
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer" style="width:min(460px,100%);">
+          <div class="upp-drawer-head">
+            <span>存为内部描述版本 · ${escapeHtml(p?.name || '')}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-field">
+              <label>版本名称（仅存于本插件，不会在酒馆新建同名 User）</label>
+              <input class="upp-text-input" id="upp-pv-name" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
+            </div>
+            ${existing.length ? `
+              <div class="upp-field">
+                <label>已有版本（点选同名可覆盖，点删除清理）</label>
+                <div class="upp-pop-list">
+                  ${existing.map(v => `
+                    <div class="upp-row-nowrap" style="padding:3px 4px;">
+                      <button type="button" class="upp-detail-item" data-pv-fill-name="${escapeHtml(v.name)}">
+                        <span>${escapeHtml(v.name)}</span>
+                        <span class="upp-card-meta">${formatTimeShort(v.updatedAt)}</span>
+                      </button>
+                      <button type="button" class="upp-btn icon-only danger" data-pv-del="${v.id}" title="删除版本">${ICONS.trash}</button>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-pv-save-btn">保存版本</button>
+          </div>
+        </div>
+      `;
+      later(() => { shadow.getElementById('upp-pv-name')?.focus(); }, 10);
+      return;
+    }
+
+    if (d.type === 'personaDiff') {
+      const p = state.currentPersona;
+      const list = p ? (state.store.personaVersions[p.avatar_id] || []) : [];
+      const choices = [{ id: '__live__', name: '当前实时正文', description: p ? p.description : '' }, ...list];
+      const leftId = d.leftId || (list[0]?.id || '__live__');
+      const rightId = d.rightId || '__live__';
+      const leftItem = choices.find(c => c.id === leftId) || choices[0];
+      const rightItem = choices.find(c => c.id === rightId) || choices[0];
+      const diffLines = computeLineDiff(leftItem?.description || '', rightItem?.description || '');
+
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>版本差异对比 · ${escapeHtml(p?.name || '')}</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-row">
+              <select class="upp-select" id="upp-diff-left" style="flex:1;max-width:none;">
+                ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === leftId ? 'selected' : ''}>旧：${escapeHtml(c.name)}</option>`).join('')}
+              </select>
+              <select class="upp-select" id="upp-diff-right" style="flex:1;max-width:none;">
+                ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === rightId ? 'selected' : ''}>新：${escapeHtml(c.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="upp-diff-box">
+              ${diffLines.length ? diffLines.map(ln => {
+                const prefix = ln.type === 'del' ? '- ' : ln.type === 'add' ? '+ ' : '  ';
+                return `<div class="upp-diff-line ${ln.type}">${escapeHtml(prefix + ln.text)}</div>`;
+              }).join('') : '<div class="upp-card-meta">两版正文完全一致</div>'}
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>关闭</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (d.type === 'mergePersonas') {
+      const dupGroups = detectProliferatedPersonas(state.personas);
+      const keepId = d.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
+      const absorbSet = new Set(d.absorbIds || []);
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer">
+          <div class="upp-drawer-head">
+            <span>整理同名与旧分身 User</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            ${dupGroups.length ? `
+              <div class="upp-field">
+                <label>快速选中检测到的相似分身组</label>
+                <div class="upp-pill-strip">
+                  ${dupGroups.map((g, idx) => `<button type="button" class="upp-pill" data-merge-preset-group="${idx}">${escapeHtml(g.baseName)}（${g.items.length}）</button>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+            <div class="upp-field">
+              <label>保留的主 User（只按名字保留这 1 个）</label>
+              <select class="upp-select" id="upp-merge-keep" style="max-width:none;width:100%;">
+                ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="upp-field">
+              <label>勾选要收回为内部描述版本的旧分身</label>
+              <div class="upp-pop-list">
+                ${state.personas.filter(p => p.avatar_id !== keepId).map(p => `
+                  <label class="upp-check-item" style="border:none;background:transparent;padding:5px 6px;">
+                    <input type="checkbox" data-merge-absorb="${escapeHtml(p.avatar_id)}" ${absorbSet.has(p.avatar_id) ? 'checked' : ''} />
+                    <span style="font-weight:550;">${escapeHtml(p.name)}</span>
+                    <span class="upp-card-meta" style="margin-left:auto;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((p.description || '').replace(/\s+/g, ' ').slice(0, 36) || '空描述')}</span>
+                  </label>
+                `).join('') || '<div class="upp-card-meta" style="padding:8px;">没有其他可合并的 User</div>'}
+              </div>
+            </div>
+            <label class="upp-check-item">
+              <input type="checkbox" id="upp-merge-delete-old" ${d.deleteOld ? 'checked' : ''} />
+              <span>收回后同时从酒馆删除已选中的旧分身</span>
+            </label>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-merge-run-btn" ${absorbSet.size ? '' : 'disabled'}>收回 ${absorbSet.size} 个分身</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (d.type === 'backup') {
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer" style="width:min(460px,100%);">
+          <div class="upp-drawer-head">
+            <span>快照与版本备份</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-row">
+              <button class="upp-btn primary" id="upp-export-json-btn">导出全部 JSON</button>
+              <button class="upp-btn" id="upp-import-json-btn">导入 JSON 备份</button>
+              <input type="file" id="upp-import-file" accept=".json,application/json" hidden />
+            </div>
+            <div class="upp-card-meta">包含所有快照、绑定关系及 User 内部描述版本，导入后将与当前列表合并更新。</div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>关闭</button>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function render() {
+    renderHeader();
     renderTabs();
-    renderToolbar();
-    renderBody();
-    renderConflicts();
-    renderInspector();
-    renderFooter();
+    if (state.tab === 'snapshots') renderSnapshotsTab();
+    else if (state.tab === 'assembly') renderAssemblyTab();
+    else if (state.tab === 'preset') renderPresetTab();
+    else if (state.tab === 'regex') renderRegexTab();
+    renderDrawer();
   }
 
-  async function refreshState() {
-    elBackdrop.dataset.theme = detectHostTheme();
-    state.loading = true;
-    state.charName = readCurrentCharName();
-    state.store = loadStore();
-    renderAll();
+  // =========================
+  // Event Handling
+  // =========================
 
-    const [books, globals] = await Promise.all([listHostWorldbooks(), listGlobalWorldbooks()]);
-    if (dead) return;
-    state.hostBooks = books;
-    state.globalBooks = globals;
+  listen(shadow.getElementById('upp-close-btn'), 'click', closeModal);
+  listen(shadow.getElementById('upp-refresh-btn'), 'click', () => { void refreshAll(true); });
+  listen(elBackdrop, 'click', ev => { if (ev.target === elBackdrop) closeModal(); });
+  listen(elDrawerMask, 'click', ev => {
+    if (ev.target === elDrawerMask) {
+      state.drawer = null;
+      renderDrawer();
+    }
+  });
 
-    // Prefer chat saved state if present, otherwise lastItems or defaultPreset
-    const savedChat = parseSavedChatPicker(readChatPickerVar());
-    const nextSel = new Set();
-    if (savedChat.hasSaved) {
-      for (const it of savedChat.items) nextSel.add(itemKey(it.book, it.title));
-      if (savedChat.profile && hasProfileData(savedChat.profile)) state.store.profile = savedChat.profile;
-    } else if (state.store.lastItems.length) {
-      for (const it of state.store.lastItems) nextSel.add(itemKey(it.book, it.title));
-    } else if (state.store.defaultPresetId) {
-      const def = state.store.presets.find(p => p.id === state.store.defaultPresetId);
-      if (def) {
-        for (const it of def.items) nextSel.add(itemKey(it.book, it.title));
-        if (def.profile) state.store.profile = normalizeProfile(def.profile);
+  // Tab switch
+  listen(elTabs, 'click', async ev => {
+    const btn = ev.target.closest('[data-tab]');
+    if (!btn) return;
+    const next = btn.getAttribute('data-tab');
+    if (next === state.tab) return;
+    state.tab = next;
+    state.drawer = null;
+    if (next === 'assembly' && state.activeBook) {
+      await ensureBookEntries(state.activeBook, false);
+    } else if (next === 'regex') {
+      state.regexList = Host.getRegexes(state.regexScope);
+    } else if (next === 'preset') {
+      state.inUsePreset = Host.getInUsePreset();
+    }
+    render();
+  });
+
+  // Toolbar click & input delegation
+  listen(elToolbar, 'click', async ev => {
+    const target = ev.target;
+
+    // Snapshots toolbar
+    if (target.closest('#upp-auto-bind-sw')) {
+      state.store.settings.autoApplyBindings = !state.store.settings.autoApplyBindings;
+      persistStore(state.store);
+      const sw = shadow.getElementById('upp-auto-bind-sw');
+      if (sw) sw.setAttribute('aria-checked', String(state.store.settings.autoApplyBindings));
+      toast(state.store.settings.autoApplyBindings ? '已开启切换聊天自动切回快照' : '已暂停自动切换快照');
+      return;
+    }
+    if (target.closest('#upp-backup-btn')) {
+      state.drawer = { type: 'backup' };
+      renderDrawer();
+      return;
+    }
+    if (target.closest('#upp-new-snap-btn')) {
+      state.drawer = {
+        type: 'saveSnapshot',
+        name: '',
+        group: state.snapGroup || '',
+        note: '',
+        scope: { persona: true, worldbooks: true, preset: true, regex: true },
+        selectedBooks: getDefaultSnapshotBooks(state.store),
+      };
+      renderDrawer();
+      return;
+    }
+    const gBtn = target.closest('[data-snap-group]');
+    if (gBtn) {
+      state.snapGroup = gBtn.getAttribute('data-snap-group') || '';
+      renderSnapshotsTab();
+      return;
+    }
+
+    // Assembly toolbar
+    if (target.closest('#upp-book-picker-btn')) {
+      state.drawer = { type: 'bookPicker', query: '' };
+      renderDrawer();
+      return;
+    }
+    if (target.closest('#upp-pin-book-btn') && state.activeBook) {
+      const list = state.store.settings.pinnedWorldbooks;
+      const idx = list.indexOf(state.activeBook);
+      if (idx >= 0) list.splice(idx, 1);
+      else list.unshift(state.activeBook);
+      persistStore(state.store);
+      renderAssemblyTab();
+      return;
+    }
+    if (target.closest('#upp-global-book-btn') && state.activeBook) {
+      const next = new Set(state.globalWorldbooks);
+      if (next.has(state.activeBook)) next.delete(state.activeBook);
+      else next.add(state.activeBook);
+      const arr = Array.from(next);
+      await Host.setGlobalWorldbooks(arr);
+      state.globalWorldbooks = Host.getGlobalWorldbooks();
+      renderAssemblyTab();
+      return;
+    }
+    if (target.closest('#upp-new-wb-entry-btn') && state.activeBook) {
+      state.drawer = {
+        type: 'entryEditor',
+        mode: 'createWb',
+        heading: `新建条目 · ${state.activeBook}`,
+        bookName: state.activeBook,
+        allowNameEdit: true,
+        showStrategy: true,
+        strategyType: 'constant',
+        name: '',
+        content: '',
+      };
+      renderDrawer();
+      return;
+    }
+    if (target.closest('#upp-copy-wb-btn') && state.activeBook) {
+      const entries = state.bookEntriesCache[state.activeBook] || [];
+      const text = buildCleanCopyText(entries);
+      if (!text) { toast('本世界书暂无已开启的非空条目', 'warning'); return; }
+      try {
+        await (Env.pwin.navigator?.clipboard || navigator.clipboard).writeText(text);
+        toast('已复制当前已开条目纯文本', 'success');
+      } catch (_) {
+        state.drawer = { type: 'entryEditor', heading: '复制纯文本', content: text, readOnly: true };
+        renderDrawer();
+      }
+      return;
+    }
+    if (target.closest('#upp-wb-only-on-btn')) {
+      state.wbOnlyOn = !state.wbOnlyOn;
+      renderAssemblyTab();
+      return;
+    }
+    if (target.closest('#upp-wb-all-off-btn') && state.activeBook) {
+      const entries = state.bookEntriesCache[state.activeBook] || [];
+      const offMap = {};
+      entries.forEach(e => { if (e.enabled) offMap[String(e.uid)] = false; });
+      if (!Object.keys(offMap).length) { toast('本世界书已全部关闭'); return; }
+      await Host.batchToggleWorldbookEntries(state.activeBook, offMap);
+      await ensureBookEntries(state.activeBook, true);
+      renderAssemblyTab();
+      toast('已关闭本世界书全部条目');
+      return;
+    }
+
+    // Preset toolbar
+    if (target.closest('#upp-preset-only-on-btn')) {
+      state.presetOnlyOn = !state.presetOnlyOn;
+      renderPresetTab();
+      return;
+    }
+
+    // Regex toolbar
+    const rgSc = target.closest('[data-rg-scope]');
+    if (rgSc) {
+      state.regexScope = rgSc.getAttribute('data-rg-scope') || 'global';
+      state.regexList = Host.getRegexes(state.regexScope);
+      renderRegexTab();
+      return;
+    }
+    if (target.closest('#upp-rg-only-on-btn')) {
+      state.regexOnlyOn = !state.regexOnlyOn;
+      renderRegexTab();
+    }
+  });
+
+  listen(elToolbar, 'input', ev => {
+    const id = ev.target.id;
+    if (id === 'upp-snap-search') { state.snapSearch = ev.target.value; renderSnapshotsBody(); }
+    else if (id === 'upp-wb-search') { state.wbEntrySearch = ev.target.value; renderAssemblyBody(); }
+    else if (id === 'upp-preset-search') { state.presetSearch = ev.target.value; renderPresetBody(); }
+    else if (id === 'upp-rg-search') { state.regexSearch = ev.target.value; renderRegexBody(); }
+  });
+
+  listen(elToolbar, 'change', ev => {
+    if (ev.target.id === 'upp-preset-select') {
+      const targetPreset = ev.target.value;
+      if (targetPreset && targetPreset !== state.loadedPresetName) {
+        Host.loadPreset(targetPreset);
+        later(() => {
+          state.loadedPresetName = Host.getLoadedPresetName();
+          state.inUsePreset = Host.getInUsePreset();
+          renderPresetTab();
+          toast('已切换预设：' + targetPreset, 'success');
+        }, 120);
       }
     }
-    state.selected = nextSel;
+  });
 
-    if (state.tab === 'wb') {
-      const ordered = getOrderedHostBooks();
-      if (!state.activeWb || !state.hostBooks.includes(state.activeWb)) state.activeWb = ordered[0] || '';
-      if (state.activeWb) await ensureWbLoaded(state.activeWb);
+  // Body click & change delegation
+  listen(elBody, 'change', async ev => {
+    if (ev.target.id === 'upp-persona-select') {
+      const targetId = ev.target.value;
+      const p = state.personas.find(x => x.avatar_id === targetId);
+      if (p) {
+        await Host.switchPersona(p.avatar_id, p.name);
+        state.currentPersona = Host.getCurrentPersona();
+        renderHeader();
+        renderAssemblyTab();
+      }
     }
-    state.loading = false;
-    renderAll();
-  }
+  });
+
+  listen(elBody, 'click', async ev => {
+    const t = ev.target;
+
+    // --- Snapshots actions ---
+    const applyBtn = t.closest('[data-snap-apply]');
+    if (applyBtn) {
+      const sid = applyBtn.getAttribute('data-snap-apply');
+      const snap = state.store.snapshots.find(x => x.id === sid);
+      if (snap) {
+        await applySnapshotLive(snap, state.store);
+        await refreshAll(true);
+      }
+      return;
+    }
+    const viewBtn = t.closest('[data-snap-view]');
+    if (viewBtn) {
+      const sid = viewBtn.getAttribute('data-snap-view');
+      const snap = state.store.snapshots.find(x => x.id === sid);
+      if (snap) {
+        const wbDetails = {};
+        if (snap.scope.worldbooks && snap.worldbooks && snap.worldbooks.entries) {
+          for (const bk of Object.keys(snap.worldbooks.entries)) {
+            wbDetails[bk] = await ensureBookEntries(bk, false);
+          }
+        }
+        state.drawer = { type: 'viewSnapshot', snapshot: snap, wbDetails };
+        renderDrawer();
+      }
+      return;
+    }
+    const updBtn = t.closest('[data-snap-update]');
+    if (updBtn) {
+      const sid = updBtn.getAttribute('data-snap-update');
+      const idx = state.store.snapshots.findIndex(x => x.id === sid);
+      if (idx >= 0) {
+        const old = state.store.snapshots[idx];
+        const selectedBooks = old.worldbooks && old.worldbooks.entries
+          ? Object.keys(old.worldbooks.entries)
+          : getDefaultSnapshotBooks(state.store);
+        const updated = await captureLiveSnapshot({
+          id: old.id,
+          name: old.name,
+          group: old.group,
+          note: old.note,
+          scope: old.scope,
+          selectedBooks,
+        }, state.store);
+        state.store.snapshots[idx] = updated;
+        persistStore(state.store);
+        renderSnapshotsTab();
+        toast(`已用当前状态覆盖更新「${old.name}」`, 'success');
+      }
+      return;
+    }
+    const bindBtn = t.closest('[data-snap-bind]');
+    if (bindBtn) {
+      const sid = bindBtn.getAttribute('data-snap-bind');
+      const snap = state.store.snapshots.find(x => x.id === sid);
+      if (snap) {
+        state.drawer = { type: 'bindSnapshot', snapshot: snap };
+        renderDrawer();
+      }
+      return;
+    }
+    const delBtn = t.closest('[data-snap-del]');
+    if (delBtn) {
+      const sid = delBtn.getAttribute('data-snap-del');
+      state.store.snapshots = state.store.snapshots.filter(x => x.id !== sid);
+      Object.keys(state.store.bindings.chats).forEach(k => { if (state.store.bindings.chats[k] === sid) delete state.store.bindings.chats[k]; });
+      Object.keys(state.store.bindings.characters).forEach(k => { if (state.store.bindings.characters[k] === sid) delete state.store.bindings.characters[k]; });
+      persistStore(state.store);
+      render();
+      toast('已删除快照');
+      return;
+    }
+    const unbindBtn = t.closest('[data-unbind-src]');
+    if (unbindBtn) {
+      const src = unbindBtn.getAttribute('data-unbind-src');
+      if (src === 'chat' && state.chatId) delete state.store.bindings.chats[state.chatId];
+      if (src === 'character' && state.charInfo.id) delete state.store.bindings.characters[state.charInfo.id];
+      persistStore(state.store);
+      renderSnapshotsTab();
+      toast('已解除绑定');
+      return;
+    }
+
+    // --- Persona bar actions ---
+    if ((t.closest('#upp-persona-edit-btn') || t.closest('#upp-persona-preview-box')) && state.currentPersona) {
+      state.drawer = {
+        type: 'entryEditor',
+        mode: 'editPersona',
+        heading: `编辑 User 正文 · ${state.currentPersona.name}`,
+        content: state.currentPersona.description || '',
+      };
+      renderDrawer();
+      return;
+    }
+    if (t.closest('#upp-persona-savever-btn') && state.currentPersona) {
+      state.drawer = { type: 'savePersonaVersion', name: '' };
+      renderDrawer();
+      return;
+    }
+    if (t.closest('#upp-persona-diff-btn') && state.currentPersona) {
+      state.drawer = { type: 'personaDiff' };
+      renderDrawer();
+      return;
+    }
+    if (t.closest('#upp-persona-merge-btn')) {
+      const dupGroups = detectProliferatedPersonas(state.personas);
+      let keepId = state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '';
+      let absorbIds = [];
+      if (dupGroups.length) {
+        const g = dupGroups[0];
+        const curInGroup = g.items.find(x => x.avatar_id === keepId);
+        const main = curInGroup || g.items[0];
+        keepId = main.avatar_id;
+        absorbIds = g.items.filter(x => x.avatar_id !== keepId).map(x => x.avatar_id);
+      }
+      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false };
+      renderDrawer();
+      return;
+    }
+    const pvApply = t.closest('[data-pv-apply]');
+    if (pvApply && state.currentPersona) {
+      const vid = pvApply.getAttribute('data-pv-apply');
+      const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
+      const ver = list.find(v => v.id === vid);
+      if (ver) {
+        autoBackupPersonaBeforeOverwrite(state.store, state.currentPersona);
+        persistStore(state.store);
+        await Host.updatePersonaInPlace(state.currentPersona.avatar_id, ver.description, ver.lorebook || undefined);
+        state.currentPersona = Host.getCurrentPersona();
+        renderAssemblyTab();
+        toast(`已切换至「${ver.name}」`, 'success');
+      }
+      return;
+    }
+
+    // --- Worldbook surgical switch & entry preview/edit ---
+    const wbSw = t.closest('[data-wb-toggle]');
+    if (wbSw && state.activeBook) {
+      const u = wbSw.getAttribute('data-wb-toggle');
+      const entries = state.bookEntriesCache[state.activeBook] || [];
+      const entry = entries.find(e => String(e.uid) === String(u));
+      if (!entry) return;
+      const next = !entry.enabled;
+      entry.enabled = next;
+      wbSw.setAttribute('aria-checked', String(next));
+      const row = wbSw.closest('.upp-entry-row');
+      if (row) row.classList.toggle('is-on', next);
+      try {
+        await Host.toggleWorldbookEntry(state.activeBook, u, next);
+        if (state.wbOnlyOn && !next) renderAssemblyTab();
+      } catch (err) {
+        entry.enabled = !next;
+        wbSw.setAttribute('aria-checked', String(!next));
+        if (row) row.classList.toggle('is-on', !next);
+        toast('切换失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+    const wbOpen = t.closest('[data-wb-open]');
+    if (wbOpen && state.activeBook) {
+      const u = wbOpen.getAttribute('data-wb-open');
+      const entries = state.bookEntriesCache[state.activeBook] || [];
+      const entry = entries.find(e => String(e.uid) === String(u));
+      if (entry) {
+        state.drawer = {
+          type: 'entryEditor',
+          mode: 'editWb',
+          heading: state.activeBook,
+          bookName: state.activeBook,
+          uid: entry.uid,
+          allowNameEdit: true,
+          showStrategy: true,
+          strategyType: entry.strategy?.type || 'constant',
+          name: entry.name || '',
+          content: entry.content || '',
+          meta: `UID #${entry.uid} · 顺序 ${entry.position?.order ?? 100}`,
+        };
+        renderDrawer();
+      }
+      return;
+    }
+
+    // --- Preset surgical switch & preview/edit ---
+    const prSw = t.closest('[data-pr-toggle]');
+    if (prSw && state.inUsePreset) {
+      const pid = prSw.getAttribute('data-pr-toggle');
+      const item = (state.inUsePreset.prompts || []).find(p => p.id === pid);
+      if (!item) return;
+      const next = !item.enabled;
+      item.enabled = next;
+      prSw.setAttribute('aria-checked', String(next));
+      const row = prSw.closest('.upp-entry-row');
+      if (row) row.classList.toggle('is-on', next);
+      try {
+        await Host.togglePresetPrompt(pid, next);
+        if (state.presetOnlyOn && !next) renderPresetTab();
+      } catch (err) {
+        item.enabled = !next;
+        prSw.setAttribute('aria-checked', String(!next));
+        if (row) row.classList.toggle('is-on', !next);
+        toast('切换预设条目失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+    const prOpen = t.closest('[data-pr-open]');
+    if (prOpen && state.inUsePreset) {
+      const pid = prOpen.getAttribute('data-pr-open');
+      const item = (state.inUsePreset.prompts || []).find(p => p.id === pid);
+      if (item) {
+        const isPh = typeof item.content !== 'string';
+        state.drawer = {
+          type: 'entryEditor',
+          mode: 'editPreset',
+          heading: `预设提示词 · ${state.loadedPresetName}`,
+          promptId: item.id,
+          allowNameEdit: !isPh,
+          readOnly: isPh,
+          name: item.name || item.id,
+          content: isPh ? '此项为酒馆原生占位槽位，仅支持开关启停。' : item.content,
+          meta: `ID: ${item.id} · 角色: ${item.role || 'system'}`,
+        };
+        renderDrawer();
+      }
+      return;
+    }
+
+    // --- Regex surgical switch & inspect ---
+    const rgSw = t.closest('[data-rg-toggle]');
+    if (rgSw) {
+      const rid = rgSw.getAttribute('data-rg-toggle');
+      const item = (state.regexList || []).find(r => r.id === rid);
+      if (!item) return;
+      const next = !item.enabled;
+      item.enabled = next;
+      rgSw.setAttribute('aria-checked', String(next));
+      const row = rgSw.closest('.upp-entry-row');
+      if (row) row.classList.toggle('is-on', next);
+      try {
+        await Host.toggleRegex(state.regexScope, rid, next);
+        if (state.regexOnlyOn && !next) renderRegexTab();
+      } catch (err) {
+        item.enabled = !next;
+        rgSw.setAttribute('aria-checked', String(!next));
+        if (row) row.classList.toggle('is-on', !next);
+        toast('切换正则失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+    const rgOpen = t.closest('[data-rg-open]');
+    if (rgOpen) {
+      const rid = rgOpen.getAttribute('data-rg-open');
+      const item = (state.regexList || []).find(r => r.id === rid);
+      if (item) {
+        const detail = [
+          '【查找正则】\n' + (item.find_regex || ''),
+          '【替换为】\n' + (item.replace_string || ''),
+        ].join('\n\n');
+        state.drawer = {
+          type: 'entryEditor',
+          heading: `正则详情 · ${item.script_name || rid}`,
+          content: detail,
+          readOnly: true,
+          meta: `范围: ${state.regexScope} · 状态: ${item.enabled ? '开启' : '关闭'}`,
+        };
+        renderDrawer();
+      }
+    }
+  });
+
+  // Drawer interactions
+  listen(elDrawerMask, 'input', ev => {
+    const d = state.drawer;
+    if (!d) return;
+    if (d.type === 'bookPicker' && ev.target.id === 'upp-book-search-input') {
+      d.query = ev.target.value;
+      const listEl = shadow.querySelector('.upp-pop-list');
+      if (listEl) {
+        const q = normalizeText(d.query);
+        const pinned = new Set(state.store.settings.pinnedWorldbooks);
+        const globals = new Set(state.globalWorldbooks);
+        const charSet = new Set([state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean));
+        const sorted = [...state.worldbooks].sort((a, b) => {
+          const pa = (pinned.has(a) ? 4 : 0) + (globals.has(a) ? 2 : 0) + (charSet.has(a) ? 1 : 0);
+          const pb = (pinned.has(b) ? 4 : 0) + (globals.has(b) ? 2 : 0) + (charSet.has(b) ? 1 : 0);
+          if (pa !== pb) return pb - pa;
+          return a.localeCompare(b, 'zh-CN');
+        });
+        const shown = sorted.filter(n => !q || normalizeText(n).includes(q));
+        listEl.innerHTML = shown.length ? shown.map(name => {
+          const tags = [];
+          if (pinned.has(name)) tags.push('<span class="upp-badge warn">置顶</span>');
+          if (globals.has(name)) tags.push('<span class="upp-badge accent">全局</span>');
+          if (charSet.has(name)) tags.push('<span class="upp-badge ok">角色</span>');
+          if (state.chatWorldbook === name) tags.push('<span class="upp-badge ok">聊天</span>');
+          return `<button class="upp-detail-item" data-pick-book="${escapeHtml(name)}" style="${name === state.activeBook ? 'border-color:var(--accent);' : ''}">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(name)}</span>
+            <span class="upp-row-nowrap">${tags.join('')}</span>
+          </button>`;
+        }).join('') : '<div class="upp-empty" style="padding:18px;">未找到匹配世界书</div>';
+      }
+    }
+  });
+
+  listen(elDrawerMask, 'change', ev => {
+    const d = state.drawer;
+    if (!d) return;
+    if (d.type === 'saveSnapshot') {
+      if (ev.target.id === 'upp-sc-persona') d.scope.persona = ev.target.checked;
+      else if (ev.target.id === 'upp-sc-wb') {
+        d.scope.worldbooks = ev.target.checked;
+        const wrap = shadow.getElementById('upp-ss-books-wrap');
+        if (wrap) wrap.hidden = !d.scope.worldbooks;
+      }
+      else if (ev.target.id === 'upp-sc-preset') d.scope.preset = ev.target.checked;
+      else if (ev.target.id === 'upp-sc-regex') d.scope.regex = ev.target.checked;
+      else if (ev.target.hasAttribute('data-ss-book')) {
+        const bk = ev.target.getAttribute('data-ss-book');
+        const set = new Set(d.selectedBooks || []);
+        if (ev.target.checked) set.add(bk); else set.delete(bk);
+        d.selectedBooks = Array.from(set);
+        const lbl = shadow.querySelector('#upp-ss-books-wrap > label');
+        if (lbl) lbl.textContent = `记录条目开关的世界书（已选 ${set.size} 本）`;
+      }
+      return;
+    }
+    if (d.type === 'personaDiff') {
+      if (ev.target.id === 'upp-diff-left') { d.leftId = ev.target.value; renderDrawer(); }
+      else if (ev.target.id === 'upp-diff-right') { d.rightId = ev.target.value; renderDrawer(); }
+      return;
+    }
+    if (d.type === 'mergePersonas') {
+      if (ev.target.id === 'upp-merge-keep') {
+        d.keepId = ev.target.value;
+        d.absorbIds = (d.absorbIds || []).filter(id => id !== d.keepId);
+        renderDrawer();
+      } else if (ev.target.hasAttribute('data-merge-absorb')) {
+        const aid = ev.target.getAttribute('data-merge-absorb');
+        const set = new Set(d.absorbIds || []);
+        if (ev.target.checked) set.add(aid); else set.delete(aid);
+        d.absorbIds = Array.from(set);
+        const btn = shadow.getElementById('upp-merge-run-btn');
+        if (btn) { btn.disabled = !set.size; btn.textContent = `收回 ${set.size} 个分身`; }
+      } else if (ev.target.id === 'upp-merge-delete-old') {
+        d.deleteOld = ev.target.checked;
+      }
+      return;
+    }
+    if (d.type === 'backup' && ev.target.id === 'upp-import-file') {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const imported = parseImportJson(reader.result);
+          // Merge cleanly by id
+          const snapMap = new Map(state.store.snapshots.map(s => [s.id, s]));
+          imported.snapshots.forEach(s => snapMap.set(s.id, s));
+          state.store.snapshots = Array.from(snapMap.values());
+          Object.keys(imported.personaVersions).forEach(aid => {
+            const cur = state.store.personaVersions[aid] || [];
+            const vMap = new Map(cur.map(v => [v.id, v]));
+            imported.personaVersions[aid].forEach(v => vMap.set(v.id, v));
+            state.store.personaVersions[aid] = Array.from(vMap.values());
+          });
+          Object.assign(state.store.bindings.chats, imported.bindings.chats);
+          Object.assign(state.store.bindings.characters, imported.bindings.characters);
+          persistStore(state.store);
+          state.drawer = null;
+          render();
+          toast('备份导入成功', 'success');
+        } catch (err) {
+          toast('导入失败：' + (err?.message || err), 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+  });
+
+  listen(elDrawerMask, 'click', async ev => {
+    const t = ev.target;
+    const d = state.drawer;
+    if (!d) return;
+
+    if (t.closest('[data-drawer-close]')) {
+      state.drawer = d.returnTo || null;
+      renderDrawer();
+      return;
+    }
+
+    // Book picker selection
+    const pickBk = t.closest('[data-pick-book]');
+    if (pickBk) {
+      state.activeBook = pickBk.getAttribute('data-pick-book') || '';
+      state.drawer = null;
+      await ensureBookEntries(state.activeBook, true);
+      render();
+      return;
+    }
+
+    // Entry editor save
+    if (t.closest('#upp-ed-save-btn') && d.type === 'entryEditor') {
+      const content = shadow.getElementById('upp-ed-content')?.value ?? '';
+      const name = shadow.getElementById('upp-ed-name')?.value?.trim() ?? d.name ?? '';
+      const strategyType = shadow.getElementById('upp-ed-strategy')?.value;
+      try {
+        if (d.mode === 'editPersona' && state.currentPersona) {
+          await Host.updatePersonaInPlace(state.currentPersona.avatar_id, content);
+          state.currentPersona = Host.getCurrentPersona();
+          toast('已保存 User 正文', 'success');
+        } else if (d.mode === 'editWb') {
+          await Host.updateWorldbookEntry(d.bookName, d.uid, name || '未命名条目', content, strategyType);
+          await ensureBookEntries(d.bookName, true);
+          toast('已保存世界书条目', 'success');
+        } else if (d.mode === 'createWb') {
+          await Host.createWorldbookEntry(d.bookName, { name: name || '新条目', content, strategyType });
+          await ensureBookEntries(d.bookName, true);
+          toast('已新建条目', 'success');
+        } else if (d.mode === 'editPreset') {
+          await Host.updatePresetPrompt(d.promptId, name || d.promptId, content);
+          state.inUsePreset = Host.getInUsePreset();
+          toast('已保存预设提示词', 'success');
+        }
+        state.drawer = d.returnTo || null;
+        render();
+      } catch (err) {
+        toast('保存失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+
+    // Save snapshot confirm
+    const fillGrp = t.closest('[data-ss-fill-group]');
+    if (fillGrp) {
+      const inp = shadow.getElementById('upp-ss-group');
+      if (inp) inp.value = fillGrp.getAttribute('data-ss-fill-group') || '';
+      return;
+    }
+    if (t.closest('#upp-ss-confirm-btn') && d.type === 'saveSnapshot') {
+      const name = (shadow.getElementById('upp-ss-name')?.value || '').trim();
+      if (!name) { toast('请填写快照名称', 'warning'); return; }
+      const group = (shadow.getElementById('upp-ss-group')?.value || '').trim();
+      const note = (shadow.getElementById('upp-ss-note')?.value || '').trim();
+      if (!d.scope.persona && !d.scope.worldbooks && !d.scope.preset && !d.scope.regex) {
+        toast('请至少勾选一项保存范围', 'warning');
+        return;
+      }
+      const snap = await captureLiveSnapshot({
+        name, group, note,
+        scope: d.scope,
+        selectedBooks: d.selectedBooks,
+      }, state.store);
+      state.store.snapshots.unshift(snap);
+      persistStore(state.store);
+      state.drawer = null;
+      render();
+      toast(`已保存快照「${snap.name}」`, 'success');
+      return;
+    }
+
+    // View snapshot drill-down previews
+    if (d.type === 'viewSnapshot') {
+      const applyInDrawer = t.closest('[data-snap-apply]');
+      if (applyInDrawer) {
+        await applySnapshotLive(d.snapshot, state.store);
+        state.drawer = null;
+        await refreshAll(true);
+        return;
+      }
+      if (t.closest('[data-view-snap-persona]') && d.snapshot.persona) {
+        state.drawer = {
+          type: 'entryEditor',
+          heading: `User 正文 · ${d.snapshot.persona.name}`,
+          content: d.snapshot.persona.description || '',
+          readOnly: true,
+          returnTo: d,
+        };
+        renderDrawer();
+        return;
+      }
+      const wbItem = t.closest('[data-view-snap-wb]');
+      if (wbItem) {
+        const bk = wbItem.getAttribute('data-view-snap-wb');
+        const u = wbItem.getAttribute('data-view-snap-uid');
+        const live = (d.wbDetails[bk] || []).find(e => String(e.uid) === String(u));
+        if (live) {
+          state.drawer = {
+            type: 'entryEditor',
+            heading: `${bk} · ${live.name || '(未命名)'}`,
+            content: live.content || '',
+            readOnly: true,
+            returnTo: d,
+          };
+          renderDrawer();
+        }
+        return;
+      }
+      const prItem = t.closest('[data-view-snap-pr]');
+      if (prItem) {
+        const pid = prItem.getAttribute('data-view-snap-pr');
+        const live = (state.inUsePreset?.prompts || []).find(p => p.id === pid);
+        if (live) {
+          state.drawer = {
+            type: 'entryEditor',
+            heading: `预设 · ${live.name || pid}`,
+            content: typeof live.content === 'string' ? live.content : '原生占位槽位',
+            readOnly: true,
+            returnTo: d,
+          };
+          renderDrawer();
+        }
+        return;
+      }
+    }
+
+    // Bind snapshot buttons
+    if (d.type === 'bindSnapshot') {
+      const sid = d.snapshot.id;
+      if (t.closest('#upp-bind-chat-btn') && state.chatId) {
+        if (state.store.bindings.chats[state.chatId] === sid) delete state.store.bindings.chats[state.chatId];
+        else state.store.bindings.chats[state.chatId] = sid;
+        persistStore(state.store);
+        render();
+        return;
+      }
+      if (t.closest('#upp-bind-char-btn') && state.charInfo.id) {
+        if (state.store.bindings.characters[state.charInfo.id] === sid) delete state.store.bindings.characters[state.charInfo.id];
+        else state.store.bindings.characters[state.charInfo.id] = sid;
+        persistStore(state.store);
+        render();
+        return;
+      }
+    }
+
+    // Save persona internal version
+    if (d.type === 'savePersonaVersion' && state.currentPersona) {
+      const fillPv = t.closest('[data-pv-fill-name]');
+      if (fillPv) {
+        const inp = shadow.getElementById('upp-pv-name');
+        if (inp) inp.value = fillPv.getAttribute('data-pv-fill-name') || '';
+        return;
+      }
+      const delPv = t.closest('[data-pv-del]');
+      if (delPv) {
+        const vid = delPv.getAttribute('data-pv-del');
+        const aid = state.currentPersona.avatar_id;
+        state.store.personaVersions[aid] = (state.store.personaVersions[aid] || []).filter(v => v.id !== vid);
+        persistStore(state.store);
+        render();
+        return;
+      }
+      if (t.closest('#upp-pv-save-btn')) {
+        const vName = (shadow.getElementById('upp-pv-name')?.value || '').trim();
+        if (!vName) { toast('请填写版本名称', 'warning'); return; }
+        const aid = state.currentPersona.avatar_id;
+        const list = state.store.personaVersions[aid] || [];
+        const existingIdx = list.findIndex(v => v.name === vName);
+        const item = {
+          id: existingIdx >= 0 ? list[existingIdx].id : uid('pv'),
+          name: vName.slice(0, 60),
+          description: state.currentPersona.description || '',
+          lorebook: state.currentPersona.lorebook || '',
+          updatedAt: Date.now(),
+        };
+        if (existingIdx >= 0) list[existingIdx] = item;
+        else list.unshift(item);
+        state.store.personaVersions[aid] = list;
+        persistStore(state.store);
+        state.drawer = null;
+        render();
+        toast(`已保存内部版本「${item.name}」`, 'success');
+        return;
+      }
+    }
+
+    // Merge proliferated personas
+    if (d.type === 'mergePersonas') {
+      const grpBtn = t.closest('[data-merge-preset-group]');
+      if (grpBtn) {
+        const idx = Number(grpBtn.getAttribute('data-merge-preset-group'));
+        const dupGroups = detectProliferatedPersonas(state.personas);
+        const g = dupGroups[idx];
+        if (g) {
+          d.keepId = g.items[0].avatar_id;
+          d.absorbIds = g.items.slice(1).map(x => x.avatar_id);
+          renderDrawer();
+        }
+        return;
+      }
+      if (t.closest('#upp-merge-run-btn')) {
+        const keep = state.personas.find(p => p.avatar_id === d.keepId);
+        if (!keep) return;
+        const list = state.store.personaVersions[keep.avatar_id] || [];
+        // Ensure main persona's own live description is also saved if non-empty
+        if ((keep.description || '').trim() && !list.some(v => v.description === keep.description)) {
+          list.unshift({
+            id: uid('pv'),
+            name: '原主描述',
+            description: keep.description,
+            lorebook: keep.lorebook || '',
+            updatedAt: Date.now(),
+          });
+        }
+        let absorbed = 0;
+        let deleted = 0;
+        for (const aid of (d.absorbIds || [])) {
+          const oldP = state.personas.find(p => p.avatar_id === aid);
+          if (!oldP) continue;
+          let label = oldP.name;
+          if (label.startsWith(keep.name) && label.length > keep.name.length) {
+            label = label.slice(keep.name.length).replace(/^[\s_\-·・/()（）【】\[\]]+/, '').replace(/[)）】\]]+$/, '') || oldP.name;
+          }
+          if (list.some(v => v.name === label)) label = `${label} (${absorbed + 1})`;
+          list.push({
+            id: uid('pv'),
+            name: label.slice(0, 60),
+            description: oldP.description || '',
+            lorebook: oldP.lorebook || '',
+            updatedAt: Date.now(),
+          });
+          absorbed++;
+          if (d.deleteOld) {
+            try {
+              if (await Host.deletePersonaById(oldP.avatar_id)) deleted++;
+            } catch (_) {}
+          }
+        }
+        state.store.personaVersions[keep.avatar_id] = list;
+        persistStore(state.store);
+        state.drawer = null;
+        await refreshAll(false);
+        toast(deleted > 0
+          ? `已收回 ${absorbed} 个分身并删除 ${deleted} 个旧 User`
+          : `已收回 ${absorbed} 个分身为「${keep.name}」的内部版本`, 'success');
+        return;
+      }
+    }
+
+    // Backup export / import
+    if (d.type === 'backup') {
+      if (t.closest('#upp-export-json-btn')) {
+        const blob = new Blob([exportStoreJson(state.store)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = Env.pdoc.createElement('a');
+        a.href = url;
+        a.download = `user-snapshots-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        later(() => URL.revokeObjectURL(url), 1000);
+        toast('已导出备份文件', 'success');
+        return;
+      }
+      if (t.closest('#upp-import-json-btn')) {
+        shadow.getElementById('upp-import-file')?.click();
+      }
+    }
+  });
+
+  // =========================
+  // Modal Open / Close & Host Mounting
+  // =========================
 
   function openModal() {
-    if (dead) return;
     elBackdrop.dataset.theme = detectHostTheme();
     state.open = true;
-    state.subView = '';
-    state.inspected = null;
-    state.libSearch = '';
-    state.wbBookSearch = '';
-    state.wbEntrySearch = '';
+    state.drawer = null;
     elBackdrop.hidden = false;
     syncMenuExpanded();
-    void refreshState();
+    void refreshAll(false);
   }
 
   function closeModal() {
     state.open = false;
-    state.subView = '';
-    state.inspected = null;
+    state.drawer = null;
     elBackdrop.hidden = true;
     syncMenuExpanded();
   }
 
-  async function openApplyView() {
-    await ensureSelectedWbsLoaded();
-    const cur = readCurrentPersona();
-    state.applyCfg = {
-      target: 'persona_update',
-      replaceAll: false,
-      newPersonaName: state.store.profile.name ? state.store.profile.name + '·人设' : '',
-      currentPersonaName: cur?.name || '',
-      existingDesc: String(cur?.description || ''),
-      error: '',
-    };
-    state.subView = 'apply';
-    renderAll();
-  }
-
-  async function executeApply() {
-    if (state.saving) return;
-    const ac = state.applyCfg;
-    ac.error = '';
-    state.saving = true;
-    renderBody();
-    try {
-      await ensureSelectedWbsLoaded();
-      const out = assembleOutput(state.selected, state.store, buildWbContentMap(), state.store.outputFormat);
-      state.store.lastItems = out.wi.map(({ book, title }) => ({ book, title }));
-
-      if (ac.target === 'persona_update') {
-        if (!ac.currentPersonaName) throw new Error('未检测到当前启用的用户人设');
-        const nextDesc = mergeIntoPersonaDescription(ac.existingDesc, out.text, ac.replaceAll);
-        state.store.personaBackup = { name: ac.currentPersonaName, description: ac.existingDesc, savedAt: Date.now() };
-        await replaceCurrentPersonaDesc(nextDesc);
-        saveStore(state.store);
-        closeModal();
-        notify('已更新用户人设「' + ac.currentPersonaName + '」', 'success');
-        return;
-      }
-
-      if (ac.target === 'persona_new') {
-        const newName = String(ac.newPersonaName || '').trim();
-        if (!newName) { ac.error = '请填写新用户人设名称'; state.saving = false; renderBody(); return; }
-        if (listPersonaNames().includes(newName)) { ac.error = '已存在同名用户人设'; state.saving = false; renderBody(); return; }
-        await createNewPersonaWithDesc(newName, out.text);
-        saveStore(state.store);
-        closeModal();
-        notify('已新建用户人设「' + newName + '」', 'success');
-        return;
-      }
-
-      if (!hasActiveChat()) { ac.error = '请先打开一个聊天'; state.saving = false; renderBody(); return; }
-      await ensureOpeningBookSilent();
-      await writeChatPickerVar({
-        v: 1,
-        char: state.charName,
-        profile: state.store.profile,
-        profileText: out.profileText,
-        wi: out.wi,
-      });
-      saveStore(state.store);
-      closeModal();
-      notify('已保存到当前聊天（' + out.count + ' 项）', 'success');
-    } catch (err) {
-      ac.error = err?.message || String(err);
-      renderBody();
-    } finally {
-      state.saving = false;
-      renderBody();
-    }
-  }
-
-  async function handleSaveDraft() {
-    const d = state.draft;
-    if (d.busy) return;
-    const title = String(d.title || '').trim();
-    const content = String(d.content || '').trim();
-    if (!title) { d.error = '请填写标题'; renderBody(); return; }
-    if (!content) { d.error = '请填写正文'; renderBody(); return; }
-
-    if (d.book === LIB_BOOK) {
-      const targetCat = d.cat || state.store.customCategories[0] || '我的自定义';
-      if (state.subView === 'new') {
-        if (findLibraryEntry(state.store, title)) { d.error = '已有同名条目'; renderBody(); return; }
-        state.store.customEntries.push({ id: 'c_' + Date.now().toString(36), cat: targetCat, title, content, isRule: targetCat === '互动规则' });
-        state.selected.add(itemKey(LIB_BOOK, title));
-        state.activeCat = targetCat;
-      } else if (d.isCustom) {
-        const item = state.store.customEntries.find(e => e.title === d.oldTitle);
-        if (item) {
-          item.cat = targetCat;
-          item.title = title;
-          item.content = content;
-          if (title !== d.oldTitle && state.selected.has(itemKey(LIB_BOOK, d.oldTitle))) {
-            state.selected.delete(itemKey(LIB_BOOK, d.oldTitle));
-            state.selected.add(itemKey(LIB_BOOK, title));
-          }
-        }
-      } else {
-        state.store.builtinEdits[d.oldTitle] = content;
-      }
-      saveStore(state.store);
-      state.inspected = { book: LIB_BOOK, title };
-      state.subView = '';
-      notify('已保存', 'success');
-      renderAll();
-      return;
-    }
-
-    d.busy = true;
-    d.error = '';
-    renderBody();
-    try {
-      if (state.subView === 'new') {
-        await createEntryInWorldbook(d.book, buildWorldbookEntry(title, content));
-        state.selected.add(itemKey(d.book, title));
-      } else {
-        await updateEntryInWorldbook(d.book, d.oldTitle, title, content);
-        if (title !== d.oldTitle && state.selected.has(itemKey(d.book, d.oldTitle))) {
-          state.selected.delete(itemKey(d.book, d.oldTitle));
-          state.selected.add(itemKey(d.book, title));
-        }
-      }
-      state.wbCache[d.book] = await loadWorldbookEntries(d.book);
-      state.inspected = { book: d.book, title };
-      state.subView = '';
-      notify('已写入世界书', 'success');
-      renderAll();
-    } catch (err) {
-      d.busy = false;
-      d.error = '写入失败：' + (err?.message || String(err));
-      renderBody();
-    }
-  }
-
-  // =========================
-  // Events
-  // =========================
-
-  listen(elBackdrop, 'click', ev => { if (ev.target === elBackdrop) closeModal(); });
-
-  listen(shadow, 'change', ev => {
-    const el = ev.target;
-    if (el?.dataset?.wbSelect) {
-      const name = el.value;
-      if (!name) return;
-      state.activeWb = name;
-      state.wbEntrySearch = '';
-      state.showAllChars = false;
-      state.inspected = null;
-      state.store.recentBooks = [name, ...state.store.recentBooks.filter(x => x !== name)].slice(0, 12);
-      saveStore(state.store);
-      renderAll();
-      void ensureWbLoaded(name).then(() => renderAll());
-    } else if (el?.dataset?.draftField) {
-      state.draft[el.dataset.draftField] = el.value;
-    }
-  });
-
-  listen(shadow, 'input', ev => {
-    const el = ev.target;
-    if (el?.dataset?.libSearch) {
-      state.libSearch = el.value;
-      renderBody();
-    } else if (el?.dataset?.wbBookSearch) {
-      state.wbBookSearch = el.value;
-      const ordered = getOrderedHostBooks();
-      const filtered = filterWorldbookNames(ordered, state.wbBookSearch);
-      const prevWb = state.activeWb;
-      state.activeWb = filtered.includes(prevWb) ? prevWb : (filtered[0] || '');
-      // Re-render only select options + body without losing focus on book search input
-      const selEl = shadow.querySelector('[data-wb-select]');
-      if (selEl) {
-        selEl.innerHTML = filtered.length
-          ? filtered.map(name => '<option value="' + esc(name) + '"' + (state.activeWb === name ? ' selected' : '') + '>' + esc(name) + '</option>').join('')
-          : '<option value="">无匹配世界书</option>';
-      }
-      renderBody();
-      if (state.activeWb && !Array.isArray(state.wbCache[state.activeWb])) {
-        void ensureWbLoaded(state.activeWb).then(() => renderBody());
-      }
-    } else if (el?.dataset?.wbEntrySearch) {
-      state.wbEntrySearch = el.value;
-      renderBody();
-    } else if (el?.dataset?.profField) {
-      state.store.profile[el.dataset.profField] = el.value;
-      saveStore(state.store);
-      renderTabs();
-      renderFooter();
-      // Live unit preview update
-      if (el.dataset.profField === 'age' || el.dataset.profField === 'height') {
-        const previewSpan = el.closest('.upp-field')?.querySelector('.upp-label span:last-child');
-        if (previewSpan) {
-          previewSpan.textContent = el.dataset.profField === 'age' ? formatAge(el.value) : formatHeight(el.value);
-        }
-      }
-    } else if (el?.dataset?.presetInput) {
-      state.presetNameInput = el.value;
-    } else if (el?.dataset?.newCatInput) {
-      state.newCatName = el.value;
-    } else if (el?.dataset?.newPersonaName) {
-      state.applyCfg.newPersonaName = el.value;
-    } else if (el?.dataset?.importText) {
-      state.importText = el.value;
-    } else if (el?.dataset?.draftField) {
-      state.draft[el.dataset.draftField] = el.value;
-      if (state.draft.error) { state.draft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
-    }
-  });
-
-  listen(shadow, 'click', ev => {
-    const btn = ev.target.closest('button');
-    if (!btn) return;
-
-    const act = btn.dataset.act;
-    if (act === 'close') { closeModal(); return; }
-    if (act === 'close-sub') { state.subView = ''; renderAll(); return; }
-    if (act === 'clear') {
-      if (state.selected.size === 0) return;
-      state.selected = new Set();
-      renderAll();
-      notify('已取消全部勾选', 'info');
-      return;
-    }
-    if (act === 'clear-profile') { state.store.profile = createEmptyProfile(); saveStore(state.store); renderAll(); return; }
-    if (act === 'show-all-chars') { state.showAllChars = true; renderBody(); return; }
-    if (act === 'open-apply') { void openApplyView(); return; }
-    if (act === 'execute-apply') { void executeApply(); return; }
-
-    if (act === 'resolve-conflicts') {
-      state.selected = resolveConflictsKeepLatest(state.selected);
-      renderAll();
-      notify('已自动解决冲突，保留最新勾选项', 'success');
-      return;
-    }
-
-    if (act === 'quick-copy' || act === 'copy-apply-preview') {
-      void ensureSelectedWbsLoaded().then(async () => {
-        const out = assembleOutput(state.selected, state.store, buildWbContentMap(), state.store.outputFormat);
-        if (!out.text) { notify('当前没有可复制的内容', 'warning'); return; }
-        const ok = await copyToClipboard(out.text);
-        notify(ok ? '已复制人设文本（' + out.text.length + ' 字）' : '复制失败，请在预览框手动复制', ok ? 'success' : 'warning');
-      });
-      return;
-    }
-
-    if (act === 'open-new-cat') { state.newCatName = ''; state.subView = 'new_cat'; renderAll(); return; }
-    if (act === 'confirm-new-cat') {
-      const name = String(state.newCatName || '').trim();
-      if (!name) { notify('请输入分类名称', 'warning'); return; }
-      if (!getAllCategories(state.store).includes(name)) {
-        state.store.customCategories.push(name);
-        saveStore(state.store);
-      }
-      state.activeCat = name;
-      state.subView = '';
-      renderAll();
-      return;
-    }
-
-    if (btn.dataset.delCat) {
-      const cat = btn.dataset.delCat;
-      state.store.customCategories = state.store.customCategories.filter(c => c !== cat);
-      for (const e of state.store.customEntries) {
-        if (e.cat === cat) e.cat = state.store.customCategories[0] || '我的自定义';
-      }
-      if (!state.store.customCategories.length) state.store.customCategories = ['我的自定义'];
-      saveStore(state.store);
-      state.activeCat = '__profile__';
-      renderAll();
-      return;
-    }
-
-    if (act === 'open-new-lib') {
-      const defaultCat = getAllCategories(state.store).includes(state.activeCat) ? state.activeCat : (state.store.customCategories[0] || '我的自定义');
-      state.draft = { book: LIB_BOOK, cat: defaultCat, oldTitle: '', title: '', content: '', isCustom: true, error: '', busy: false };
-      state.subView = 'new';
-      renderAll();
-      return;
-    }
-    if (act === 'open-new-wb') {
-      if (!state.activeWb) return;
-      state.draft = { book: state.activeWb, cat: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false };
-      state.subView = 'new';
-      renderAll();
-      return;
-    }
-    if (act === 'save-draft') { void handleSaveDraft(); return; }
-    if (act === 'delete-custom') {
-      const t = state.draft.oldTitle;
-      state.store.customEntries = state.store.customEntries.filter(e => e.title !== t);
-      state.selected.delete(itemKey(LIB_BOOK, t));
-      if (state.inspected?.title === t) state.inspected = null;
-      saveStore(state.store);
-      state.subView = '';
-      renderAll();
-      return;
-    }
-
-    if (act === 'restore-persona-backup') {
-      const bk = state.store.personaBackup;
-      if (!bk) return;
-      void replaceCurrentPersonaDesc(bk.description).then(() => notify('已恢复写入前的原有描述', 'success'))
-        .catch(err => notify('恢复失败：' + (err?.message || String(err)), 'error'));
-      return;
-    }
-
-    if (act === 'create-preset') {
-      const label = String(state.presetNameInput || '').trim();
-      if (!label) { notify('先输个方案名', 'warning'); return; }
-      const items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
-      state.store.presets.unshift({
-        id: 'p_' + Date.now().toString(36),
-        label,
-        items,
-        profile: normalizeProfile(state.store.profile),
-        outputFormat: state.store.outputFormat,
-      });
-      state.presetNameInput = '';
-      saveStore(state.store);
-      notify('已存为方案：' + label, 'success');
-      renderAll();
-      return;
-    }
-
-    if (act === 'export-store') {
-      const txt = JSON.stringify({
-        presets: state.store.presets,
-        customCategories: state.store.customCategories,
-        customEntries: state.store.customEntries,
-        profile: state.store.profile,
-        defaultPresetId: state.store.defaultPresetId,
-      }, null, 2);
-      void copyToClipboard(txt).then(ok => notify(ok ? '已复制同步 JSON' : '复制失败', ok ? 'success' : 'warning'));
-      return;
-    }
-    if (act === 'toggle-import') { state.importOpen = !state.importOpen; renderBody(); return; }
-    if (act === 'confirm-import') {
-      try {
-        const data = JSON.parse(state.importText || '');
-        const merged = normalizeStore({ ...state.store, ...data });
-        state.store = merged;
-        saveStore(state.store);
-        state.importOpen = false;
-        state.importText = '';
-        notify('导入成功', 'success');
-        renderAll();
-      } catch (_) {
-        notify('JSON 格式不对', 'error');
-      }
-      return;
-    }
-
-    if (btn.dataset.fmt) {
-      state.store.outputFormat = btn.dataset.fmt;
-      saveStore(state.store);
-      renderBody();
-      return;
-    }
-    if (btn.dataset.applyTarget) {
-      state.applyCfg.target = btn.dataset.applyTarget;
-      state.applyCfg.error = '';
-      renderBody();
-      return;
-    }
-    if (btn.dataset.mergeMode) {
-      state.applyCfg.replaceAll = btn.dataset.mergeMode === 'replace';
-      renderBody();
-      return;
-    }
-
-    if (btn.dataset.profQuick) {
-      const f = btn.dataset.profQuick;
-      const v = btn.dataset.profVal;
-      state.store.profile[f] = state.store.profile[f] === v ? '' : v;
-      saveStore(state.store);
-      renderAll();
-      return;
-    }
-
-    if (btn.dataset.cat) {
-      state.activeCat = btn.dataset.cat;
-      state.libSearch = '';
-      elBody.scrollTop = 0;
-      renderToolbar();
-      renderBody();
-      return;
-    }
-
-    if (btn.dataset.tab) {
-      state.tab = btn.dataset.tab;
-      state.subView = '';
-      state.inspected = null;
-      elBody.scrollTop = 0;
-      if (state.tab === 'wb' && state.hostBooks.length) {
-        const ordered = getOrderedHostBooks();
-        if (!state.activeWb || !state.hostBooks.includes(state.activeWb)) state.activeWb = ordered[0] || '';
-        renderAll();
-        if (state.activeWb) void ensureWbLoaded(state.activeWb).then(() => renderAll());
-      } else {
-        renderAll();
-      }
-      return;
-    }
-
-    if (btn.dataset.presetApply) {
-      const p = state.store.presets.find(x => x.id === btn.dataset.presetApply);
-      if (p) {
-        state.selected = new Set(p.items.map(it => itemKey(it.book, it.title)));
-        if (p.profile) state.store.profile = normalizeProfile(p.profile);
-        if (p.outputFormat) state.store.outputFormat = p.outputFormat;
-        saveStore(state.store);
-        notify('已套用「' + p.label + '」', 'info');
-        renderAll();
-      }
-      return;
-    }
-    if (btn.dataset.presetOverwrite) {
-      const p = state.store.presets.find(x => x.id === btn.dataset.presetOverwrite);
-      if (p) {
-        p.items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
-        p.profile = normalizeProfile(state.store.profile);
-        p.outputFormat = state.store.outputFormat;
-        saveStore(state.store);
-        notify('已更新「' + p.label + '」', 'success');
-        renderAll();
-      }
-      return;
-    }
-    if (btn.dataset.presetDel) {
-      const id = btn.dataset.presetDel;
-      state.store.presets = state.store.presets.filter(x => x.id !== id);
-      if (state.store.defaultPresetId === id) state.store.defaultPresetId = '';
-      saveStore(state.store);
-      renderAll();
-      return;
-    }
-    if (btn.dataset.presetDef) {
-      const id = btn.dataset.presetDef;
-      state.store.defaultPresetId = state.store.defaultPresetId === id ? '' : id;
-      saveStore(state.store);
-      renderAll();
-      return;
-    }
-
-    if (btn.dataset.inspectClose) { state.inspected = null; renderInspector(); syncInspectedInPlace(); return; }
-    if (btn.dataset.inspectToggle && state.inspected) {
-      const k = itemKey(state.inspected.book, state.inspected.title);
-      if (state.selected.has(k)) state.selected.delete(k);
-      else state.selected.add(k);
-      renderTabs();
-      if (state.tab === 'lib' && state.activeCat === '__selected__') renderBody();
-      else syncChipStatesInPlace();
-      renderConflicts();
-      renderInspector();
-      renderFooter();
-      return;
-    }
-    if (btn.dataset.inspectEdit && state.inspected) {
-      const { book, title } = state.inspected;
-      if (book === LIB_BOOK) {
-        const entry = findLibraryEntry(state.store, title);
-        if (entry) {
-          state.draft = { book: LIB_BOOK, cat: entry.cat, oldTitle: title, title: entry.title, content: entry.content, isCustom: entry.isCustom, error: '', busy: false };
-          state.subView = 'edit';
-          renderAll();
-        }
-      } else {
-        const content = buildWbContentMap()[book]?.[title] || '';
-        state.draft = { book, cat: '', oldTitle: title, title, content, isCustom: false, error: '', busy: false };
-        state.subView = 'edit';
-        renderAll();
-      }
-      return;
-    }
-
-    // Separate READ click vs CHECK toggle (zero full-body DOM rebuild!)
-    if (btn.dataset.readBook && btn.dataset.readTitle) {
-      state.inspected = { book: btn.dataset.readBook, title: btn.dataset.readTitle };
-      syncInspectedInPlace();
-      renderInspector();
-      return;
-    }
-
-    if (btn.dataset.toggleBook && btn.dataset.toggleTitle) {
-      const book = btn.dataset.toggleBook;
-      const title = btn.dataset.toggleTitle;
-      const k = itemKey(book, title);
-      if (state.selected.has(k)) state.selected.delete(k);
-      else state.selected.add(k);
-      state.inspected = { book, title };
-      renderTabs();
-      if (state.tab === 'lib' && state.activeCat === '__selected__') {
-        renderToolbar();
-        renderBody();
-      } else {
-        syncChipStatesInPlace();
-      }
-      renderConflicts();
-      renderInspector();
-      renderFooter();
-    }
-  });
-
   listen(Env.pdoc, 'keydown', ev => {
-    if (!state.open || ev.key !== 'Escape') return;
-    ev.stopPropagation();
-    if (state.subView) { state.subView = ''; renderAll(); }
-    else if (state.inspected) { state.inspected = null; renderInspector(); syncInspectedInPlace(); }
-    else closeModal();
+    if (ev.key === 'Escape' && state.open) {
+      if (state.drawer) { state.drawer = state.drawer.returnTo || null; renderDrawer(); }
+      else closeModal();
+    }
   });
 
-  // =========================
-  // Native Menu & Button Entry
-  // =========================
+  // Auto-apply bound snapshot when chat changes
+  let lastAutoKey = '';
+  let autoTimer = null;
+  function scheduleAutoApplyOnChatChange() {
+    if (autoTimer) Env.pwin.clearTimeout(autoTimer);
+    autoTimer = later(async () => {
+      autoTimer = null;
+      if (dead || isApplyingSnapshot) return;
+      state.store = loadStoreSync();
+      if (!state.store.settings.autoApplyBindings) return;
+      const chatId = readCurrentChatId();
+      const charInfo = readCurrentCharInfo();
+      const bound = resolveBindingForContext(state.store.bindings, chatId, charInfo.id);
+      if (!bound) return;
+      const key = `${chatId}|${charInfo.id}|${bound.snapshotId}`;
+      if (key === lastAutoKey) return;
+      const snap = state.store.snapshots.find(s => s.id === bound.snapshotId);
+      if (!snap) return;
+      lastAutoKey = key;
+      await applySnapshotLive(snap, state.store, '已自动切回快照');
+      if (state.open) await refreshAll(true);
+    }, 350);
+  }
 
+  // Extension Menu Entry
   const menuEntry = Env.pdoc.createElement('div');
   menuEntry.id = MENU_ENTRY_ID;
   menuEntry.className = 'list-group-item flex-container flexGap5 interactable';
-  menuEntry.setAttribute('role', 'button');
   menuEntry.tabIndex = 0;
-  menuEntry.setAttribute('aria-label', '打开 User 人设');
-  menuEntry.setAttribute('aria-controls', APP_ID);
+  menuEntry.setAttribute('role', 'button');
   menuEntry.setAttribute('aria-expanded', 'false');
-  menuEntry.title = 'User 人设';
   menuEntry.innerHTML =
     '<span class="extensionsMenuExtensionButton" aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">' +
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
         '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' +
       '</svg>' +
-    '</span><span>User 人设</span>';
+    '</span><span>User 组装与快照</span>';
 
   function syncMenuExpanded() { menuEntry.setAttribute('aria-expanded', String(state.open)); }
   listen(menuEntry, 'click', ev => { ev.preventDefault(); if (state.open) closeModal(); else openModal(); });
@@ -2507,34 +3750,31 @@
     return menuEntry.isConnected;
   }
 
-  // Lightweight mount without expensive document-wide subtree MutationObserver
   const eventOnFn = getFn('eventOn');
   const getBtnEvtFn = getFn('getButtonEvent');
   const tavernEvents = getApi('tavern_events')?.value;
 
+  if (eventOnFn && getBtnEvtFn) {
+    try {
+      const btnEvt = getBtnEvtFn(BUTTON_NAME);
+      if (btnEvt) {
+        const s = eventOnFn(btnEvt, () => { if (state.open) closeModal(); else openModal(); });
+        if (s?.stop) cleanup.push(() => s.stop());
+      }
+    } catch (_) {}
+  }
   if (eventOnFn && tavernEvents?.APP_READY) {
     try { const s = eventOnFn(tavernEvents.APP_READY, () => mountExtensionMenu()); if (s?.stop) cleanup.push(() => s.stop()); } catch (_) {}
   }
   if (eventOnFn && tavernEvents?.EXTENSIONS_FIRST_LOAD) {
     try { const s = eventOnFn(tavernEvents.EXTENSIONS_FIRST_LOAD, () => mountExtensionMenu()); if (s?.stop) cleanup.push(() => s.stop()); } catch (_) {}
   }
+  if (eventOnFn && tavernEvents?.CHAT_CHANGED) {
+    try { const s = eventOnFn(tavernEvents.CHAT_CHANGED, () => scheduleAutoApplyOnChatChange()); if (s?.stop) cleanup.push(() => s.stop()); } catch (_) {}
+  }
   if (!mountExtensionMenu()) {
     later(() => mountExtensionMenu(), 800);
     later(() => mountExtensionMenu(), 2500);
-  }
-
-  if (eventOnFn && getBtnEvtFn) {
-    try {
-      const sub = eventOnFn(getBtnEvtFn(BUTTON_NAME), () => { if (state.open) closeModal(); else openModal(); });
-      if (sub?.stop) cleanup.push(() => sub.stop());
-    } catch (_) {}
-  }
-
-  if (eventOnFn && tavernEvents?.CHAT_CHANGED) {
-    try {
-      const sub = eventOnFn(tavernEvents.CHAT_CHANGED, () => { if (state.open) void refreshState(); });
-      if (sub?.stop) cleanup.push(() => sub.stop());
-    } catch (_) {}
   }
 
   function dispose() {
@@ -2542,6 +3782,7 @@
     dead = true;
     timers.forEach(id => Env.pwin.clearTimeout(id));
     timers.clear();
+    if (saveGlobalTimer) Env.pwin.clearTimeout(saveGlobalTimer);
     cleanup.splice(0).forEach(fn => { try { fn(); } catch (_) {} });
     if (menuEntry.isConnected) menuEntry.remove();
     if (host.isConnected) host.remove();
