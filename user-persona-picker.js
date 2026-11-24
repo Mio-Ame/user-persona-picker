@@ -1,16 +1,18 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '3.1.0';
+  const APP_VERSION = '4.0.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
   const BUTTON_NAME = 'User人设';
   const VAR_KEY = 'user_picker';
-  const CONFIG_STORAGE_KEY = 'userPersonaPicker.config.v3';
+  const LIB_BOOK = '__lib__';
+  const OPENING_BOOK = 'User·总控入口';
+  const STORE_KEY = 'userPersonaPicker.v4';
   const KEY_SEP = '\u0000';
 
-  const DEFAULT_OPENING_BOOK = 'User·总控入口';
+  const BUILTIN_LIBRARY = [{"id":"look_cool","cat":"外貌气质","title":"清冷美人","content":"外貌气质偏清冷出尘，眉眼线条干净利落，神情自带几分疏离感，静下来时很有氛围感。"},{"id":"look_vivid","cat":"外貌气质","title":"浓颜明艳","content":"五官立体深邃、轮廓明艳夺目，眉眼有神，站在人群里第一眼就很抓人。"},{"id":"look_sweet","cat":"外貌气质","title":"邻家甜妹","content":"长相柔和讨喜，眉眼弯弯带笑意，整体气质亲近自然，让人很有保护欲。"},{"id":"look_fresh","cat":"外貌气质","title":"元气少女","content":"神态鲜活明快，笑容有感染力，举手投足带着轻盈的朝气。"},{"id":"look_boyish","cat":"外貌气质","title":"清俊少年感","content":"轮廓清爽利落，身材修长匀称，自带干净坦荡的少年气质。"},{"id":"look_long_straight","cat":"外貌气质","title":"黑长直","content":"留着一头顺滑乌黑的长直发，垂落肩背，衬得肤色更白皙。"},{"id":"look_long_wave","cat":"外貌气质","title":"长卷发","content":"留着蓬松柔顺的长卷发，发尾自然微卷，举动间带着柔和的慵懒感。"},{"id":"look_short","cat":"外貌气质","title":"利落短发","content":"留着干净利落的短发，修饰出清晰的下颌线与颈部线条，显得精气神十足。"},{"id":"char_gentle","cat":"性格特点","title":"温柔体贴","content":"性格温和细腻，懂得体谅他人情绪，说话轻声细语但心里有主见，不是一味迁就。"},{"id":"char_spoiled","cat":"性格特点","title":"娇气爱撒娇","content":"有点小娇气，面对亲近的人容易软声撒娇、求抱求哄，受了委屈会眼眶发红但很好哄。"},{"id":"char_tsundere","cat":"性格特点","title":"傲娇嘴硬","content":"嘴上总爱逞强拌嘴，其实心软护短，被夸或被直球撩到时容易耳根发红、别开视线。"},{"id":"char_calm","cat":"性格特点","title":"独立清醒","content":"情绪稳定、边界清晰，遇事冷静有判断力，不内耗也不轻易被言语牵着鼻子走。"},{"id":"char_cute_air","cat":"性格特点","title":"呆萌迷糊","content":"平时偶尔反应慢半拍、带点天然的迷糊感，但对自己在乎的事格外认真执着。"},{"id":"char_shy","cat":"性格特点","title":"社恐慢热","content":"面对陌生人拘谨话少、容易紧张，混熟之后才会卸下防备露出柔软或话痨的一面。"},{"id":"char_direct","cat":"性格特点","title":"活泼直球","content":"性格外向坦率，喜欢就直接表达，不藏着掖着，聊天节奏轻快自然。"},{"id":"char_scheming","cat":"性格特点","title":"腹黑绿茶","content":"表面无辜软糯、很会示弱拿捏分寸，心里却精明通透，擅长不动声色地引导局势。"},{"id":"char_aloof","cat":"性格特点","title":"高冷少言","content":"平时话不多、表情克制，不爱多余寒暄，只在真正在意的人面前展露细微偏爱。"},{"id":"char_chill","cat":"性格特点","title":"咸鱼摆烂","content":"随性松弛、能躺着绝不站着，对琐事佛系不卷，日常最在乎吃好睡好和舒服自在。"},{"id":"rel_stranger","cat":"关系阶段","title":"初见陌生","content":"与{{char}}刚认识不久，彼此保持礼貌与试探，尚未建立亲密信任。"},{"id":"rel_crush","cat":"关系阶段","title":"熟人暗恋","content":"与{{char}}原本相熟，关系里藏着未挑明的暗恋与在意，互动带着微妙的克制。"},{"id":"rel_ambiguous","cat":"关系阶段","title":"暧昧拉扯","content":"与{{char}}处于心照不宣的暧昧期，言语和肢体都在试探边界，尚未正式确认关系。"},{"id":"rel_dating","cat":"关系阶段","title":"热恋交往","content":"已与{{char}}正式确定恋爱关系，相处自然亲密，习惯彼此的陪伴与偏爱。"},{"id":"rel_bicker","cat":"关系阶段","title":"欢喜冤家","content":"与{{char}}平时爱互相斗嘴拆台，表面互不相让，关键时刻却最护着对方。"},{"id":"rel_reunion","cat":"关系阶段","title":"破镜重圆","content":"与{{char}}曾有过一段刻骨的过去，分开一段时间后再度重逢，旧情与心结交织。"},{"id":"rel_contract","cat":"关系阶段","title":"契约关系","content":"与{{char}}因某种约定或利益结成契约关系，台面上各取所需，私下界限却逐渐松动。"},{"id":"rel_married","cat":"关系阶段","title":"已婚同居","content":"已与{{char}}领证结婚并同居生活，熟悉彼此日常起居，兼具烟火气与亲密感。"},{"id":"bg_student","cat":"背景身份","title":"现代学生","content":"当前身份为在校大学生，日常围绕学业、校园生活与课余社交展开。"},{"id":"bg_office","cat":"背景身份","title":"现代职场","content":"当前已步入社会工作，经济独立，生活节奏带着都市职场的现实感。"},{"id":"bg_rich","cat":"背景身份","title":"豪门世家","content":"出身优渥的豪门家庭，教养良好、眼界开阔，行事低调但不缺底气。"},{"id":"bg_ancient","cat":"背景身份","title":"古风世家","content":"身处古代背景，出身书香或勋贵世家，言行举止合乎礼数而不失灵气。"},{"id":"bg_fantasy","cat":"背景身份","title":"西幻冒险者","content":"身处剑与魔法的奇幻世界，具备一定自保能力，游历于城镇与秘境之间。"},{"id":"bg_xianxia","cat":"背景身份","title":"修仙宗门","content":"身处修真世界，为宗门弟子，日常修行历练，重道心与机缘。"},{"id":"rule_no_godmod","cat":"互动规则","title":"禁止代写User言行","isRule":true,"content":"严格禁止替{{user}}描写对话、动作、心理活动或擅自替{{user}}做决定，所有反应留给{{user}}本人。"},{"id":"rule_agency","cat":"互动规则","title":"尊重User自主权","isRule":true,"content":"{{char}}不得无视{{user}}的拒绝或强行主导全部节奏，情节推进须给{{user}}留出回应空间。"},{"id":"rule_call","cat":"互动规则","title":"称呼自然少喊全名","isRule":true,"content":"关系亲近后称呼自然贴合语境，非严肃、生疏或生气场合不频繁生硬地连名带姓喊全名。"},{"id":"rule_ooc","cat":"互动规则","title":"保持角色本色","isRule":true,"content":"{{char}}始终保持自身原有性格与逻辑，不因配合{{user}}而突然变得谄媚或失去个性。"}];
 
   const OPENING_BODY_EJS = [
     '<%_',
@@ -30,15 +32,16 @@
     'const _body = [], _rules = [];',
     'for (let _i = 0; _i < _list.length; _i++) {',
     '  const _it = _list[_i] || {};',
-    '  if (!_it.book || !_it.title) continue;',
-    "  if (_it.slot === 'depth1' || _it.title === '红线') continue;",
-    '  const _c = await getwi(_it.book, _it.title);',
+    "  if (_it.title === '红线') continue;",
+    '  let _c = "";',
+    "  if (typeof _it.text === 'string' && _it.text.trim()) _c = _it.text;",
+    '  else if (_it.book && _it.title) _c = await getwi(_it.book, _it.title);',
     '  if (!_c) continue;',
     "  if (_c.indexOf('[未找到') >= 0 || _c.indexOf('〔未找到') >= 0) continue;",
-    "  if (_it.slot === 'rule' || /^(写作约束|演绎准则)/.test(_it.title)) _rules.push(_c); else _body.push(_c);",
+    '  if (_it.isRule || /^(写作约束|演绎准则)/.test(_it.title || "")) _rules.push(_c); else _body.push(_c);',
     '}',
     '_%><% if (_body.length) { %><USER人设>',
-    '以下是 {{user}} 的基础设定，只属于 {{user}}，禁止混淆 {{user}} 与 {{char}}。',
+    '以下是 {{user}} 的设定，只属于 {{user}}，禁止混淆 {{user}} 与 {{char}}。',
     "<%- _body.join('\n\n') %>",
     '</USER人设>',
     '<% } %><% if (_rules.length) { %><USER写作规则>',
@@ -61,19 +64,16 @@
     "  return (raw && typeof raw === 'object') ? raw : {};",
     '})();',
     'const _l2 = Array.isArray(_pk2.wi) ? _pk2.wi : [];',
-    'const _d1 = [];',
-    'for (let _j = 0; _j < _l2.length; _j++) {',
-    '  const _it = _l2[_j] || {};',
-    '  if (!_it.book || !_it.title) continue;',
-    "  if (_it.slot !== 'depth1' && _it.title !== '红线') continue;",
-    '  const _c = await getwi(_it.book, _it.title);',
-    "  if (_c && _c.indexOf('[未找到') < 0 && _c.indexOf('〔未找到') < 0) _d1.push(_c);",
-    '}',
-    "_%><%- _d1.join('\n\n') %>",
+    'let _hit = null;',
+    "for (let _j = 0; _j < _l2.length; _j++) { if (_l2[_j] && _l2[_j].title === '红线') { _hit = _l2[_j]; break; } }",
+    'let _red = "";',
+    "if (_hit) { _red = _hit.text || (_hit.book ? await getwi(_hit.book, '红线') : ''); }",
+    "const _redSafe = (_red && _red.indexOf('[未找到') < 0 && _red.indexOf('〔未找到') < 0) ? _red : '';",
+    '_%><%- _redSafe %>',
   ].join('\n');
 
   // =========================
-  // Pure State & Domain Core
+  // Pure Core (Testable)
   // =========================
 
   function itemKey(book, title) {
@@ -108,108 +108,23 @@
     return { tag: (m[1] || m[2] || '').trim(), shortTitle: (m[3] || '').trim(), fullTitle: String(title) };
   }
 
-  function matchesCharacterTag(tag, currentChar) {
-    const t = normalizeName(tag);
+  function matchesChar(title, currentChar) {
     const c = sanitizeCharName(currentChar);
-    if (!t || !c || t === '通用' || t === '模板') return false;
-    if (t === c) return true;
-    const tb = stripTrailingDigits(t);
-    const cb = stripTrailingDigits(c);
-    if (!tb || !cb) return false;
-    if (tb === cb) return true;
-    if (tb.length >= 2 && cb.length >= 2 && (cb.startsWith(tb) || tb.startsWith(cb))) return true;
-    return false;
-  }
-
-  // Tolerant matching: works for 【角色】路线, [角色]路线, 角色-路线, 角色·路线, or any title containing character name
-  function classifyIfTitle(title, currentChar) {
-    const raw = String(title || '');
-    const bracket = parseBracketTitle(raw);
+    if (!c) return false;
+    const bracket = parseBracketTitle(title);
     if (bracket) {
-      if (bracket.tag === '模板') return 'template';
-      if (bracket.tag === '通用') return 'common';
-      if (matchesCharacterTag(bracket.tag, currentChar)) return 'current';
-      return 'other_char';
+      const t = normalizeName(bracket.tag);
+      if (!t || t === '通用' || t === '模板') return false;
+      if (t === c) return true;
+      const tb = stripTrailingDigits(t);
+      const cb = stripTrailingDigits(c);
+      if (tb && cb && tb === cb) return true;
+      if (tb.length >= 2 && cb.length >= 2 && (cb.startsWith(tb) || tb.startsWith(cb))) return true;
+      return false;
     }
-    const cleanChar = sanitizeCharName(currentChar);
-    if (cleanChar) {
-      const normTitle = normalizeName(raw);
-      const charBase = stripTrailingDigits(cleanChar);
-      if (normTitle.includes(cleanChar) || (charBase.length >= 2 && normTitle.includes(charBase))) {
-        return 'current';
-      }
-    }
-    if (/^通用[·\-\s_:：/]/.test(raw)) return 'common';
-    return 'other';
-  }
-
-  // Detect whether a book naturally uses "前缀·名称" convention (>= 3 items sharing a · prefix)
-  function detectRecommendedBookMode(entryNames) {
-    const names = Array.isArray(entryNames) ? entryNames : [];
-    const prefixCounts = new Map();
-    let bracketCount = 0;
-    for (const n of names) {
-      if (parseBracketTitle(n)) bracketCount++;
-      const m = String(n || '').match(/^([^·]{1,12})·(.+)$/);
-      if (m) {
-        const p = m[1].trim();
-        prefixCounts.set(p, (prefixCounts.get(p) || 0) + 1);
-      }
-    }
-    if (names.length >= 3 && bracketCount / names.length >= 0.5) return { mode: 'if', layout: 'chips' };
-    let groupedHits = 0;
-    for (const c of prefixCounts.values()) {
-      if (c >= 2) groupedHits += c;
-    }
-    if (groupedHits >= 4) return { mode: 'prefix', layout: 'chips' };
-    // Default for normal users: flat (no forced grouping!), card list for coarse books (<= 16 entries)
-    return { mode: 'flat', layout: names.length > 16 ? 'chips' : 'list' };
-  }
-
-  function inferGroupFromTitle(title, bookCfg, catOverrides) {
-    const bookName = bookCfg.name;
-    const mapped = catOverrides?.[bookName]?.[title];
-    if (mapped) return mapped;
-
-    if (bookCfg.mode !== 'prefix') return '';
-
-    const m = String(title || '').match(/^([^·]{1,12})·(.+)$/);
-    if (m) {
-      const prefix = m[1].trim();
-      const catOrder = Array.isArray(bookCfg.catOrder) ? bookCfg.catOrder : [];
-      if (prefix === '阶段' && catOrder.includes('关系阶段')) return '关系阶段';
-      if (prefix === '发型' && catOrder.includes('外貌')) return '外貌';
-      if ((prefix === '住所' || prefix === '出行' || prefix === '身世') && catOrder.includes('世界观')) return '世界观';
-      return prefix;
-    }
-    return '常规';
-  }
-
-  function chipLabel(bookCfg, cat, title, ifSection) {
-    if (bookCfg && bookCfg.mode === 'if') {
-      if (ifSection === 'current' || ifSection === 'common') {
-        const parsed = parseBracketTitle(title);
-        if (parsed && parsed.shortTitle) return parsed.shortTitle;
-      }
-      return title;
-    }
-    if (!cat || bookCfg?.mode !== 'prefix') return title;
-    if (cat === '关系阶段' && title.startsWith('阶段·')) return title.slice(3);
-    if (title.startsWith(cat + '·')) {
-      const stripped = title.slice(cat.length + 1).trim();
-      if (stripped) return stripped;
-    }
-    return title;
-  }
-
-  function summarizeContent(content, maxLen) {
-    const limit = maxLen || 68;
-    const flat = String(content || '')
-      .replace(/\r?\n+/g, ' ')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    if (!flat) return '';
-    return flat.length > limit ? flat.slice(0, limit) + '…' : flat;
+    const nt = normalizeName(title);
+    const cb = stripTrailingDigits(c);
+    return nt.includes(c) || (cb.length >= 2 && nt.includes(cb));
   }
 
   function parseRgb(colorStr) {
@@ -235,432 +150,260 @@
     return lum < 0.55 ? 'light' : 'dark';
   }
 
-  function createEmptyConfig() {
+  function createDefaultStore() {
     return {
-      v: 3,
-      openingBook: DEFAULT_OPENING_BOOK,
+      v: 4,
+      targetMode: 'persona', // 'persona' | 'chat'
       defaultPresetId: '',
-      books: [],
-      exclusive: [],
-      softSingle: [],
-      catOverrides: {},
-      slotOverrides: {},
-      folded: {},
-      presets: [],
+      recentBooks: [],
+      customEntries: [], // [{ id, title, content, isRule? }]
+      builtinEdits: {}, // { [title]: content }
+      presets: [], // [{ id, label, items: [{ book, title }] }]
+      lastPersonaItems: [], // [{ book, title }]
     };
   }
 
-  function normalizeConfig(raw) {
-    const base = createEmptyConfig();
+  function normalizeStore(raw) {
+    const base = createDefaultStore();
     if (!raw || typeof raw !== 'object') return base;
-    if (typeof raw.openingBook === 'string' && raw.openingBook.trim()) {
-      base.openingBook = raw.openingBook.trim();
-    }
+    if (raw.targetMode === 'chat' || raw.targetMode === 'persona') base.targetMode = raw.targetMode;
     if (typeof raw.defaultPresetId === 'string') base.defaultPresetId = raw.defaultPresetId;
-
-    if (Array.isArray(raw.books)) {
-      const seenBooks = new Set();
-      for (const b of raw.books) {
-        const name = typeof b === 'string' ? b.trim() : (typeof b?.name === 'string' ? b.name.trim() : '');
-        if (!name || seenBooks.has(name)) continue;
-        seenBooks.add(name);
-        // Compat: legacy v3.0 'grouped' maps to 'prefix'
-        const rawMode = b?.mode;
-        const mode = rawMode === 'if' ? 'if' : (rawMode === 'prefix' || rawMode === 'grouped' ? 'prefix' : 'flat');
-        const layout = b?.layout === 'list' ? 'list' : 'chips';
-        base.books.push({
-          name,
-          label: typeof b?.label === 'string' && b.label.trim() ? b.label.trim() : name,
-          mode,
-          layout,
-          preserveCatsOnReplace: Array.isArray(b?.preserveCatsOnReplace) ? b.preserveCatsOnReplace.filter(x => typeof x === 'string') : [],
-          catOrder: Array.isArray(b?.catOrder) ? b.catOrder.filter(x => typeof x === 'string') : [],
+    if (Array.isArray(raw.recentBooks)) {
+      base.recentBooks = [...new Set(raw.recentBooks.filter(x => typeof x === 'string' && x.trim()))].slice(0, 12);
+    }
+    if (Array.isArray(raw.customEntries)) {
+      const seen = new Set();
+      for (const e of raw.customEntries) {
+        if (!e || typeof e.title !== 'string' || !e.title.trim()) continue;
+        const title = e.title.trim();
+        if (seen.has(title)) continue;
+        seen.add(title);
+        base.customEntries.push({
+          id: typeof e.id === 'string' && e.id ? e.id : 'c_' + Date.now().toString(36) + '_' + seen.size,
+          title,
+          content: typeof e.content === 'string' ? e.content : '',
+          isRule: Boolean(e.isRule),
         });
       }
     }
-
-    if (Array.isArray(raw.exclusive)) {
-      base.exclusive = raw.exclusive
-        .filter(g => g && Array.isArray(g.items) && g.items.length >= 2)
-        .map((g, i) => ({
-          id: typeof g.id === 'string' && g.id ? g.id : 'ex_' + (i + 1),
-          label: typeof g.label === 'string' && g.label ? g.label : '互斥组 ' + (i + 1),
-          items: g.items.filter(t => typeof t === 'string' && t.trim()),
-        }));
-    }
-
-    if (Array.isArray(raw.softSingle)) {
-      base.softSingle = raw.softSingle
-        .filter(g => g && Array.isArray(g.items) && g.items.length >= 2)
-        .map((g, i) => ({
-          id: typeof g.id === 'string' && g.id ? g.id : 'ss_' + (i + 1),
-          label: typeof g.label === 'string' && g.label ? g.label : '提示组 ' + (i + 1),
-          items: g.items.filter(t => typeof t === 'string' && t.trim()),
-        }));
-    }
-
-    if (raw.catOverrides && typeof raw.catOverrides === 'object') {
-      for (const [bookName, map] of Object.entries(raw.catOverrides)) {
-        if (!map || typeof map !== 'object') continue;
-        base.catOverrides[bookName] = {};
-        for (const [title, cat] of Object.entries(map)) {
-          if (typeof title === 'string' && typeof cat === 'string' && cat.trim()) {
-            base.catOverrides[bookName][title] = cat.trim();
-          }
-        }
+    if (raw.builtinEdits && typeof raw.builtinEdits === 'object') {
+      for (const [k, v] of Object.entries(raw.builtinEdits)) {
+        if (typeof k === 'string' && typeof v === 'string') base.builtinEdits[k] = v;
       }
     }
-
-    if (raw.slotOverrides && typeof raw.slotOverrides === 'object') {
-      for (const [bookName, map] of Object.entries(raw.slotOverrides)) {
-        if (!map || typeof map !== 'object') continue;
-        base.slotOverrides[bookName] = {};
-        for (const [title, slot] of Object.entries(map)) {
-          if (typeof title === 'string' && (slot === 'rule' || slot === 'depth1')) {
-            base.slotOverrides[bookName][title] = slot;
-          }
-        }
-      }
-    }
-
-    if (raw.folded && typeof raw.folded === 'object') {
-      for (const [bookName, arr] of Object.entries(raw.folded)) {
-        if (Array.isArray(arr)) {
-          base.folded[bookName] = [...new Set(arr.filter(t => typeof t === 'string' && t))];
-        }
-      }
-    }
-
     if (Array.isArray(raw.presets)) {
-      const seenIds = new Set();
       for (let i = 0; i < raw.presets.length; i++) {
         const p = raw.presets[i];
         if (!p || typeof p !== 'object' || !Array.isArray(p.items)) continue;
-        let id = typeof p.id === 'string' && p.id.trim() ? p.id.trim() : 'p_' + Date.now() + '_' + i;
-        while (seenIds.has(id)) id += '_1';
-        seenIds.add(id);
-        const mode = p.mode === 'additive'
-          ? 'additive'
-          : (p.mode === 'replace_book' || p.mode === 'replace_daily' ? 'replace_book' : 'replace_all');
-        const items = [];
-        const seenIt = new Set();
-        for (const it of p.items) {
-          if (!it || typeof it.book !== 'string' || typeof it.title !== 'string') continue;
-          const k = itemKey(it.book, it.title);
-          if (seenIt.has(k)) continue;
-          seenIt.add(k);
-          items.push({ book: it.book, title: it.title });
-        }
+        const items = p.items
+          .filter(it => it && typeof it.book === 'string' && typeof it.title === 'string' && it.book && it.title)
+          .map(it => ({ book: it.book, title: it.title }));
         base.presets.push({
-          id,
+          id: typeof p.id === 'string' && p.id ? p.id : 'p_' + Date.now().toString(36) + '_' + i,
           label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : '方案 ' + (i + 1),
-          mode,
-          targetBook: typeof p.targetBook === 'string' ? p.targetBook : '',
           items,
         });
       }
     }
-
+    if (Array.isArray(raw.lastPersonaItems)) {
+      base.lastPersonaItems = raw.lastPersonaItems
+        .filter(it => it && typeof it.book === 'string' && typeof it.title === 'string' && it.book && it.title)
+        .map(it => ({ book: it.book, title: it.title }));
+    }
     return base;
   }
 
-  function parseSavedPicker(raw) {
+  function getLibraryGroups(store) {
+    const map = new Map();
+    for (const item of BUILTIN_LIBRARY) {
+      const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
+        ? store.builtinEdits[item.title]
+        : item.content;
+      if (!map.has(item.cat)) map.set(item.cat, []);
+      map.get(item.cat).push({
+        book: LIB_BOOK,
+        title: item.title,
+        content,
+        isRule: Boolean(item.isRule),
+        isCustom: false,
+      });
+    }
+    const groups = [...map.entries()].map(([cat, items]) => ({ cat, items }));
+    groups.push({
+      cat: '我的自定义',
+      isCustomGroup: true,
+      items: (store.customEntries || []).map(e => ({
+        book: LIB_BOOK,
+        title: e.title,
+        content: e.content,
+        isRule: Boolean(e.isRule),
+        isCustom: true,
+      })),
+    });
+    return groups;
+  }
+
+  function findLibraryEntry(store, title) {
+    for (const e of store.customEntries || []) {
+      if (e.title === title) return { title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true };
+    }
+    for (const item of BUILTIN_LIBRARY) {
+      if (item.title === title) {
+        const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
+          ? store.builtinEdits[item.title]
+          : item.content;
+        return { title: item.title, content, isRule: Boolean(item.isRule), isCustom: false };
+      }
+    }
+    return null;
+  }
+
+  // Automatic smart grouping for any user worldbook without forcing any naming rule
+  function organizeWorldbookEntries(entries, currentChar, showAllChars, query) {
+    const q = normalizeName(query).toLocaleLowerCase();
+    const list = (entries || [])
+      .filter(e => e && typeof e.name === 'string' && e.name.trim())
+      .filter(e => {
+        if (!q) return true;
+        const nameHit = normalizeName(e.name).toLocaleLowerCase().includes(q);
+        const bodyHit = normalizeName(e.content || '').toLocaleLowerCase().includes(q);
+        return nameHit || bodyHit;
+      });
+
+    // Check if this book is a character-IF book (>= 40% entries use 【...】 or [...] brackets)
+    const bracketCount = list.filter(e => Boolean(parseBracketTitle(e.name))).length;
+    if (list.length >= 3 && bracketCount / list.length >= 0.4) {
+      const current = [];
+      const common = [];
+      const others = [];
+      for (const e of list) {
+        const b = parseBracketTitle(e.name);
+        if (b && b.tag === '模板') continue;
+        if (matchesChar(e.name, currentChar)) current.push(e);
+        else if ((b && b.tag === '通用') || /^通用[·\-\s_:：/]/.test(e.name)) common.push(e);
+        else others.push(e);
+      }
+      const sections = [];
+      if (current.length) sections.push({ cat: sanitizeCharName(currentChar) || '当前角色', stripBracket: true, items: current });
+      if (common.length) sections.push({ cat: '通用', stripBracket: true, items: common });
+      if (showAllChars && others.length) sections.push({ cat: '其他角色', stripBracket: false, items: others });
+      return { kind: 'if', hasHiddenOthers: !showAllChars && others.length > 0, hiddenCount: others.length, sections };
+    }
+
+    // Check if this book naturally uses "前缀·名称" (>= 4 entries sharing repeated · prefixes)
+    const prefixCounts = new Map();
+    for (const e of list) {
+      const m = e.name.match(/^([^·]{1,10})·(.+)$/);
+      if (m) prefixCounts.set(m[1].trim(), (prefixCounts.get(m[1].trim()) || 0) + 1);
+    }
+    let groupedHits = 0;
+    for (const c of prefixCounts.values()) if (c >= 2) groupedHits += c;
+
+    if (groupedHits >= 4) {
+      const buckets = new Map();
+      for (const e of list) {
+        const m = e.name.match(/^([^·]{1,10})·(.+)$/);
+        const cat = (m && (prefixCounts.get(m[1].trim()) || 0) >= 2) ? m[1].trim() : '其他';
+        if (!buckets.has(cat)) buckets.set(cat, []);
+        buckets.get(cat).push(e);
+      }
+      const sections = [];
+      for (const [cat, items] of buckets.entries()) {
+        if (cat !== '其他') sections.push({ cat, stripPrefix: true, items });
+      }
+      if (buckets.has('其他')) sections.push({ cat: '其他', stripPrefix: false, items: buckets.get('其他') });
+      return { kind: 'prefix', hasHiddenOthers: false, hiddenCount: 0, sections };
+    }
+
+    // Default: clean flat list in original worldbook order!
+    return { kind: 'flat', hasHiddenOthers: false, hiddenCount: 0, sections: list.length ? [{ cat: '', stripPrefix: false, items: list }] : [] };
+  }
+
+  function displayEntryLabel(name, section) {
+    if (section?.stripBracket) {
+      const b = parseBracketTitle(name);
+      if (b && b.shortTitle) return b.shortTitle;
+    }
+    if (section?.stripPrefix && section.cat && name.startsWith(section.cat + '·')) {
+      const s = name.slice(section.cat.length + 1).trim();
+      if (s) return s;
+    }
+    return name;
+  }
+
+  function assembleOutput(selectedSet, store, wbContentMap) {
+    const body = [];
+    const rules = [];
+    const redlines = [];
+    const wiPayload = [];
+
+    for (const k of selectedSet) {
+      const { book, title } = parseKey(k);
+      if (!book || !title) continue;
+      if (book === LIB_BOOK) {
+        const entry = findLibraryEntry(store, title);
+        if (!entry) continue;
+        const text = String(entry.content || '').trim();
+        if (!text) continue;
+        wiPayload.push({ book: LIB_BOOK, title, text, isRule: entry.isRule });
+        if (entry.isRule) rules.push(text);
+        else body.push(text);
+      } else {
+        const text = String(wbContentMap?.[book]?.[title] || '').trim();
+        wiPayload.push({ book, title });
+        if (!text) continue;
+        if (title === '红线') redlines.push(text);
+        else if (/^(写作约束|演绎准则)/.test(title)) rules.push(text);
+        else body.push(text);
+      }
+    }
+
+    const blocks = [];
+    if (body.length) blocks.push('<USER人设>\n' + body.join('\n\n') + '\n</USER人设>');
+    if (rules.length) blocks.push('<USER写作规则>\n' + rules.join('\n\n') + '\n</USER写作规则>');
+    if (redlines.length) blocks.push('<USER红线>\n' + redlines.join('\n\n') + '\n</USER红线>');
+
+    return {
+      text: blocks.join('\n\n'),
+      wi: wiPayload,
+      count: wiPayload.length,
+    };
+  }
+
+  // Safely merge managed <USER人设>/<USER写作规则>/<USER红线> blocks into existing Persona description
+  function mergeIntoPersonaDescription(existingDesc, generatedBlock) {
+    const cleaned = String(existingDesc || '')
+      .replace(/\n*<USER人设>[\s\S]*?<\/USER人设>/g, '')
+      .replace(/\n*<USER写作规则>[\s\S]*?<\/USER写作规则>/g, '')
+      .replace(/\n*<USER红线>[\s\S]*?<\/USER红线>/g, '')
+      .trim();
+    const block = String(generatedBlock || '').trim();
+    if (!block) return cleaned;
+    if (!cleaned) return block;
+    return cleaned + '\n\n' + block;
+  }
+
+  function parseSavedChatPicker(raw) {
     let obj = raw;
     if (typeof obj === 'string') {
       try { obj = JSON.parse(obj); } catch (_) { obj = null; }
     }
     if (!obj || typeof obj !== 'object' || !Array.isArray(obj.wi)) {
-      return { hasSaved: false, wi: [], char: '' };
+      return { hasSaved: false, items: [] };
     }
+    const items = [];
     const seen = new Set();
-    const wi = [];
-    for (const item of obj.wi) {
-      if (!item || typeof item !== 'object') continue;
-      const book = typeof item.book === 'string' ? item.book.trim() : '';
-      const title = typeof item.title === 'string' ? item.title : '';
+    for (const it of obj.wi) {
+      if (!it || typeof it !== 'object') continue;
+      const book = typeof it.book === 'string' && it.book ? it.book : (typeof it.text === 'string' ? LIB_BOOK : '');
+      const title = typeof it.title === 'string' ? it.title : '';
       if (!book || !title) continue;
       const k = itemKey(book, title);
       if (seen.has(k)) continue;
       seen.add(k);
-      wi.push({ book, title });
+      items.push({ book, title });
     }
-    return {
-      hasSaved: true,
-      wi,
-      char: typeof obj.char === 'string' ? obj.char : '',
-    };
-  }
-
-  function buildRuntimeModel(config, liveEntriesByBook) {
-    const liveSets = Object.create(null);
-    const entryContentMap = Object.create(null);
-    const groupsByBook = Object.create(null);
-    const ifTitlesByBook = Object.create(null);
-    const missingBooks = [];
-
-    for (const bookCfg of config.books) {
-      const bookName = bookCfg.name;
-      const entries = liveEntriesByBook && Object.prototype.hasOwnProperty.call(liveEntriesByBook, bookName)
-        ? liveEntriesByBook[bookName]
-        : null;
-
-      if (!Array.isArray(entries)) {
-        liveSets[bookName] = null;
-        missingBooks.push(bookName);
-        groupsByBook[bookName] = [];
-        ifTitlesByBook[bookName] = [];
-        continue;
-      }
-
-      const names = [];
-      const seen = new Set();
-      entryContentMap[bookName] = Object.create(null);
-      for (const e of entries) {
-        const name = typeof e === 'string' ? e : (typeof e?.name === 'string' ? e.name : '');
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
-        names.push(name);
-        entryContentMap[bookName][name] = typeof e?.content === 'string' ? e.content : '';
-      }
-      liveSets[bookName] = seen;
-
-      if (bookCfg.mode === 'if') {
-        ifTitlesByBook[bookName] = names;
-        groupsByBook[bookName] = [];
-      } else {
-        const foldedSet = new Set(config.folded?.[bookName] || []);
-        const buckets = new Map();
-        for (const name of names) {
-          const cat = inferGroupFromTitle(name, bookCfg, config.catOverrides);
-          if (!buckets.has(cat)) buckets.set(cat, []);
-          buckets.get(cat).push({
-            title: name,
-            tier: foldedSet.has(name) ? 'more' : 'main',
-          });
-        }
-
-        // In flat mode with zero custom groups, keep one clean unheaded group ('')
-        if (bookCfg.mode === 'flat' && buckets.size === 1 && buckets.has('')) {
-          groupsByBook[bookName] = [{ book: bookName, cat: '', items: buckets.get('') }];
-        } else {
-          const orderedCats = [];
-          const usedCats = new Set();
-          for (const c of bookCfg.catOrder || []) {
-            if (buckets.has(c) && !usedCats.has(c)) { orderedCats.push(c); usedCats.add(c); }
-          }
-          for (const c of buckets.keys()) {
-            if (!usedCats.has(c) && c !== '' && c !== '常规' && c !== '其他') {
-              orderedCats.push(c);
-              usedCats.add(c);
-            }
-          }
-          for (const tail of ['', '常规', '其他']) {
-            if (buckets.has(tail) && !usedCats.has(tail)) {
-              orderedCats.push(tail);
-              usedCats.add(tail);
-            }
-          }
-          groupsByBook[bookName] = orderedCats.map(cat => ({
-            book: bookName,
-            cat: cat || '未分组',
-            items: buckets.get(cat),
-          }));
-        }
-      }
-    }
-
-    return { liveSets, entryContentMap, groupsByBook, ifTitlesByBook, missingBooks };
-  }
-
-  function filterItemsByQuery(items, query, bookName, contentMap) {
-    const q = normalizeName(query).toLocaleLowerCase();
-    if (!q) return items;
-    return items.filter(it => {
-      if (normalizeName(it.title).toLocaleLowerCase().includes(q)) return true;
-      const body = contentMap?.[bookName]?.[it.title] || '';
-      return body && normalizeName(body).toLocaleLowerCase().includes(q);
-    });
-  }
-
-  function buildExclusiveMap(config) {
-    const map = new Map();
-    for (const g of config.exclusive || []) {
-      for (const t of g.items || []) map.set(t, g.items);
-    }
-    return map;
-  }
-
-  function addWithExclusive(targetSet, book, title, exclusiveMap) {
-    const siblings = exclusiveMap.get(title);
-    if (siblings) {
-      for (const sib of siblings) {
-        if (sib !== title) targetSet.delete(itemKey(book, sib));
-      }
-    }
-    targetSet.add(itemKey(book, title));
-  }
-
-  function initSelection(savedState, config, liveSets) {
-    const selected = new Set();
-    const stale = [];
-    const exMap = buildExclusiveMap(config);
-
-    if (!savedState || !savedState.hasSaved) {
-      const defPreset = (config.presets || []).find(p => p.id === config.defaultPresetId);
-      if (defPreset) {
-        for (const it of defPreset.items || []) {
-          const liveSet = liveSets?.[it.book];
-          if (!liveSet || liveSet.has(it.title)) {
-            addWithExclusive(selected, it.book, it.title, exMap);
-          }
-        }
-      }
-      return { selected, stale };
-    }
-
-    for (const it of savedState.wi) {
-      const liveSet = liveSets?.[it.book];
-      if (liveSet && !liveSet.has(it.title)) {
-        stale.push({ book: it.book, title: it.title });
-      } else {
-        selected.add(itemKey(it.book, it.title));
-      }
-    }
-    return { selected, stale };
-  }
-
-  function toggleItem(selectedSet, book, title, config) {
-    const exMap = buildExclusiveMap(config);
-    const next = new Set(selectedSet);
-    const k = itemKey(book, title);
-    if (next.has(k)) {
-      next.delete(k);
-      return next;
-    }
-    addWithExclusive(next, book, title, exMap);
-    return next;
-  }
-
-  function applyPreset(selectedSet, preset, config, liveSets) {
-    const exMap = buildExclusiveMap(config);
-    const next = new Set();
-
-    if (preset.mode === 'additive') {
-      for (const k of selectedSet) next.add(k);
-    } else if (preset.mode === 'replace_book') {
-      const targetBook = preset.targetBook || preset.items?.[0]?.book || '';
-      const bookCfg = (config.books || []).find(b => b.name === targetBook);
-      const preserveCats = new Set(bookCfg?.preserveCatsOnReplace || []);
-      for (const k of selectedSet) {
-        const { book, title } = parseKey(k);
-        if (book !== targetBook) {
-          next.add(k);
-        } else if (bookCfg && preserveCats.size > 0) {
-          const cat = inferGroupFromTitle(title, bookCfg, config.catOverrides);
-          if (preserveCats.has(cat)) next.add(k);
-        }
-      }
-    }
-
-    for (const it of preset.items || []) {
-      const liveSet = liveSets?.[it.book];
-      if (liveSet && !liveSet.has(it.title)) continue;
-      addWithExclusive(next, it.book, it.title, exMap);
-    }
-    return next;
-  }
-
-  function getSoftWarnKeys(selectedSet, config) {
-    const warn = new Set();
-    const byBook = new Map();
-    for (const k of selectedSet) {
-      const { book, title } = parseKey(k);
-      if (!byBook.has(book)) byBook.set(book, new Set());
-      byBook.get(book).add(title);
-    }
-    for (const [book, titleSet] of byBook.entries()) {
-      for (const g of config.softSingle || []) {
-        const hits = [];
-        for (const t of g.items || []) {
-          if (titleSet.has(t)) hits.push(itemKey(book, t));
-        }
-        if (hits.length >= 2) {
-          for (const k of hits) warn.add(k);
-        }
-      }
-    }
-    return warn;
-  }
-
-  function resolveEntrySlot(book, title, config) {
-    const custom = config?.slotOverrides?.[book]?.[title];
-    if (custom === 'depth1' || custom === 'rule') return custom;
-    return '';
-  }
-
-  function serializeSelection(selectedSet, charName, config, model) {
-    const ordered = [];
-    const emitted = new Set();
-
-    function emitIfSelected(book, title) {
-      const k = itemKey(book, title);
-      if (!selectedSet.has(k) || emitted.has(k)) return;
-      emitted.add(k);
-      const slot = resolveEntrySlot(book, title, config);
-      ordered.push(slot ? { book, title, slot } : { book, title });
-    }
-
-    for (const bookCfg of config.books || []) {
-      if (bookCfg.mode === 'if') {
-        for (const title of model?.ifTitlesByBook?.[bookCfg.name] || []) {
-          emitIfSelected(bookCfg.name, title);
-        }
-      } else {
-        for (const g of model?.groupsByBook?.[bookCfg.name] || []) {
-          for (const it of g.items || []) emitIfSelected(bookCfg.name, it.title);
-        }
-      }
-    }
-
-    for (const k of selectedSet) {
-      if (emitted.has(k)) continue;
-      const { book, title } = parseKey(k);
-      if (book && title) {
-        emitted.add(k);
-        const slot = resolveEntrySlot(book, title, config);
-        ordered.push(slot ? { book, title, slot } : { book, title });
-      }
-    }
-
-    return {
-      v: 1,
-      char: sanitizeCharName(charName),
-      wi: ordered,
-    };
-  }
-
-  function buildPreviewText(selectedSet, charName, config, model) {
-    const payload = serializeSelection(selectedSet, charName, config, model);
-    const body = [];
-    const rules = [];
-    const depth1 = [];
-    for (const it of payload.wi) {
-      const text = model?.entryContentMap?.[it.book]?.[it.title] || '';
-      if (!text.trim()) continue;
-      if (it.slot === 'depth1' || it.title === '红线') {
-        depth1.push(text);
-      } else if (it.slot === 'rule' || /^(写作约束|演绎准则)/.test(it.title)) {
-        rules.push(text);
-      } else {
-        body.push(text);
-      }
-    }
-    const sections = [];
-    if (body.length) sections.push('<USER人设>\n' + body.join('\n\n') + '\n</USER人设>');
-    if (rules.length) sections.push('<USER写作规则>\n' + rules.join('\n\n') + '\n</USER写作规则>');
-    if (depth1.length) sections.push('【深度 1 · 强提醒】\n' + depth1.join('\n\n'));
-    const combined = sections.join('\n\n');
-    return { text: combined, chars: combined.length, count: payload.wi.length };
+    return { hasSaved: true, items };
   }
 
   function buildWorldbookEntry(name, content) {
@@ -681,87 +424,9 @@
         order: 100,
       },
       probability: 100,
-      recursion: {
-        prevent_incoming: true,
-        prevent_outgoing: true,
-        delay_until: null,
-      },
-      effect: {
-        sticky: null,
-        cooldown: null,
-        delay: null,
-      },
+      recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
+      effect: { sticky: null, cooldown: null, delay: null },
     };
-  }
-
-  function formatNewIfEntry(charName, shortName, relationText, secretText, existingNames) {
-    const rawShort = String(shortName ?? '').trim();
-    const rawRel = String(relationText ?? '').trim();
-    const rawSec = String(secretText ?? '').trim();
-
-    if (!rawShort) return { ok: false, error: '请填写路线名称' };
-    if (!rawRel) return { ok: false, error: '请填写身份与关系/前提' };
-
-    const prefixTag = sanitizeCharName(charName) || '通用';
-    const cleanShort = rawShort.replace(/^(?:【[^】]+】|\[[^\]]+\])\s*/, '').trim();
-    if (!cleanShort) return { ok: false, error: '请填写路线名称' };
-
-    const fullTitle = '【' + prefixTag + '】' + cleanShort;
-    if (existingNames && existingNames.has(fullTitle)) {
-      return { ok: false, error: '同名路线已存在' };
-    }
-
-    const toLines = txt => txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const relLines = toLines(rawRel);
-    const secLines = toLines(rawSec);
-
-    const lines = [fullTitle + ':'];
-    if (relLines.length === 1) lines.push('  身份与关系: ' + relLines[0]);
-    else {
-      lines.push('  身份与关系:');
-      for (const line of relLines) lines.push('    ' + line);
-    }
-    if (secLines.length === 1) lines.push('  秘密与补充: ' + secLines[0]);
-    else if (secLines.length > 1) {
-      lines.push('  秘密与补充:');
-      for (const line of secLines) lines.push('    ' + line);
-    }
-
-    return { ok: true, fullTitle, entry: buildWorldbookEntry(fullTitle, lines.join('\n')) };
-  }
-
-  function formatNewGenericEntry(titleText, contentText, existingNames) {
-    const title = String(titleText ?? '').trim();
-    const content = String(contentText ?? '').trim();
-    if (!title) return { ok: false, error: '请填写条目标题' };
-    if (!content) return { ok: false, error: '请填写条目正文' };
-    if (existingNames && existingNames.has(title)) return { ok: false, error: '同名条目已存在' };
-    return { ok: true, fullTitle: title, entry: buildWorldbookEntry(title, content) };
-  }
-
-  function partitionIfTitles(ifTitles, currentChar, selectedSet, ifBookName, showAllChars) {
-    const current = [];
-    const common = [];
-    const selectedOther = [];
-    const otherChars = [];
-    const unprefixed = [];
-
-    for (const title of ifTitles || []) {
-      const kind = classifyIfTitle(title, currentChar);
-      const isSelected = selectedSet.has(itemKey(ifBookName, title));
-      if (kind === 'template') {
-        if (isSelected) selectedOther.push(title);
-        continue;
-      }
-      if (kind === 'current') current.push(title);
-      else if (kind === 'common') common.push(title);
-      else if (kind === 'other') unprefixed.push(title);
-      else {
-        if (isSelected) selectedOther.push(title);
-        if (showAllChars) otherChars.push(title);
-      }
-    }
-    return { current, common, selectedOther, otherChars, unprefixed };
   }
 
   function buildOpeningWorldbookEntries() {
@@ -777,12 +442,7 @@
           keys_secondary: { logic: 'and_any', keys: [] },
           scan_depth: 'same_as_global',
         },
-        position: {
-          type: 'after_character_definition',
-          role: 'system',
-          depth: 4,
-          order: 0,
-        },
+        position: { type: 'after_character_definition', role: 'system', depth: 4, order: 0 },
         probability: 100,
         recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
         effect: { sticky: null, cooldown: null, delay: null },
@@ -798,12 +458,7 @@
           keys_secondary: { logic: 'and_any', keys: [] },
           scan_depth: 'same_as_global',
         },
-        position: {
-          type: 'at_depth',
-          role: 'system',
-          depth: 1,
-          order: 1,
-        },
+        position: { type: 'at_depth', role: 'system', depth: 1, order: 1 },
         probability: 100,
         recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
         effect: { sticky: null, cooldown: null, delay: null },
@@ -811,63 +466,27 @@
     ];
   }
 
-  function renameReferenceInConfig(config, bookName, oldTitle, newTitle) {
-    if (!oldTitle || !newTitle || oldTitle === newTitle) return;
-    if (config.catOverrides?.[bookName]?.[oldTitle]) {
-      config.catOverrides[bookName][newTitle] = config.catOverrides[bookName][oldTitle];
-      delete config.catOverrides[bookName][oldTitle];
-    }
-    if (config.slotOverrides?.[bookName]?.[oldTitle]) {
-      config.slotOverrides[bookName][newTitle] = config.slotOverrides[bookName][oldTitle];
-      delete config.slotOverrides[bookName][oldTitle];
-    }
-    if (Array.isArray(config.folded?.[bookName])) {
-      config.folded[bookName] = config.folded[bookName].map(t => (t === oldTitle ? newTitle : t));
-    }
-    for (const p of config.presets || []) {
-      for (const it of p.items || []) {
-        if (it.book === bookName && it.title === oldTitle) it.title = newTitle;
-      }
-    }
-    for (const g of [...(config.exclusive || []), ...(config.softSingle || [])]) {
-      g.items = (g.items || []).map(t => (t === oldTitle ? newTitle : t));
-    }
-  }
-
   const Core = {
     APP_VERSION,
+    LIB_BOOK,
+    BUILTIN_LIBRARY,
     itemKey,
     parseKey,
     normalizeName,
     sanitizeCharName,
-    stripTrailingDigits,
-    parseBracketTitle,
-    matchesCharacterTag,
-    classifyIfTitle,
-    detectRecommendedBookMode,
-    inferGroupFromTitle,
-    chipLabel,
-    summarizeContent,
-    parseRgb,
+    matchesChar,
     inferThemeFromTextColor,
-    createEmptyConfig,
-    normalizeConfig,
-    parseSavedPicker,
-    buildRuntimeModel,
-    filterItemsByQuery,
-    initSelection,
-    toggleItem,
-    applyPreset,
-    getSoftWarnKeys,
-    resolveEntrySlot,
-    serializeSelection,
-    buildPreviewText,
+    createDefaultStore,
+    normalizeStore,
+    getLibraryGroups,
+    findLibraryEntry,
+    organizeWorldbookEntries,
+    displayEntryLabel,
+    assembleOutput,
+    mergeIntoPersonaDescription,
+    parseSavedChatPicker,
     buildWorldbookEntry,
-    formatNewIfEntry,
-    formatNewGenericEntry,
-    partitionIfTitles,
     buildOpeningWorldbookEntries,
-    renameReferenceInConfig,
   };
 
   if (typeof globalThis.__UPP_EXPORT__ === 'function') {
@@ -883,44 +502,26 @@
     let pwin = window;
     let pdoc = document;
     try {
-      if (window.parent && window.parent.document) {
-        pwin = window.parent;
-        pdoc = pwin.document;
-      }
+      if (window.parent && window.parent.document) { pwin = window.parent; pdoc = pwin.document; }
     } catch (_) {}
     return { win: window, pwin, pdoc };
   })();
 
   function getApi(name) {
-    const owners = [
-      window,
-      globalThis,
-      Env.pwin,
-      window.TavernHelper,
-      Env.pwin.TavernHelper,
-      window.SillyTavern,
-      Env.pwin.SillyTavern,
-    ];
+    const owners = [window, globalThis, Env.pwin, window.TavernHelper, Env.pwin.TavernHelper, window.SillyTavern, Env.pwin.SillyTavern];
     for (const owner of owners) {
-      try {
-        if (owner && owner[name] != null) return { value: owner[name], owner };
-      } catch (_) {}
+      try { if (owner && owner[name] != null) return { value: owner[name], owner }; } catch (_) {}
     }
     return null;
   }
 
   function getFn(name) {
     const api = getApi(name);
-    if (api && typeof api.value === 'function') return api.value.bind(api.owner);
-    return null;
+    return api && typeof api.value === 'function' ? api.value.bind(api.owner) : null;
   }
 
   function getStContext() {
-    try {
-      return getApi('SillyTavern')?.value?.getContext?.() || null;
-    } catch (_) {
-      return null;
-    }
+    try { return getApi('SillyTavern')?.value?.getContext?.() || null; } catch (_) { return null; }
   }
 
   function notify(msg, type) {
@@ -929,21 +530,19 @@
     if (t && typeof t[level] === 'function') {
       try { t[level](msg); return; } catch (_) {}
     }
-    console.log('[User人设点选]', msg);
+    console.log('[User人设]', msg);
   }
 
-  function loadStoredConfig() {
+  function loadStore() {
     try {
-      const raw = Env.pwin.localStorage?.getItem(CONFIG_STORAGE_KEY);
-      if (raw) return normalizeConfig(JSON.parse(raw));
+      const raw = Env.pwin.localStorage?.getItem(STORE_KEY);
+      if (raw) return normalizeStore(JSON.parse(raw));
     } catch (_) {}
-    return createEmptyConfig();
+    return createDefaultStore();
   }
 
-  function saveStoredConfig(cfg) {
-    try {
-      Env.pwin.localStorage?.setItem(CONFIG_STORAGE_KEY, JSON.stringify(cfg));
-    } catch (_) {}
+  function saveStore(store) {
+    try { Env.pwin.localStorage?.setItem(STORE_KEY, JSON.stringify(store)); } catch (_) {}
   }
 
   function detectHostTheme() {
@@ -960,49 +559,27 @@
 
   function readCurrentCharName() {
     const ctx = getStContext();
-    if (ctx && (ctx.characterId === undefined || ctx.characterId === null) && !ctx.groupId) {
-      return '';
-    }
+    if (ctx && (ctx.characterId === undefined || ctx.characterId === null) && !ctx.groupId) return '';
     const fn = getFn('getCurrentCharacterName');
     if (fn) {
-      try {
-        const name = sanitizeCharName(fn());
-        if (name) return name;
-      } catch (_) {}
+      try { const n = sanitizeCharName(fn()); if (n) return n; } catch (_) {}
     }
-    if (ctx && ctx.characterId !== undefined && ctx.characterId !== null && typeof ctx.name2 === 'string') {
-      return sanitizeCharName(ctx.name2);
-    }
+    if (ctx && ctx.characterId != null && typeof ctx.name2 === 'string') return sanitizeCharName(ctx.name2);
     return '';
-  }
-
-  function readCurrentPersona() {
-    const fn = getFn('getPersona');
-    if (fn) {
-      try {
-        const p = fn('current');
-        if (p && typeof p.description === 'string') return p;
-      } catch (_) {}
-    }
-    return null;
   }
 
   function hasActiveChat() {
     const ctx = getStContext();
     if (!ctx) return true;
-    return Boolean(ctx.chatId || ctx.groupId || (ctx.characterId !== undefined && ctx.characterId !== null));
+    return Boolean(ctx.chatId || ctx.groupId || ctx.characterId != null);
   }
 
   function readChatPickerVar() {
     const fn = getFn('getVariables');
     if (fn) {
-      try {
-        const vars = fn({ type: 'chat' });
-        if (vars && typeof vars === 'object') return vars[VAR_KEY];
-      } catch (_) {}
+      try { const v = fn({ type: 'chat' }); if (v && typeof v === 'object') return v[VAR_KEY]; } catch (_) {}
     }
-    const ctx = getStContext();
-    return ctx?.chatMetadata?.variables?.[VAR_KEY];
+    return getStContext()?.chatMetadata?.variables?.[VAR_KEY];
   }
 
   async function writeChatPickerVar(payload) {
@@ -1013,112 +590,75 @@
     }
     const updateFn = getFn('updateVariablesWith');
     if (updateFn) {
-      await Promise.resolve(updateFn(vars => {
-        const next = (vars && typeof vars === 'object') ? { ...vars } : {};
-        next[VAR_KEY] = payload;
-        return next;
-      }, { type: 'chat' }));
+      await Promise.resolve(updateFn(vars => ({ ...(vars || {}), [VAR_KEY]: payload }), { type: 'chat' }));
       return;
     }
-    throw new Error('未找到聊天变量写入接口');
+    throw new Error('未找到聊天变量接口');
+  }
+
+  async function writeToCurrentPersona(generatedBlock) {
+    const getP = getFn('getPersona');
+    const replaceP = getFn('replacePersona');
+    if (!getP || !replaceP) throw new Error('当前酒馆助手版本不支持直接写入用户人设');
+    const current = getP('current');
+    if (!current) throw new Error('未找到当前启用的用户人设');
+    const nextDesc = mergeIntoPersonaDescription(current.description, generatedBlock);
+    await Promise.resolve(replaceP('current', { description: nextDesc }, { render: 'immediate' }));
+    return current.name || '当前人设';
   }
 
   async function listHostWorldbooks() {
-    const namesFn = getFn('getWorldbookNames');
-    if (!namesFn) return [];
-    try {
-      const names = await Promise.resolve(namesFn());
-      return Array.isArray(names) ? names.filter(n => typeof n === 'string' && n) : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function listGlobalWorldbooks() {
-    const fn = getFn('getGlobalWorldbookNames');
+    const fn = getFn('getWorldbookNames');
     if (!fn) return [];
     try {
       const names = await Promise.resolve(fn());
-      return Array.isArray(names) ? names.filter(n => typeof n === 'string' && n) : [];
+      return Array.isArray(names) ? names.filter(n => typeof n === 'string' && n && n !== OPENING_BOOK) : [];
     } catch (_) {
       return [];
     }
   }
 
-  async function loadSingleWorldbook(bookName) {
-    const getWbFn = getFn('getWorldbook');
-    if (!getWbFn) return null;
+  async function loadWorldbookEntries(bookName) {
+    const fn = getFn('getWorldbook');
+    if (!fn) return [];
     try {
-      const entries = await Promise.resolve(getWbFn(bookName));
-      return Array.isArray(entries) ? entries : null;
+      const entries = await Promise.resolve(fn(bookName));
+      return Array.isArray(entries) ? entries : [];
     } catch (_) {
-      return null;
+      return [];
     }
   }
 
-  async function loadBoundWorldbooks(config, allHostNames) {
-    const result = Object.create(null);
-    const hostSet = allHostNames.length > 0 ? new Set(allHostNames) : null;
-    await Promise.all(config.books.map(async b => {
-      if (hostSet && !hostSet.has(b.name)) {
-        result[b.name] = null;
-        return;
-      }
-      result[b.name] = await loadSingleWorldbook(b.name);
-    }));
-    return result;
-  }
-
-  async function createEntryInBook(bookName, entry) {
-    const fn = getFn('createWorldbookEntries');
-    if (!fn) throw new Error('未找到世界书写入接口');
-    return await Promise.resolve(fn(bookName, [entry], { render: 'debounced' }));
-  }
-
-  async function updateEntryInBook(bookName, oldTitle, newTitle, newContent) {
-    const fn = getFn('updateWorldbookWith');
-    if (!fn) throw new Error('未找到世界书更新接口');
-    return await Promise.resolve(fn(bookName, entries => {
-      return entries.map(e => (e && e.name === oldTitle ? { ...e, name: newTitle, content: newContent } : e));
-    }, { render: 'debounced' }));
-  }
-
-  async function ensureOpeningWorldbook(bookName) {
-    const createWbFn = getFn('createWorldbook');
+  async function ensureOpeningBookSilent() {
+    const namesFn = getFn('getWorldbookNames');
+    const createFn = getFn('createWorldbook');
+    const globalFn = getFn('getGlobalWorldbookNames');
     const rebindFn = getFn('rebindGlobalWorldbooks');
-    if (!createWbFn || !rebindFn) throw new Error('当前酒馆助手版本缺少世界书管理接口');
-
-    const allNames = await listHostWorldbooks();
-    if (!allNames.includes(bookName)) {
-      await Promise.resolve(createWbFn(bookName, buildOpeningWorldbookEntries()));
-    }
-    const globals = await listGlobalWorldbooks();
-    if (!globals.includes(bookName)) {
-      await Promise.resolve(rebindFn([...globals, bookName]));
+    if (!namesFn || !createFn || !globalFn || !rebindFn) return;
+    try {
+      const all = await Promise.resolve(namesFn());
+      if (Array.isArray(all) && !all.includes(OPENING_BOOK)) {
+        await Promise.resolve(createFn(OPENING_BOOK, buildOpeningWorldbookEntries()));
+      }
+      const globals = await Promise.resolve(globalFn());
+      if (Array.isArray(globals) && !globals.includes(OPENING_BOOK)) {
+        await Promise.resolve(rebindFn([...globals, OPENING_BOOK]));
+      }
+    } catch (err) {
+      console.warn('[User人设] 自动启用总控世界书跳过', err);
     }
   }
 
-  async function createStarterWorldbook(importPersona) {
-    const createWbFn = getFn('createWorldbook');
-    if (!createWbFn) throw new Error('缺少创建世界书接口');
-    const allNames = await listHostWorldbooks();
-    let bookName = '我的人设库';
-    let idx = 2;
-    while (allNames.includes(bookName)) {
-      bookName = '我的人设库' + idx;
-      idx++;
-    }
-    const entries = [];
-    if (importPersona) {
-      const p = readCurrentPersona();
-      const desc = String(p?.description || '').trim();
-      const title = String(p?.name || '').trim() || '基础人设';
-      entries.push({ ...buildWorldbookEntry(title, desc || '在这里填写你的基础设定。'), uid: 0 });
-    } else {
-      entries.push({ ...buildWorldbookEntry('基础人设', '在这里填写你的姓名、外貌、性格等基础设定。'), uid: 0 });
-    }
-    await Promise.resolve(createWbFn(bookName, entries));
-    return bookName;
+  async function createEntryInWorldbook(bookName, entry) {
+    const fn = getFn('createWorldbookEntries');
+    if (!fn) throw new Error('缺少写入世界书接口');
+    await Promise.resolve(fn(bookName, [entry], { render: 'debounced' }));
+  }
+
+  async function updateEntryInWorldbook(bookName, oldTitle, newTitle, newContent) {
+    const fn = getFn('updateWorldbookWith');
+    if (!fn) throw new Error('缺少更新世界书接口');
+    await Promise.resolve(fn(bookName, entries => entries.map(e => (e && e.name === oldTitle ? { ...e, name: newTitle, content: newContent } : e)), { render: 'debounced' }));
   }
 
   // =========================
@@ -1137,10 +677,7 @@
   const timers = new Set();
 
   function later(fn, ms) {
-    const id = Env.pwin.setTimeout(() => {
-      timers.delete(id);
-      if (!dead) fn();
-    }, ms);
+    const id = Env.pwin.setTimeout(() => { timers.delete(id); if (!dead) fn(); }, ms);
     timers.add(id);
     return id;
   }
@@ -1148,21 +685,15 @@
   function listen(target, eventName, handler, options) {
     if (!target || typeof target.addEventListener !== 'function') return;
     target.addEventListener(eventName, handler, options);
-    cleanup.push(() => {
-      try { target.removeEventListener(eventName, handler, options); } catch (_) {}
-    });
+    cleanup.push(() => { try { target.removeEventListener(eventName, handler, options); } catch (_) {} });
   }
 
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 
   // =========================
-  // UI Host & Adaptive Glass Styles
+  // Adaptive iOS Liquid Glass UI
   // =========================
 
   const host = Env.pdoc.createElement('div');
@@ -1177,35 +708,30 @@
       -webkit-font-smoothing: antialiased;
       --upp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     }
-
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
     .upp-backdrop[data-theme="light"] {
       --upp-veil: rgba(18, 24, 38, 0.26);
-      --upp-shell-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.90) 0%, rgba(243, 246, 252, 0.86) 100%);
-      --upp-shell-border: rgba(255, 255, 255, 0.86);
-      --upp-shell-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.96),
-        inset 0 0 0 0.5px rgba(255, 255, 255, 0.55),
-        0 24px 64px rgba(15, 23, 42, 0.18),
-        0 4px 16px rgba(15, 23, 42, 0.06);
+      --upp-shell-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.92) 0%, rgba(244, 247, 252, 0.88) 100%);
+      --upp-shell-border: rgba(255, 255, 255, 0.88);
+      --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 24px 64px rgba(15, 23, 42, 0.18), 0 4px 16px rgba(15, 23, 42, 0.06);
       --upp-divider: rgba(27, 30, 40, 0.07);
-      --upp-card-bg: rgba(255, 255, 255, 0.64);
-      --upp-card-border: rgba(255, 255, 255, 0.84);
-      --upp-card-shadow: 0 2px 10px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+      --upp-card-bg: rgba(255, 255, 255, 0.66);
+      --upp-card-border: rgba(255, 255, 255, 0.86);
+      --upp-card-shadow: 0 2px 10px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.90);
       --upp-tx: #1b1e28;
       --upp-tx2: rgba(27, 30, 40, 0.60);
       --upp-tx3: rgba(27, 30, 40, 0.44);
       --upp-track-bg: rgba(27, 30, 40, 0.055);
       --upp-seg-active-bg: #ffffff;
       --upp-seg-active-shadow: 0 2px 8px rgba(15, 23, 42, 0.09), 0 0.5px 1px rgba(15, 23, 42, 0.05);
-      --upp-chip-bg: rgba(255, 255, 255, 0.84);
+      --upp-chip-bg: rgba(255, 255, 255, 0.86);
       --upp-chip-hover: #ffffff;
       --upp-chip-border: rgba(27, 30, 40, 0.09);
       --upp-chip-tx: #262b38;
       --upp-accent: #3a7bd5;
       --upp-accent-bg: rgba(58, 123, 213, 0.13);
-      --upp-accent-border: rgba(58, 123, 213, 0.44);
+      --upp-accent-border: rgba(58, 123, 213, 0.45);
       --upp-accent-tx: #1b52a4;
       --upp-badge-bg: rgba(58, 123, 213, 0.12);
       --upp-badge-tx: #245db3;
@@ -1216,31 +742,19 @@
       --upp-primary-bg: linear-gradient(180deg, #4b8ae2 0%, #3472cb 100%);
       --upp-primary-hover: linear-gradient(180deg, #5793e8 0%, #3d7bd4 100%);
       --upp-primary-shadow: 0 4px 14px rgba(58, 123, 213, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.30);
-      --upp-foot-bg: rgba(255, 255, 255, 0.58);
-      --upp-input-bg: rgba(255, 255, 255, 0.88);
+      --upp-foot-bg: rgba(255, 255, 255, 0.62);
+      --upp-input-bg: rgba(255, 255, 255, 0.90);
       --upp-input-border: rgba(27, 30, 40, 0.13);
-      --upp-warn-bg: rgba(217, 130, 43, 0.11);
-      --upp-warn-border: rgba(217, 130, 43, 0.55);
-      --upp-warn-tx: #94510c;
-      --upp-warn-dot: #d9822b;
-      --upp-danger-bg: rgba(220, 68, 68, 0.09);
-      --upp-danger-border: rgba(220, 68, 68, 0.34);
       --upp-danger-tx: #b52b2b;
-      --upp-ok-bg: rgba(46, 158, 99, 0.11);
-      --upp-ok-border: rgba(46, 158, 99, 0.34);
-      --upp-ok-tx: #1f7a49;
       --upp-scroll: rgba(27, 30, 40, 0.16);
-      --upp-scroll-hover: rgba(27, 30, 40, 0.28);
       --upp-handle: rgba(27, 30, 40, 0.16);
     }
 
     .upp-backdrop[data-theme="dark"] {
       --upp-veil: rgba(6, 8, 14, 0.62);
-      --upp-shell-bg: linear-gradient(165deg, rgba(28, 31, 41, 0.91) 0%, rgba(20, 22, 30, 0.93) 100%);
+      --upp-shell-bg: linear-gradient(165deg, rgba(28, 31, 41, 0.92) 0%, rgba(20, 22, 30, 0.94) 100%);
       --upp-shell-border: rgba(255, 255, 255, 0.13);
-      --upp-shell-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.12),
-        0 24px 64px rgba(0, 0, 0, 0.52);
+      --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 24px 64px rgba(0, 0, 0, 0.52);
       --upp-divider: rgba(255, 255, 255, 0.08);
       --upp-card-bg: rgba(255, 255, 255, 0.045);
       --upp-card-border: rgba(255, 255, 255, 0.08);
@@ -1271,18 +785,8 @@
       --upp-foot-bg: rgba(255, 255, 255, 0.03);
       --upp-input-bg: rgba(0, 0, 0, 0.28);
       --upp-input-border: rgba(255, 255, 255, 0.12);
-      --upp-warn-bg: rgba(234, 169, 79, 0.15);
-      --upp-warn-border: rgba(234, 169, 79, 0.65);
-      --upp-warn-tx: #f6d19a;
-      --upp-warn-dot: #eaa94f;
-      --upp-danger-bg: rgba(238, 102, 102, 0.14);
-      --upp-danger-border: rgba(238, 102, 102, 0.45);
       --upp-danger-tx: #fbb8b8;
-      --upp-ok-bg: rgba(84, 198, 134, 0.14);
-      --upp-ok-border: rgba(84, 198, 134, 0.40);
-      --upp-ok-tx: #9be7bc;
       --upp-scroll: rgba(255, 255, 255, 0.16);
-      --upp-scroll-hover: rgba(255, 255, 255, 0.28);
       --upp-handle: rgba(255, 255, 255, 0.22);
     }
 
@@ -1291,361 +795,233 @@
     @keyframes upp-sheet-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
 
     .upp-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 2147483000;
-      background: var(--upp-veil);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 18px;
-      color: var(--upp-tx);
-      animation: upp-fade-in 0.18s var(--upp-ease);
+      position: fixed; inset: 0; z-index: 2147483000;
+      background: var(--upp-veil); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; padding: 18px;
+      color: var(--upp-tx); animation: upp-fade-in 0.18s var(--upp-ease);
     }
     .upp-backdrop[hidden] { display: none; }
 
     .upp-modal {
-      width: 100%;
-      max-width: 580px;
-      max-height: 85dvh;
-      background: var(--upp-shell-bg);
-      backdrop-filter: blur(28px) saturate(185%);
-      -webkit-backdrop-filter: blur(28px) saturate(185%);
-      color: var(--upp-tx);
-      border: 1px solid var(--upp-shell-border);
-      border-radius: 22px;
-      box-shadow: var(--upp-shell-shadow);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      width: 100%; max-width: 560px; max-height: 85dvh;
+      background: var(--upp-shell-bg); backdrop-filter: blur(28px) saturate(185%); -webkit-backdrop-filter: blur(28px) saturate(185%);
+      color: var(--upp-tx); border: 1px solid var(--upp-shell-border); border-radius: 22px;
+      box-shadow: var(--upp-shell-shadow); display: flex; flex-direction: column; overflow: hidden;
       animation: upp-pop-in 0.22s var(--upp-ease);
     }
 
-    .upp-grab {
-      display: none;
-      width: 36px;
-      height: 4px;
-      border-radius: 999px;
-      background: var(--upp-handle);
-      margin: 8px auto 0;
-      flex-shrink: 0;
-    }
+    .upp-grab { display: none; width: 36px; height: 4px; border-radius: 999px; background: var(--upp-handle); margin: 8px auto 0; flex-shrink: 0; }
 
-    .upp-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 14px 16px 10px;
-      flex-shrink: 0;
-    }
+    .upp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px 10px; flex-shrink: 0; }
     .upp-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .upp-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .upp-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--upp-tx); white-space: nowrap; }
+    .upp-title { font-size: 16px; font-weight: 600; color: var(--upp-tx); white-space: nowrap; }
     .upp-char-tag {
       font-size: 12px; font-weight: 500; line-height: 1; padding: 5px 10px; border-radius: 999px;
       background: var(--upp-badge-bg); color: var(--upp-badge-tx);
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
     }
     .upp-char-tag[hidden] { display: none; }
 
-    .upp-icon-btn {
+    .upp-close-btn {
       width: 30px; height: 30px; border-radius: 999px;
       border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-tx2);
-      font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
       cursor: pointer; flex-shrink: 0;
-      transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
     }
-    .upp-icon-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-    .upp-icon-btn:active { transform: scale(0.92); }
-    .upp-icon-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
+    .upp-close-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
 
-    .upp-tabs-wrap { padding: 2px 16px 10px; flex-shrink: 0; }
-    .upp-tabs-wrap[hidden] { display: none; }
-    .upp-tabs {
-      display: flex; gap: 3px; padding: 3px; border-radius: 13px; background: var(--upp-track-bg);
-      overflow-x: auto; scrollbar-width: none;
-    }
-    .upp-tabs::-webkit-scrollbar { display: none; }
+    .upp-tabs-wrap { padding: 0 16px 10px; flex-shrink: 0; border-bottom: 1px solid var(--upp-divider); }
+    .upp-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 13px; background: var(--upp-track-bg); }
     .upp-tab {
-      flex: 1 0 auto; height: 32px; border-radius: 10px; border: none; background: transparent;
-      color: var(--upp-tx2); font-size: 13px; font-weight: 500;
-      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-      cursor: pointer; padding: 0 10px; white-space: nowrap;
+      height: 33px; border-radius: 10px; border: none; background: transparent; color: var(--upp-tx2);
+      font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      cursor: pointer; white-space: nowrap;
       transition: background 0.16s var(--upp-ease), color 0.16s ease, box-shadow 0.16s var(--upp-ease);
     }
     .upp-tab:hover { color: var(--upp-tx); }
     .upp-tab.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
-    .upp-tab-count {
-      font-size: 11px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px;
-      background: var(--upp-badge-bg); color: var(--upp-badge-tx);
-    }
-
-    .upp-presets {
-      display: flex; align-items: center; gap: 7px; padding: 0 16px 11px;
-      overflow-x: auto; scrollbar-width: none; flex-shrink: 0; border-bottom: 1px solid var(--upp-divider);
-    }
-    .upp-presets[hidden] { display: none; }
-    .upp-presets::-webkit-scrollbar { display: none; }
-    .upp-preset-btn {
-      height: 30px; padding: 0 12px; border-radius: 999px;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-chip-tx);
-      font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer; flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-      transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.12s ease;
-    }
-    .upp-preset-btn:hover { background: var(--upp-chip-hover); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
-    .upp-preset-btn:active { transform: scale(0.96); }
-    .upp-preset-btn.is-action { background: var(--upp-btn-bg); border-color: var(--upp-btn-border); color: var(--upp-tx2); }
-    .upp-preset-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--upp-accent); opacity: 0.78; }
-    .upp-preset-btn[data-mode="additive"] .upp-preset-dot { background: #d46a8c; }
-    .upp-preset-btn[data-mode="replace_all"] .upp-preset-dot { background: #4ca37b; }
-
-    .upp-alerts { padding: 10px 16px 0; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-    .upp-alerts:empty { display: none; }
-    .upp-stale-box, .upp-miss-box, .upp-ok-box { border-radius: 12px; padding: 8px 11px; font-size: 12px; line-height: 1.45; }
-    .upp-stale-box { border: 1px solid var(--upp-danger-border); background: var(--upp-danger-bg); display: flex; flex-direction: column; gap: 7px; }
-    .upp-stale-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 500; color: var(--upp-danger-tx); }
-    .upp-stale-list { display: flex; flex-wrap: wrap; gap: 6px; }
-    .upp-stale-chip {
-      height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--upp-danger-border);
-      background: var(--upp-chip-bg); color: var(--upp-danger-tx); font-size: 12px;
-      display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-    }
-    .upp-miss-box {
-      border: 1px solid var(--upp-warn-border); background: var(--upp-warn-bg); color: var(--upp-warn-tx);
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-    .upp-ok-box { border: 1px solid var(--upp-ok-border); background: var(--upp-ok-bg); color: var(--upp-ok-tx); }
+    .upp-tab-count { font-size: 11px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--upp-badge-bg); color: var(--upp-badge-tx); }
 
     .upp-body {
       flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
       padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px;
       scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
     }
-    .upp-body::-webkit-scrollbar { width: 5px; height: 5px; }
+    .upp-body::-webkit-scrollbar { width: 5px; }
     .upp-body::-webkit-scrollbar-track { background: transparent; }
     .upp-body::-webkit-scrollbar-thumb { background: var(--upp-scroll); border-radius: 999px; }
-    .upp-body::-webkit-scrollbar-thumb:hover { background: var(--upp-scroll-hover); }
 
-    .upp-search-wrap { position: relative; }
+    .upp-books-strip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    .upp-books-strip::-webkit-scrollbar { display: none; }
+    .upp-book-pill {
+      height: 31px; padding: 0 12px; border-radius: 999px; flex-shrink: 0;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-tx2);
+      font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    }
+    .upp-book-pill.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 600; }
+
     .upp-search-input {
       width: 100%; height: 34px; border-radius: 11px;
       border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
-      padding: 0 32px 0 12px; font: inherit; font-size: 13px; outline: none;
+      padding: 0 12px; font: inherit; font-size: 13px; outline: none;
     }
     .upp-search-input::placeholder { color: var(--upp-tx3); }
     .upp-search-input:focus { border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg); }
-    .upp-search-clear {
-      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-      width: 22px; height: 22px; border-radius: 999px; border: none;
-      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 13px;
-      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-    }
 
     .upp-group {
       background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
       box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 11px 12px;
       display: flex; flex-direction: column; gap: 9px;
     }
-    .upp-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
+    .upp-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .upp-group-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); display: inline-flex; align-items: center; gap: 6px; }
-    .upp-group-badge {
-      font-size: 11px; font-weight: 600; color: var(--upp-badge-tx); background: var(--upp-badge-bg);
-      border-radius: 999px; padding: 1px 7px; line-height: 1.4;
-    }
-    .upp-mini-btn {
-      height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 12px; font-weight: 500; line-height: 1;
-      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;
-      transition: background 0.14s ease, color 0.14s ease;
-    }
-    .upp-mini-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-    .upp-mini-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
-    .upp-mini-btn.is-danger { color: var(--upp-danger-tx); }
+    .upp-group-badge { font-size: 11px; font-weight: 600; color: var(--upp-badge-tx); background: var(--upp-badge-bg); border-radius: 999px; padding: 1px 7px; }
 
     .upp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
     .upp-chip {
       min-height: 34px; padding: 6px 12px; border-radius: 10px;
       border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-chip-tx);
-      font-size: 13px; font-weight: 450; line-height: 1.25; cursor: pointer;
-      display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: left; word-break: break-word;
+      font-size: 13px; line-height: 1.25; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; text-align: left; word-break: break-word;
       transition: background 0.14s var(--upp-ease), border-color 0.14s ease, color 0.14s ease, transform 0.10s ease;
     }
     .upp-chip:hover { background: var(--upp-chip-hover); }
     .upp-chip:active { transform: scale(0.97); }
     .upp-chip.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 500; }
     .upp-chip.is-selected::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--upp-accent); flex-shrink: 0; }
-    .upp-chip.is-selected.is-soft-warn { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); color: var(--upp-warn-tx); }
-    .upp-chip.is-selected.is-soft-warn::before { background: var(--upp-warn-dot); }
-    .upp-chip.is-edit-mode { border-style: dashed; }
+    .upp-chip.is-editing { border-style: dashed; }
 
-    /* Summary Card List Layout (ideal for normal users with coarse persona entries) */
-    .upp-card-list { display: flex; flex-direction: column; gap: 7px; }
-    .upp-entry-card {
-      display: flex; align-items: center; gap: 8px;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
-      border-radius: 12px; padding: 9px 10px;
-      transition: background 0.14s ease, border-color 0.14s ease;
-    }
-    .upp-entry-card.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); }
-    .upp-entry-card.is-selected.is-soft-warn { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); }
-    .upp-entry-main {
-      flex: 1 1 auto; min-width: 0; background: none; border: none; padding: 0; text-align: left;
-      cursor: pointer; display: flex; align-items: flex-start; gap: 9px; color: inherit; font: inherit;
-    }
-    .upp-entry-dot {
-      width: 16px; height: 16px; border-radius: 999px; margin-top: 2px; flex-shrink: 0;
-      border: 1.5px solid var(--upp-chip-border); background: transparent;
-      display: inline-flex; align-items: center; justify-content: center;
-    }
-    .upp-entry-card.is-selected .upp-entry-dot {
-      border-color: var(--upp-accent); background: var(--upp-accent);
-    }
-    .upp-entry-card.is-selected .upp-entry-dot::after {
-      content: ""; width: 6px; height: 6px; border-radius: 999px; background: #ffffff;
-    }
-    .upp-entry-text { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
-    .upp-entry-name { font-size: 13px; font-weight: 500; color: var(--upp-tx); line-height: 1.3; word-break: break-word; }
-    .upp-entry-card.is-selected .upp-entry-name { color: var(--upp-accent-tx); font-weight: 600; }
-    .upp-entry-snippet {
-      font-size: 12px; color: var(--upp-tx3); line-height: 1.35;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .upp-entry-edit {
-      width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg); color: var(--upp-tx2); flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
-    }
-    .upp-entry-edit:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-
-    .upp-subbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px 2px; }
-    .upp-subbar-text { font-size: 12px; font-weight: 500; color: var(--upp-tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .upp-subbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .upp-bar-btn {
-      height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
-      background: var(--upp-chip-bg); color: var(--upp-tx); font-size: 12px; font-weight: 500;
+    .upp-mini-btn {
+      height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
+      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 12px; font-weight: 500;
       display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;
-      transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
     }
-    .upp-bar-btn:hover { background: var(--upp-chip-hover); }
-    .upp-bar-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
+    .upp-mini-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
+    .upp-mini-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
+    .upp-mini-btn.is-danger { color: var(--upp-danger-tx); }
+
+    .upp-subbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .upp-subbar-hint { font-size: 12px; color: var(--upp-tx3); }
+    .upp-subbar-actions { display: flex; align-items: center; gap: 6px; }
+
+    .upp-inline-save { display: flex; gap: 7px; }
+    .upp-input, .upp-textarea {
+      width: 100%; border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
+      border-radius: 10px; padding: 8px 11px; font: inherit; font-size: 13px; outline: none;
+    }
+    .upp-input::placeholder, .upp-textarea::placeholder { color: var(--upp-tx3); }
+    .upp-input:focus, .upp-textarea:focus { border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg); }
+    .upp-textarea { resize: vertical; min-height: 84px; line-height: 1.5; }
+    .upp-textarea.is-tall { min-height: 150px; }
 
     .upp-form {
       background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
       box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 13px;
-      display: flex; flex-direction: column; gap: 10px;
+      display: flex; flex-direction: column; gap: 9px;
     }
-    .upp-field { display: flex; flex-direction: column; gap: 5px; }
-    .upp-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .upp-label { font-size: 12px; font-weight: 500; color: var(--upp-tx2); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-    .upp-prefix-preview { font-size: 12px; font-weight: 600; color: var(--upp-accent-tx); }
-    .upp-input, .upp-textarea, .upp-select {
-      width: 100%; border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
-      border-radius: 10px; padding: 8px 11px; font: inherit; font-size: 13px; outline: none;
-      transition: border-color 0.14s ease, box-shadow 0.14s ease;
-    }
-    .upp-input::placeholder, .upp-textarea::placeholder { color: var(--upp-tx3); }
-    .upp-input:focus, .upp-textarea:focus, .upp-select:focus { border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg); }
-    .upp-textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
-    .upp-textarea.is-tall { min-height: 165px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     .upp-form-error { font-size: 12px; color: var(--upp-danger-tx); }
-    .upp-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+    .upp-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
     .upp-row-list { display: flex; flex-direction: column; gap: 7px; }
     .upp-row-item {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 8px 10px; border-radius: 11px; border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
+      padding: 9px 11px; border-radius: 12px; border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
     }
-    .upp-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+    .upp-row-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+    .upp-star-btn {
+      width: 26px; height: 26px; border-radius: 999px; border: none; background: transparent;
+      color: var(--upp-tx3); font-size: 15px; cursor: pointer; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .upp-star-btn.is-default { color: #e2a024; }
+    .upp-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .upp-row-title { font-size: 13px; font-weight: 500; color: var(--upp-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .upp-row-sub { font-size: 11px; color: var(--upp-tx3); }
-    .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
     .upp-preview-pre {
       margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55;
       color: var(--upp-tx); background: var(--upp-input-bg); border: 1px solid var(--upp-input-border);
-      border-radius: 12px; padding: 12px; max-height: 52dvh; overflow-y: auto;
+      border-radius: 12px; padding: 12px; max-height: 50dvh; overflow-y: auto;
     }
 
-    .upp-empty { font-size: 12px; color: var(--upp-tx3); padding: 2px 0; }
+    .upp-empty { font-size: 12px; color: var(--upp-tx3); padding: 4px 0; }
 
     .upp-foot {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 11px 16px; border-top: 1px solid var(--upp-divider); background: var(--upp-foot-bg); flex-shrink: 0;
+      display: flex; flex-direction: column; gap: 9px;
+      padding: 10px 16px 12px; border-top: 1px solid var(--upp-divider); background: var(--upp-foot-bg); flex-shrink: 0;
     }
-    .upp-foot-right { display: flex; align-items: center; gap: 12px; }
+    .upp-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .upp-mode-label { font-size: 12px; color: var(--upp-tx2); white-space: nowrap; }
+    .upp-mode-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 10px; background: var(--upp-track-bg); }
+    .upp-mode-btn {
+      height: 26px; padding: 0 11px; border-radius: 8px; border: none; background: transparent;
+      color: var(--upp-tx2); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    }
+    .upp-mode-btn.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
+
+    .upp-action-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .upp-action-left, .upp-action-right { display: flex; align-items: center; gap: 8px; }
     .upp-total { font-size: 12px; font-weight: 500; color: var(--upp-tx2); white-space: nowrap; }
+
     .upp-btn {
-      height: 36px; min-width: 74px; padding: 0 15px; border-radius: 999px;
+      height: 36px; min-width: 68px; padding: 0 14px; border-radius: 999px;
       border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-btn-tx);
       font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center;
       cursor: pointer; white-space: nowrap;
-      transition: background 0.14s ease, transform 0.10s ease, box-shadow 0.14s ease;
     }
     .upp-btn:hover { background: var(--upp-btn-hover); }
-    .upp-btn:active { transform: scale(0.97); }
     .upp-btn:disabled { opacity: 0.52; cursor: not-allowed; }
-    .upp-btn-primary {
-      background: var(--upp-primary-bg); border-color: transparent; color: #ffffff; font-weight: 600;
-      box-shadow: var(--upp-primary-shadow);
-    }
+    .upp-btn-primary { background: var(--upp-primary-bg); border-color: transparent; color: #ffffff; font-weight: 600; box-shadow: var(--upp-primary-shadow); }
     .upp-btn-primary:hover { background: var(--upp-primary-hover); }
 
     @media (max-width: 640px) {
       .upp-backdrop { padding: 0; align-items: flex-end; }
-      .upp-modal {
-        max-width: 100%; max-height: 88dvh; border-radius: 24px 24px 0 0;
-        border-left: none; border-right: none; border-bottom: none;
-        animation: upp-sheet-up 0.24s var(--upp-ease);
-      }
+      .upp-modal { max-width: 100%; max-height: 88dvh; border-radius: 24px 24px 0 0; border-left: none; border-right: none; border-bottom: none; animation: upp-sheet-up 0.24s var(--upp-ease); }
       .upp-grab { display: block; }
       .upp-head { padding: 10px 16px 8px; }
       .upp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
       .upp-chip { min-height: 36px; padding: 7px 13px; }
-      .upp-field-row { grid-template-columns: 1fr; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .upp-backdrop, .upp-modal { animation: none; }
-      .upp-chip, .upp-btn, .upp-preset-btn, .upp-tab, .upp-icon-btn { transition: none; }
     }
   `;
-
-  const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
-  const ICON_EYE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
-  const ICON_GEAR = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
 
   shadow.innerHTML = `
     <style>${STYLE}</style>
     <div class="upp-backdrop" data-theme="light" hidden>
-      <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 人设点选">
+      <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 人设">
         <div class="upp-grab" aria-hidden="true"></div>
         <div class="upp-head">
           <div class="upp-head-left">
             <span class="upp-title">User 人设</span>
             <span class="upp-char-tag" hidden></span>
           </div>
-          <div class="upp-head-actions">
-            <button type="button" class="upp-icon-btn" data-act="toggle-edit-mode" title="编辑条目" aria-label="编辑条目">${ICON_EDIT}</button>
-            <button type="button" class="upp-icon-btn" data-act="toggle-preview" title="预览正文" aria-label="预览正文">${ICON_EYE}</button>
-            <button type="button" class="upp-icon-btn" data-act="toggle-settings" title="设置" aria-label="设置">${ICON_GEAR}</button>
-            <button type="button" class="upp-icon-btn" data-act="close" title="关闭" aria-label="关闭">×</button>
-          </div>
+          <button type="button" class="upp-close-btn" data-act="close" aria-label="关闭">×</button>
         </div>
         <div class="upp-tabs-wrap">
-          <div class="upp-tabs" role="tablist"></div>
+          <div class="upp-tabs" role="tablist">
+            <button type="button" class="upp-tab is-active" data-tab="lib" role="tab">条目库</button>
+            <button type="button" class="upp-tab" data-tab="wb" role="tab">世界书</button>
+            <button type="button" class="upp-tab" data-tab="presets" role="tab">方案</button>
+          </div>
         </div>
-        <div class="upp-presets"></div>
-        <div class="upp-alerts"></div>
         <div class="upp-body"></div>
         <div class="upp-foot">
-          <button type="button" class="upp-btn" data-act="clear">清空</button>
-          <div class="upp-foot-right">
-            <span class="upp-total">已选 0</span>
-            <button type="button" class="upp-btn upp-btn-primary" data-act="save">保存</button>
+          <div class="upp-mode-row">
+            <span class="upp-mode-label">写入位置</span>
+            <div class="upp-mode-seg">
+              <button type="button" class="upp-mode-btn is-active" data-mode="persona">填入用户人设</button>
+              <button type="button" class="upp-mode-btn" data-mode="chat">仅当前聊天</button>
+            </div>
+          </div>
+          <div class="upp-action-row">
+            <div class="upp-action-left">
+              <button type="button" class="upp-btn" data-act="clear">清空</button>
+              <button type="button" class="upp-btn" data-act="preview">预览</button>
+            </div>
+            <div class="upp-action-right">
+              <span class="upp-total">已选 0</span>
+              <button type="button" class="upp-btn upp-btn-primary" data-act="save">保存</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1655,660 +1031,301 @@
   const $ = sel => shadow.querySelector(sel);
   const elBackdrop = $('.upp-backdrop');
   const elCharTag = $('.upp-char-tag');
-  const elEditBtn = $('[data-act="toggle-edit-mode"]');
-  const elPreviewBtn = $('[data-act="toggle-preview"]');
-  const elSettingsBtn = $('[data-act="toggle-settings"]');
-  const elTabsWrap = $('.upp-tabs-wrap');
   const elTabs = $('.upp-tabs');
-  const elPresets = $('.upp-presets');
-  const elAlerts = $('.upp-alerts');
   const elBody = $('.upp-body');
   const elTotal = $('.upp-total');
   const elSaveBtn = $('[data-act="save"]');
-  const elFoot = $('.upp-foot');
-
-  // =========================
-  // UI State
-  // =========================
 
   const state = {
     open: false,
     loading: false,
     saving: false,
-    view: 'picker', // 'picker' | 'preview' | 'settings' | 'presets' | 'edit_entry'
-    editMode: false,
-    activeBook: '',
-    searchQuery: '',
+    tab: 'lib', // 'lib' | 'wb' | 'presets'
+    subView: '', // '' | 'preview' | 'edit' | 'new'
+    editPickMode: false,
     charName: '',
-    config: loadStoredConfig(),
-    allHostBooks: [],
-    globalBooks: [],
-    model: null,
+    store: loadStore(),
     selected: new Set(),
-    stale: [],
-    expandedGroups: new Set(),
+    hostBooks: [],
+    activeWb: '',
+    wbCache: Object.create(null), // { [bookName]: WorldbookEntry[] }
+    wbSearch: '',
     showAllChars: false,
-    showNewForm: false,
-    newDraft: { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false },
-    editEntryDraft: { book: '', oldTitle: '', title: '', group: '', slot: '', content: '', error: '', busy: false },
-    presetForm: { open: false, label: '', mode: 'replace_all', targetBook: '', error: '' },
-    importDraft: { open: false, text: '', error: '' },
-    exDraft: { label: '', itemsText: '', error: '' },
+    presetNameInput: '',
+    importOpen: false,
+    importText: '',
+    draft: { book: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false },
   };
 
-  function currentBookCfg() {
-    if (!state.config.books.length) return null;
-    return state.config.books.find(b => b.name === state.activeBook) || state.config.books[0];
-  }
-
-  function countSelectedInBook(bookName) {
-    let n = 0;
+  function countSelectedBySource() {
+    let lib = 0, wb = 0;
     for (const k of state.selected) {
-      if (parseKey(k).book === bookName) n++;
+      if (parseKey(k).book === LIB_BOOK) lib++;
+      else wb++;
     }
-    return n;
+    return { lib, wb };
   }
 
-  function countEntriesInBook(bookCfg) {
-    if (!bookCfg || !state.model) return 0;
-    if (bookCfg.mode === 'if') return (state.model.ifTitlesByBook?.[bookCfg.name] || []).length;
-    return (state.model.groupsByBook?.[bookCfg.name] || []).reduce((sum, g) => sum + g.items.length, 0);
+  function buildWbContentMap() {
+    const map = Object.create(null);
+    for (const [book, entries] of Object.entries(state.wbCache)) {
+      map[book] = Object.create(null);
+      for (const e of entries || []) {
+        if (e && e.name) map[book][e.name] = e.content || '';
+      }
+    }
+    return map;
   }
 
-  function renderHeader() {
-    if (state.charName) {
-      elCharTag.textContent = state.charName;
-      elCharTag.hidden = false;
-    } else {
-      elCharTag.hidden = true;
+  async function ensureWbLoaded(bookName) {
+    if (!bookName || bookName === LIB_BOOK) return;
+    if (Array.isArray(state.wbCache[bookName])) return;
+    state.wbCache[bookName] = await loadWorldbookEntries(bookName);
+  }
+
+  async function ensureSelectedWbsLoaded() {
+    const needed = new Set();
+    for (const k of state.selected) {
+      const b = parseKey(k).book;
+      if (b && b !== LIB_BOOK && !Array.isArray(state.wbCache[b])) needed.add(b);
     }
-    elEditBtn.classList.toggle('is-active', state.editMode && state.view === 'picker');
-    elPreviewBtn.classList.toggle('is-active', state.view === 'preview');
-    elSettingsBtn.classList.toggle('is-active', state.view === 'settings');
+    await Promise.all([...needed].map(b => ensureWbLoaded(b)));
   }
 
   function renderTabs() {
-    const showPickerChrome = state.view === 'picker' && state.config.books.length > 0;
-    elTabsWrap.hidden = !showPickerChrome;
-    elPresets.hidden = !showPickerChrome;
-    if (!showPickerChrome) return;
-
-    const active = currentBookCfg()?.name || '';
-    elTabs.innerHTML = state.config.books.map(b => {
-      const count = countSelectedInBook(b.name);
-      return '<button type="button" class="upp-tab' + (active === b.name ? ' is-active' : '') +
-        '" data-book-tab="' + esc(b.name) + '" role="tab">' +
-        esc(b.label) + (count > 0 ? '<span class="upp-tab-count">' + count + '</span>' : '') +
-      '</button>';
-    }).join('');
-  }
-
-  function renderPresetsBar() {
-    if (elPresets.hidden) return;
-    const pills = (state.config.presets || []).map(p => {
-      const isDef = p.id === state.config.defaultPresetId;
-      return '<button type="button" class="upp-preset-btn" data-preset="' + esc(p.id) + '" data-mode="' + esc(p.mode) + '">' +
-        '<span class="upp-preset-dot" aria-hidden="true"></span>' +
-        '<span>' + (isDef ? '★ ' : '') + esc(p.label) + '</span>' +
-      '</button>';
+    const counts = countSelectedBySource();
+    const map = { lib: ['条目库', counts.lib], wb: ['世界书', counts.wb], presets: ['方案', state.store.presets.length] };
+    elTabs.querySelectorAll('.upp-tab').forEach(btn => {
+      const t = btn.dataset.tab;
+      btn.classList.toggle('is-active', state.tab === t && !state.subView);
+      const [label, n] = map[t];
+      btn.innerHTML = esc(label) + (n > 0 ? '<span class="upp-tab-count">' + n + '</span>' : '');
     });
-    pills.push('<button type="button" class="upp-preset-btn is-action" data-act="open-save-preset">+ 存方案</button>');
-    if ((state.config.presets || []).length > 0) {
-      pills.push('<button type="button" class="upp-preset-btn is-action" data-act="open-presets">管理</button>');
-    }
-    elPresets.innerHTML = pills.join('');
   }
 
-  function renderAlerts() {
-    if (state.view !== 'picker') {
-      elAlerts.innerHTML = '';
-      return;
-    }
-    const parts = [];
-    const openingName = state.config.openingBook || DEFAULT_OPENING_BOOK;
-    const hasOpening = state.allHostBooks.includes(openingName);
-    const openingActive = state.globalBooks.includes(openingName);
-
-    if (!state.loading && state.config.books.length > 0 && (!hasOpening || !openingActive)) {
-      parts.push(
-        '<div class="upp-miss-box">' +
-          '<span>' + (!hasOpening ? '未检测到总控世界书 ' + esc(openingName) : '总控世界书 ' + esc(openingName) + ' 未全局开启') + '</span>' +
-          '<button type="button" class="upp-mini-btn" data-act="ensure-opening">' + (!hasOpening ? '一键生成' : '一键开启') + '</button>' +
-        '</div>'
-      );
-    }
-
-    if (state.model?.missingBooks?.length > 0 && !state.loading) {
-      parts.push(
-        '<div class="upp-miss-box"><span>未找到世界书：' + esc(state.model.missingBooks.join('、')) + '</span></div>'
-      );
-    }
-
-    if (state.stale.length > 0) {
-      const chips = state.stale.map((it, idx) =>
-        '<button type="button" class="upp-stale-chip" data-stale-idx="' + idx + '" title="' + esc(it.book + ' / ' + it.title) + '">' +
-        '<span>' + esc(it.title) + '</span><span>×</span></button>'
-      ).join('');
-      parts.push(
-        '<div class="upp-stale-box">' +
-          '<div class="upp-stale-head">' +
-            '<span>已失效 ' + state.stale.length + ' 项</span>' +
-            '<button type="button" class="upp-mini-btn" data-act="clear-stale">移除全部</button>' +
-          '</div>' +
-          '<div class="upp-stale-list">' + chips + '</div>' +
-        '</div>'
-      );
-    }
-
-    if (state.editMode) {
-      parts.push('<div class="upp-ok-box">编辑模式：点任意条目即可原地改标题、分组或正文</div>');
-    }
-
-    elAlerts.innerHTML = parts.join('');
+  function renderFooter() {
+    elTotal.textContent = '已选 ' + state.selected.size;
+    elSaveBtn.disabled = state.loading || state.saving;
+    shadow.querySelectorAll('.upp-mode-btn').forEach(btn => {
+      btn.classList.toggle('is-active', btn.dataset.mode === state.store.targetMode);
+    });
   }
 
-  function renderEntriesItems(bookCfg, cat, visibleItems, softWarnSet, ifSection) {
-    const bookName = bookCfg.name;
-    if (bookCfg.layout === 'list') {
-      return '<div class="upp-card-list">' + visibleItems.map(it => {
-        const k = itemKey(bookName, it.title);
-        const isSel = state.selected.has(k);
-        const isWarn = isSel && softWarnSet.has(k);
-        const label = chipLabel(bookCfg, cat, it.title, ifSection);
-        const snippet = summarizeContent(state.model?.entryContentMap?.[bookName]?.[it.title] || '', 72);
-        return '<div class="upp-entry-card' + (isSel ? ' is-selected' : '') + (isWarn ? ' is-soft-warn' : '') + '">' +
-          '<button type="button" class="upp-entry-main" data-book="' + esc(bookName) + '" data-title="' + esc(it.title) + '">' +
-            '<span class="upp-entry-dot" aria-hidden="true"></span>' +
-            '<span class="upp-entry-text">' +
-              '<span class="upp-entry-name">' + esc(label) + '</span>' +
-              (snippet ? '<span class="upp-entry-snippet">' + esc(snippet) + '</span>' : '') +
-            '</span>' +
-          '</button>' +
-          '<button type="button" class="upp-entry-edit" data-edit-book="' + esc(bookName) + '" data-edit-title="' + esc(it.title) + '" title="编辑" aria-label="编辑">' + ICON_EDIT + '</button>' +
-        '</div>';
-      }).join('') + '</div>';
-    }
-
-    return '<div class="upp-chips">' + visibleItems.map(it => {
-      const k = itemKey(bookName, it.title);
-      const isSel = state.selected.has(k);
-      const isWarn = isSel && softWarnSet.has(k);
-      const label = chipLabel(bookCfg, cat, it.title, ifSection);
-      return '<button type="button" class="upp-chip' +
-        (isSel ? ' is-selected' : '') +
-        (isWarn ? ' is-soft-warn' : '') +
-        (state.editMode ? ' is-edit-mode' : '') +
-        '" data-book="' + esc(bookName) +
-        '" data-title="' + esc(it.title) +
-        '" title="' + esc(it.title) + '">' + esc(label) + '</button>';
-    }).join('') + '</div>';
-  }
-
-  function renderGroupBlock(bookCfg, cat, items, softWarnSet, ifSection, isSearching) {
-    const bookName = bookCfg.name;
-    const filtered = isSearching
-      ? filterItemsByQuery(items, state.searchQuery, bookName, state.model?.entryContentMap)
-      : items;
-    if (!filtered.length) return '';
-
-    const groupId = bookName + '::' + cat;
-    const expanded = isSearching || state.expandedGroups.has(groupId);
-    const mainItems = [];
-    const moreSelected = [];
-    const moreHidden = [];
-
-    for (const it of filtered) {
-      const k = itemKey(bookName, it.title);
-      const isSel = state.selected.has(k);
-      if (it.tier === 'more') {
-        if (isSel) moreSelected.push(it);
-        else moreHidden.push(it);
-      } else {
-        mainItems.push(it);
-      }
-    }
-
-    const visibleItems = expanded ? filtered : [...moreSelected, ...mainItems];
-
-    let selectedCount = 0;
-    for (const it of filtered) {
-      if (state.selected.has(itemKey(bookName, it.title))) selectedCount++;
-    }
-
-    const toggleBtn = !isSearching && moreHidden.length > 0
-      ? '<button type="button" class="upp-mini-btn" data-expand="' + esc(groupId) + '">' + (expanded ? '收起' : '更多') + '</button>'
-      : '';
-
-    const bodyHtml = renderEntriesItems(bookCfg, cat, visibleItems, softWarnSet, ifSection);
-    if (!cat && !toggleBtn) {
-      return '<section class="upp-group">' + bodyHtml + '</section>';
-    }
-
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">' + esc(cat) +
-          (selectedCount > 0 ? '<span class="upp-group-badge">' + selectedCount + '</span>' : '') +
-        '</span>' +
-        toggleBtn +
-      '</div>' +
-      bodyHtml +
-    '</section>';
-  }
-
-  function renderSavePresetForm() {
-    const pf = state.presetForm;
-    const bookOpts = state.config.books.map(b =>
-      '<option value="' + esc(b.name) + '"' + (pf.targetBook === b.name ? ' selected' : '') + '>' + esc(b.label) + '</option>'
-    ).join('');
-    return '<div class="upp-form">' +
-      '<div class="upp-group-head"><span class="upp-group-title">保存当前勾选为方案</span></div>' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>方案名称</span><span class="upp-prefix-preview">共 ' + state.selected.size + ' 项</span></label>' +
-        '<input type="text" class="upp-input" data-pf-field="label" value="' + esc(pf.label) + '" placeholder="例如：日常底包" />' +
-      '</div>' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>应用方式</span></label>' +
-        '<select class="upp-select" data-pf-field="mode">' +
-          '<option value="replace_all"' + (pf.mode === 'replace_all' ? ' selected' : '') + '>整套切换</option>' +
-          '<option value="replace_book"' + (pf.mode === 'replace_book' ? ' selected' : '') + '>仅替换单本书</option>' +
-          '<option value="additive"' + (pf.mode === 'additive' ? ' selected' : '') + '>叠加勾选</option>' +
-        '</select>' +
-      '</div>' +
-      (pf.mode === 'replace_book'
-        ? '<div class="upp-field"><label class="upp-label"><span>替换目标书</span></label><select class="upp-select" data-pf-field="targetBook">' + bookOpts + '</select></div>'
-        : '') +
-      (pf.error ? '<div class="upp-form-error">' + esc(pf.error) + '</div>' : '') +
-      '<div class="upp-form-actions">' +
-        '<button type="button" class="upp-btn" data-act="cancel-save-preset">取消</button>' +
-        '<button type="button" class="upp-btn upp-btn-primary" data-act="confirm-save-preset">保存方案</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  function renderNewEntryForm(bookCfg) {
-    const d = state.newDraft;
-    if (bookCfg.mode === 'if') {
-      const prefix = '【' + (sanitizeCharName(state.charName) || '通用') + '】';
-      return '<div class="upp-form">' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>路线名称</span><span class="upp-prefix-preview">' + esc(prefix) + '</span></label>' +
-          '<input type="text" class="upp-input" data-new-field="shortName" value="' + esc(d.shortName) + '" placeholder="例如：重逢线" />' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>身份与关系/前提</span></label>' +
-          '<textarea class="upp-textarea" data-new-field="relation" placeholder="本线身份、与角色的关系或起点前提">' + esc(d.relation) + '</textarea>' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>秘密或特殊补充</span></label>' +
-          '<textarea class="upp-textarea" data-new-field="secret" placeholder="选填">' + esc(d.secret) + '</textarea>' +
-        '</div>' +
-        (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
-        '<div class="upp-form-actions">' +
-          '<button type="button" class="upp-btn" data-act="cancel-new">取消</button>' +
-          '<button type="button" class="upp-btn upp-btn-primary" data-act="submit-new"' + (d.busy ? ' disabled' : '') + '>创建</button>' +
-        '</div>' +
-      '</div>';
-    }
-
-    return '<div class="upp-form">' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>条目标题</span></label>' +
-        '<input type="text" class="upp-input" data-new-field="title" value="' + esc(d.title) + '" placeholder="随意命名即可" />' +
-      '</div>' +
-      '<div class="upp-field-row">' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>插件内分组</span></label>' +
-          '<input type="text" class="upp-input" data-new-field="group" value="' + esc(d.group) + '" placeholder="选填，不改原名" />' +
-        '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>注入位置</span></label>' +
-          '<select class="upp-select" data-new-field="slot">' +
-            '<option value=""' + (!d.slot ? ' selected' : '') + '>默认正文</option>' +
-            '<option value="rule"' + (d.slot === 'rule' ? ' selected' : '') + '>写作规则</option>' +
-            '<option value="depth1"' + (d.slot === 'depth1' ? ' selected' : '') + '>深度1强提醒</option>' +
-          '</select>' +
-        '</div>' +
-      '</div>' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>条目正文</span></label>' +
-        '<textarea class="upp-textarea" data-new-field="content" placeholder="写入该条目的设定内容">' + esc(d.content) + '</textarea>' +
-      '</div>' +
-      (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
-      '<div class="upp-form-actions">' +
-        '<button type="button" class="upp-btn" data-act="cancel-new">取消</button>' +
-        '<button type="button" class="upp-btn upp-btn-primary" data-act="submit-new"' + (d.busy ? ' disabled' : '') + '>创建</button>' +
-      '</div>' +
-    '</div>';
-  }
-
-  function renderOnboarding() {
-    const openingName = state.config.openingBook || DEFAULT_OPENING_BOOK;
-    const hasOpening = state.allHostBooks.includes(openingName);
-    const openingActive = state.globalBooks.includes(openingName);
-    const bookRows = state.allHostBooks
-      .filter(name => name !== openingName)
-      .map(name =>
-        '<div class="upp-row-item">' +
-          '<div class="upp-row-main"><span class="upp-row-title">' + esc(name) + '</span></div>' +
-          '<div class="upp-row-btns">' +
-            '<button type="button" class="upp-mini-btn" data-quick-add="' + esc(name) + '">+ 绑定</button>' +
-          '</div>' +
-        '</div>'
-      ).join('');
-
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head"><span class="upp-group-title">第一步：绑定你的 User 世界书</span></div>' +
-      '<div class="upp-empty">直接选择你现有的世界书，无需改条目名；没有现成世界书也可以一键新建或导入当前原生人设。</div>' +
-      '<div class="upp-chips">' +
-        '<button type="button" class="upp-bar-btn" data-act="create-starter-persona">从当前 Persona 导入新建</button>' +
-        '<button type="button" class="upp-bar-btn" data-act="create-starter-blank">+ 新建空白人设书</button>' +
-      '</div>' +
-      '<div class="upp-row-list">' + (bookRows || '<div class="upp-empty">暂无其他世界书</div>') + '</div>' +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">第二步：总控世界书</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="ensure-opening">' + (hasOpening && openingActive ? '已启用' : '一键生成并启用') + '</button>' +
-      '</div>' +
-      '<div class="upp-empty">仅 ' + esc(openingName) + ' 保持全局常开，数据源书保持关闭即可。</div>' +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">已有配置文件？</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="toggle-settings">前往导入</button>' +
-      '</div>' +
-    '</section>';
-  }
-
-  function renderPickerBody() {
-    if (!state.config.books.length) return renderOnboarding();
-    const bookCfg = currentBookCfg();
-    if (!bookCfg) return '<div class="upp-empty">请先在设置中绑定世界书</div>';
-
-    const softWarnSet = getSoftWarnKeys(state.selected, state.config);
-    const totalCount = countEntriesInBook(bookCfg);
-    const isSearching = Boolean(state.searchQuery.trim());
-    const parts = [];
-
-    if (state.presetForm.open) parts.push(renderSavePresetForm());
-
-    if (totalCount > 10 || isSearching) {
-      parts.push(
-        '<div class="upp-search-wrap">' +
-          '<input type="text" class="upp-search-input" data-search-input="1" value="' + esc(state.searchQuery) + '" placeholder="搜索标题或正文" />' +
-          (isSearching ? '<button type="button" class="upp-search-clear" data-act="clear-search" aria-label="清除">×</button>' : '') +
-        '</div>'
-      );
-    }
-
-    const layoutBtn = '<button type="button" class="upp-bar-btn" data-act="toggle-layout">' + (bookCfg.layout === 'list' ? '标签视图' : '摘要视图') + '</button>';
-
-    if (bookCfg.mode === 'if') {
-      parts.push(
-        '<div class="upp-subbar">' +
-          '<span class="upp-subbar-text">' + esc(state.charName ? '当前角色：' + state.charName : '未打开角色卡') + '</span>' +
-          '<div class="upp-subbar-actions">' +
-            layoutBtn +
-            '<button type="button" class="upp-bar-btn' + (state.showAllChars ? ' is-active' : '') + '" data-act="toggle-all-chars">全部角色</button>' +
-            '<button type="button" class="upp-bar-btn' + (state.showNewForm ? ' is-active' : '') + '" data-act="toggle-new">+ 新建</button>' +
-          '</div>' +
-        '</div>'
-      );
-      if (state.showNewForm) parts.push(renderNewEntryForm(bookCfg));
-
-      const titles = state.model?.ifTitlesByBook?.[bookCfg.name] || [];
-      const p = partitionIfTitles(titles, state.charName, state.selected, bookCfg.name, state.showAllChars);
-      const toItems = arr => arr.map(title => ({ title, tier: 'main' }));
-
-      if (p.current.length > 0) {
-        const block = renderGroupBlock(bookCfg, state.charName || '本角色', toItems(p.current), softWarnSet, 'current', isSearching);
-        if (block) parts.push(block);
-      } else if (!isSearching) {
-        parts.push(
-          '<section class="upp-group">' +
-            '<div class="upp-group-head"><span class="upp-group-title">' + esc(state.charName || '本角色') + '</span></div>' +
-            '<div class="upp-empty">' + (state.charName ? '暂无匹配本角色的路线' : '打开角色卡后自动匹配本角色路线') + '</div>' +
-          '</section>'
-        );
-      }
-      for (const [label, arr, sec] of [
-        ['通用', p.common, 'common'],
-        ['已选其他角色', state.showAllChars ? [] : p.selectedOther, 'other'],
-        ['其他', p.unprefixed, 'other'],
-        ['其他角色', state.showAllChars ? p.otherChars : [], 'other'],
-      ]) {
-        if (arr.length > 0) {
-          const block = renderGroupBlock(bookCfg, label, toItems(arr), softWarnSet, sec, isSearching);
-          if (block) parts.push(block);
-        }
-      }
-      return parts.join('');
-    }
-
-    parts.push(
+  function renderLibTab() {
+    const groups = getLibraryGroups(state.store);
+    const parts = [
       '<div class="upp-subbar">' +
-        '<span class="upp-subbar-text">' + esc(bookCfg.name) + '</span>' +
+        '<span class="upp-subbar-hint">' + (state.editPickMode ? '点任意条目即可修改正文' : '点标签即可勾选，免手写') + '</span>' +
         '<div class="upp-subbar-actions">' +
-          layoutBtn +
-          '<button type="button" class="upp-bar-btn' + (state.showNewForm ? ' is-active' : '') + '" data-act="toggle-new">+ 新建</button>' +
+          '<button type="button" class="upp-mini-btn' + (state.editPickMode ? ' is-active' : '') + '" data-act="toggle-edit">' + (state.editPickMode ? '完成编辑' : '改正文') + '</button>' +
+          '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 新建</button>' +
         '</div>' +
-      '</div>'
-    );
-    if (state.showNewForm) parts.push(renderNewEntryForm(bookCfg));
+      '</div>',
+    ];
 
-    const groups = state.model?.groupsByBook?.[bookCfg.name] || [];
-    let rendered = 0;
     for (const g of groups) {
-      const block = renderGroupBlock(bookCfg, g.cat, g.items, softWarnSet, '', isSearching);
-      if (block) { parts.push(block); rendered++; }
-    }
-    if (rendered === 0) {
-      parts.push('<div class="upp-empty">' + (isSearching ? '没有匹配的条目' : '该世界书暂无条目') + '</div>');
+      let selCount = 0;
+      for (const it of g.items) {
+        if (state.selected.has(itemKey(LIB_BOOK, it.title))) selCount++;
+      }
+      const chips = g.items.map(it => {
+        const isSel = state.selected.has(itemKey(LIB_BOOK, it.title));
+        return '<button type="button" class="upp-chip' + (isSel ? ' is-selected' : '') + (state.editPickMode ? ' is-editing' : '') +
+          '" data-book="' + esc(LIB_BOOK) + '" data-title="' + esc(it.title) + '">' + esc(it.title) + '</button>';
+      }).join('');
+
+      parts.push(
+        '<section class="upp-group">' +
+          '<div class="upp-group-head">' +
+            '<span class="upp-group-title">' + esc(g.cat) + (selCount > 0 ? '<span class="upp-group-badge">' + selCount + '</span>' : '') + '</span>' +
+            (g.isCustomGroup ? '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 添加</button>' : '') +
+          '</div>' +
+          (chips ? '<div class="upp-chips">' + chips + '</div>' : '<div class="upp-empty">点「+ 添加」写你自己的常用设定</div>') +
+        '</section>'
+      );
     }
     return parts.join('');
   }
 
-  function renderEditEntryView() {
-    const d = state.editEntryDraft;
-    return '<div class="upp-form">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">编辑条目</span>' +
-        '<span class="upp-row-sub">' + esc(d.book) + '</span>' +
-      '</div>' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>条目标题</span></label>' +
-        '<input type="text" class="upp-input" data-edit-field="title" value="' + esc(d.title) + '" />' +
-      '</div>' +
-      '<div class="upp-field-row">' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>插件内分组</span></label>' +
-          '<input type="text" class="upp-input" data-edit-field="group" value="' + esc(d.group) + '" placeholder="留空按默认规则" />' +
+  function renderWbTab() {
+    if (!state.hostBooks.length) {
+      return '<section class="upp-group"><div class="upp-empty">当前酒馆里没有可用的世界书，可直接用「条目库」。</div></section>';
+    }
+
+    // Order books: recent books first, then rest
+    const recentSet = new Set(state.store.recentBooks);
+    const orderedBooks = [
+      ...state.store.recentBooks.filter(b => state.hostBooks.includes(b)),
+      ...state.hostBooks.filter(b => !recentSet.has(b)),
+    ];
+    if (!state.activeWb || !state.hostBooks.includes(state.activeWb)) {
+      state.activeWb = orderedBooks[0] || '';
+    }
+
+    const pills = orderedBooks.map(name => {
+      let n = 0;
+      for (const k of state.selected) if (parseKey(k).book === name) n++;
+      return '<button type="button" class="upp-book-pill' + (state.activeWb === name ? ' is-active' : '') +
+        '" data-pick-wb="' + esc(name) + '">' + esc(name) + (n > 0 ? ' · ' + n : '') + '</button>';
+    }).join('');
+
+    const parts = ['<div class="upp-books-strip">' + pills + '</div>'];
+    const entries = state.wbCache[state.activeWb];
+
+    if (!Array.isArray(entries)) {
+      parts.push('<div class="upp-empty">加载世界书…</div>');
+      return parts.join('');
+    }
+
+    if (entries.length > 12 || state.wbSearch) {
+      parts.push('<input type="text" class="upp-search-input" data-wb-search="1" value="' + esc(state.wbSearch) + '" placeholder="搜标题或正文" />');
+    }
+
+    parts.push(
+      '<div class="upp-subbar">' +
+        '<span class="upp-subbar-hint">' + (state.editPickMode ? '点任意条目修改正文' : '共 ' + entries.length + ' 条') + '</span>' +
+        '<div class="upp-subbar-actions">' +
+          '<button type="button" class="upp-mini-btn' + (state.editPickMode ? ' is-active' : '') + '" data-act="toggle-edit">' + (state.editPickMode ? '完成编辑' : '改正文') + '</button>' +
+          '<button type="button" class="upp-mini-btn" data-act="open-new-wb">+ 新建</button>' +
         '</div>' +
-        '<div class="upp-field">' +
-          '<label class="upp-label"><span>注入位置</span></label>' +
-          '<select class="upp-select" data-edit-field="slot">' +
-            '<option value=""' + (!d.slot ? ' selected' : '') + '>默认正文</option>' +
-            '<option value="rule"' + (d.slot === 'rule' ? ' selected' : '') + '>写作规则</option>' +
-            '<option value="depth1"' + (d.slot === 'depth1' ? ' selected' : '') + '>深度1强提醒</option>' +
-          '</select>' +
-        '</div>' +
-      '</div>' +
-      '<div class="upp-field">' +
-        '<label class="upp-label"><span>正文</span></label>' +
-        '<textarea class="upp-textarea is-tall" data-edit-field="content">' + esc(d.content) + '</textarea>' +
-      '</div>' +
-      (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
-      '<div class="upp-form-actions">' +
-        '<button type="button" class="upp-btn" data-act="back-picker">返回</button>' +
-        '<button type="button" class="upp-btn upp-btn-primary" data-act="save-edit-entry"' + (d.busy ? ' disabled' : '') + '>保存修改</button>' +
-      '</div>' +
-    '</div>';
+      '</div>'
+    );
+
+    const org = organizeWorldbookEntries(entries, state.charName, state.showAllChars, state.wbSearch);
+    if (!org.sections.length) {
+      parts.push('<section class="upp-group"><div class="upp-empty">' + (state.wbSearch ? '没有找到匹配条目' : '这本书暂无条目') + '</div></section>');
+    } else {
+      for (const sec of org.sections) {
+        let selCount = 0;
+        for (const e of sec.items) if (state.selected.has(itemKey(state.activeWb, e.name))) selCount++;
+        const chips = sec.items.map(e => {
+          const isSel = state.selected.has(itemKey(state.activeWb, e.name));
+          const label = displayEntryLabel(e.name, sec);
+          return '<button type="button" class="upp-chip' + (isSel ? ' is-selected' : '') + (state.editPickMode ? ' is-editing' : '') +
+            '" data-book="' + esc(state.activeWb) + '" data-title="' + esc(e.name) + '" title="' + esc(e.name) + '">' + esc(label) + '</button>';
+        }).join('');
+
+        parts.push(
+          '<section class="upp-group">' +
+            (sec.cat ? '<div class="upp-group-head"><span class="upp-group-title">' + esc(sec.cat) + (selCount > 0 ? '<span class="upp-group-badge">' + selCount + '</span>' : '') + '</span></div>' : '') +
+            '<div class="upp-chips">' + chips + '</div>' +
+          '</section>'
+        );
+      }
+    }
+
+    if (org.hasHiddenOthers) {
+      parts.push('<button type="button" class="upp-mini-btn" data-act="show-all-chars">显示其余 ' + org.hiddenCount + ' 条其他角色路线</button>');
+    }
+
+    return parts.join('');
   }
 
-  function renderPreviewView() {
-    const pv = buildPreviewText(state.selected, state.charName, state.config, state.model);
-    return '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">输出预览<span class="upp-group-badge">' + pv.count + ' 项 · ' + pv.chars + ' 字</span></span>' +
-        '<button type="button" class="upp-mini-btn" data-act="back-picker">返回</button>' +
-      '</div>' +
-      (pv.text
-        ? '<pre class="upp-preview-pre">' + esc(pv.text) + '</pre>'
-        : '<div class="upp-empty">当前未勾选任何条目</div>') +
-    '</section>';
-  }
-
-  function renderPresetsManageView() {
-    const modeLabel = m => (m === 'additive' ? '叠加' : (m === 'replace_book' ? '单书替换' : '整套切换'));
-    const rows = (state.config.presets || []).map(p => {
-      const isDef = p.id === state.config.defaultPresetId;
+  function renderPresetsTab() {
+    const rows = (state.store.presets || []).map(p => {
+      const isDef = p.id === state.store.defaultPresetId;
       return '<div class="upp-row-item">' +
-        '<div class="upp-row-main">' +
-          '<span class="upp-row-title">' + (isDef ? '★ ' : '') + esc(p.label) + '</span>' +
-          '<span class="upp-row-sub">' + modeLabel(p.mode) + ' · ' + p.items.length + ' 项</span>' +
+        '<div class="upp-row-left">' +
+          '<button type="button" class="upp-star-btn' + (isDef ? ' is-default' : '') + '" data-preset-def="' + esc(p.id) + '" title="设为新聊天默认">' + (isDef ? '★' : '☆') + '</button>' +
+          '<div class="upp-row-main">' +
+            '<span class="upp-row-title">' + esc(p.label) + '</span>' +
+            '<span class="upp-row-sub">' + p.items.length + ' 条设定</span>' +
+          '</div>' +
         '</div>' +
         '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn' + (isDef ? ' is-active' : '') + '" data-preset-def="' + esc(p.id) + '">' + (isDef ? '取消默认' : '设默认') + '</button>' +
-          '<button type="button" class="upp-mini-btn" data-preset-overwrite="' + esc(p.id) + '">用当前覆盖</button>' +
+          '<button type="button" class="upp-mini-btn is-active" data-preset-apply="' + esc(p.id) + '">套用</button>' +
+          '<button type="button" class="upp-mini-btn" data-preset-overwrite="' + esc(p.id) + '">覆盖</button>' +
           '<button type="button" class="upp-mini-btn is-danger" data-preset-del="' + esc(p.id) + '">删</button>' +
         '</div>' +
       '</div>';
     }).join('');
 
     return '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">方案管理</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="back-picker">返回</button>' +
+      '<div class="upp-group-head"><span class="upp-group-title">把当前勾选存成方案</span><span class="upp-row-sub">已选 ' + state.selected.size + ' 条</span></div>' +
+      '<div class="upp-inline-save">' +
+        '<input type="text" class="upp-input" data-preset-input="1" value="' + esc(state.presetNameInput) + '" placeholder="输入方案名，如：甜妹日常" />' +
+        '<button type="button" class="upp-btn upp-btn-primary" data-act="create-preset">保存</button>' +
       '</div>' +
-      '<div class="upp-row-list">' + (rows || '<div class="upp-empty">暂无方案</div>') + '</div>' +
+    '</section>' +
+    '<section class="upp-group">' +
+      '<div class="upp-group-head"><span class="upp-group-title">已存方案</span></div>' +
+      '<div class="upp-row-list">' + (rows || '<div class="upp-empty">选好标签后在上方输个名字，下次就能一键切换</div>') + '</div>' +
+    '</section>' +
+    '<section class="upp-group">' +
+      '<div class="upp-group-head">' +
+        '<span class="upp-group-title">换设备同步</span>' +
+        '<div class="upp-row-btns">' +
+          '<button type="button" class="upp-mini-btn" data-act="export-store">导出</button>' +
+          '<button type="button" class="upp-mini-btn" data-act="toggle-import">导入</button>' +
+        '</div>' +
+      '</div>' +
+      (state.importOpen
+        ? '<textarea class="upp-textarea" data-import-text="1" placeholder="粘贴导出的 JSON">' + esc(state.importText) + '</textarea>' +
+          '<div class="upp-form-actions"><button type="button" class="upp-mini-btn is-active" data-act="confirm-import">确认导入</button></div>'
+        : '') +
     '</section>';
   }
 
-  function renderSettingsView() {
-    const openingName = state.config.openingBook || DEFAULT_OPENING_BOOK;
-    const hasOpening = state.allHostBooks.includes(openingName);
-    const openingActive = state.globalBooks.includes(openingName);
-    const boundNames = new Set(state.config.books.map(b => b.name));
-    const modeLabel = m => (m === 'if' ? '角色匹配' : (m === 'prefix' ? '前缀归组' : '平铺'));
-
-    const boundRows = state.config.books.map((b, idx) =>
-      '<div class="upp-row-item">' +
-        '<div class="upp-row-main">' +
-          '<span class="upp-row-title">' + esc(b.label) + '</span>' +
-          '<span class="upp-row-sub">' + esc(b.name) + ' · ' + modeLabel(b.mode) + ' · ' + (b.layout === 'list' ? '摘要' : '标签') + '</span>' +
+  function renderSubView() {
+    if (state.subView === 'preview') {
+      const out = assembleOutput(state.selected, state.store, buildWbContentMap());
+      return '<section class="upp-group">' +
+        '<div class="upp-group-head">' +
+          '<span class="upp-group-title">效果预览<span class="upp-group-badge">' + out.count + ' 条 · ' + out.text.length + ' 字</span></span>' +
+          '<button type="button" class="upp-mini-btn" data-act="close-sub">返回</button>' +
         '</div>' +
-        '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn" data-book-cycle-mode="' + idx + '">切模式</button>' +
-          '<button type="button" class="upp-mini-btn is-danger" data-book-remove="' + idx + '">移除</button>' +
-        '</div>' +
-      '</div>'
-    ).join('');
+        (out.text ? '<pre class="upp-preview-pre">' + esc(out.text) + '</pre>' : '<div class="upp-empty">还没勾选任何条目</div>') +
+      '</section>';
+    }
 
-    const availableRows = state.allHostBooks
-      .filter(n => !boundNames.has(n) && n !== openingName)
-      .map(n =>
-        '<button type="button" class="upp-chip" data-quick-add="' + esc(n) + '">+ ' + esc(n) + '</button>'
-      ).join('');
-
-    const exRows = (state.config.exclusive || []).map((g, idx) =>
-      '<div class="upp-row-item">' +
-        '<div class="upp-row-main">' +
-          '<span class="upp-row-title">' + esc(g.label) + '</span>' +
-          '<span class="upp-row-sub">' + esc(g.items.join(' / ')) + '</span>' +
-        '</div>' +
-        '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn is-danger" data-ex-del="' + idx + '">删</button>' +
-        '</div>' +
-      '</div>'
-    ).join('');
-
-    return '<section class="upp-group">' +
+    const d = state.draft;
+    const isNew = state.subView === 'new';
+    const canRename = isNew || d.book !== LIB_BOOK || d.isCustom;
+    return '<div class="upp-form">' +
       '<div class="upp-group-head">' +
-        '<span class="upp-group-title">已绑定世界书</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="back-picker">返回</button>' +
+        '<span class="upp-group-title">' + (isNew ? '新建条目' : '修改条目') + '</span>' +
+        (d.book !== LIB_BOOK ? '<span class="upp-row-sub">' + esc(d.book) + '</span>' : '') +
       '</div>' +
-      '<div class="upp-row-list">' + (boundRows || '<div class="upp-empty">尚未绑定世界书</div>') + '</div>' +
-      (availableRows ? '<div class="upp-label"><span>点击添加世界书</span></div><div class="upp-chips">' + availableRows + '</div>' : '') +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">总控世界书</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="ensure-opening">' + (hasOpening && openingActive ? '已全局启用' : '一键生成并启用') + '</button>' +
+      '<input type="text" class="upp-input" data-draft-field="title" value="' + esc(d.title) + '"' + (canRename ? '' : ' disabled') + ' placeholder="标题" />' +
+      '<textarea class="upp-textarea is-tall" data-draft-field="content" placeholder="写这条人设的具体描述">' + esc(d.content) + '</textarea>' +
+      (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
+      '<div class="upp-form-actions">' +
+        (!isNew && d.book === LIB_BOOK && d.isCustom ? '<button type="button" class="upp-btn" style="color:var(--upp-danger-tx)" data-act="delete-custom">删除</button>' : '') +
+        '<button type="button" class="upp-btn" data-act="close-sub">取消</button>' +
+        '<button type="button" class="upp-btn upp-btn-primary" data-act="save-draft"' + (d.busy ? ' disabled' : '') + '>保存</button>' +
       '</div>' +
-      '<div class="upp-empty">当前入口：' + esc(openingName) + '</div>' +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head"><span class="upp-group-title">硬互斥组</span></div>' +
-      '<div class="upp-row-list">' + (exRows || '<div class="upp-empty">暂无互斥规则</div>') + '</div>' +
-      '<div class="upp-field">' +
-        '<input type="text" class="upp-input" data-ex-field="label" value="' + esc(state.exDraft.label) + '" placeholder="组名，如：主定位" />' +
-        '<input type="text" class="upp-input" data-ex-field="itemsText" value="' + esc(state.exDraft.itemsText) + '" placeholder="互斥条目标题，用逗号分隔" />' +
-      '</div>' +
-      (state.exDraft.error ? '<div class="upp-form-error">' + esc(state.exDraft.error) + '</div>' : '') +
-      '<div class="upp-form-actions"><button type="button" class="upp-mini-btn" data-act="add-ex">+ 添加互斥组</button></div>' +
-    '</section>' +
-    '<section class="upp-group">' +
-      '<div class="upp-group-head">' +
-        '<span class="upp-group-title">配置同步</span>' +
-        '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn" data-act="export-config">导出 JSON</button>' +
-          '<button type="button" class="upp-mini-btn" data-act="toggle-import">导入 JSON</button>' +
-        '</div>' +
-      '</div>' +
-      (state.importDraft.open
-        ? '<div class="upp-field">' +
-            '<textarea class="upp-textarea" data-import-field="text" placeholder="粘贴配置 JSON 内容">' + esc(state.importDraft.text) + '</textarea>' +
-            (state.importDraft.error ? '<div class="upp-form-error">' + esc(state.importDraft.error) + '</div>' : '') +
-            '<div class="upp-form-actions">' +
-              '<button type="button" class="upp-mini-btn" data-act="pick-import-file">选文件</button>' +
-              '<button type="button" class="upp-mini-btn is-active" data-act="confirm-import">确认导入</button>' +
-            '</div>' +
-          '</div>'
-        : '<div class="upp-empty">导出后可在手机与电脑间一键同步世界书绑定、自定义分组与方案快照。</div>') +
-    '</section>';
+    '</div>';
   }
 
-  function renderBody(preserveFocusSearch) {
+  function renderBody(preserveFocusSelector) {
     if (state.loading) {
       elBody.innerHTML = '<div class="upp-empty">加载中…</div>';
       return;
     }
     const prevScroll = elBody.scrollTop;
-    let searchSelStart = null;
-    if (preserveFocusSearch) {
-      const activeEl = shadow.activeElement;
-      if (activeEl && activeEl.dataset?.searchInput) searchSelStart = activeEl.selectionStart;
+    let caret = null;
+    if (preserveFocusSelector) {
+      const a = shadow.activeElement;
+      if (a && a.matches?.(preserveFocusSelector)) caret = a.selectionStart;
     }
 
-    if (state.view === 'edit_entry') elBody.innerHTML = renderEditEntryView();
-    else if (state.view === 'preview') elBody.innerHTML = renderPreviewView();
-    else if (state.view === 'presets') elBody.innerHTML = renderPresetsManageView();
-    else if (state.view === 'settings') elBody.innerHTML = renderSettingsView();
-    else elBody.innerHTML = renderPickerBody();
+    if (state.subView) elBody.innerHTML = renderSubView();
+    else if (state.tab === 'wb') elBody.innerHTML = renderWbTab();
+    else if (state.tab === 'presets') elBody.innerHTML = renderPresetsTab();
+    else elBody.innerHTML = renderLibTab();
 
     elBody.scrollTop = prevScroll;
-    if (preserveFocusSearch && searchSelStart !== null) {
-      const input = shadow.querySelector('[data-search-input]');
-      if (input) {
-        input.focus();
-        try { input.setSelectionRange(searchSelStart, searchSelStart); } catch (_) {}
-      }
+    if (preserveFocusSelector && caret !== null) {
+      const inp = shadow.querySelector(preserveFocusSelector);
+      if (inp) { inp.focus(); try { inp.setSelectionRange(caret, caret); } catch (_) {} }
     }
-  }
-
-  function renderFooter() {
-    const showFoot = state.view === 'picker' && state.config.books.length > 0;
-    elFoot.style.display = showFoot ? '' : 'none';
-    elTotal.textContent = '已选 ' + state.selected.size;
-    elSaveBtn.disabled = state.loading || state.saving;
   }
 
   function renderAll() {
-    renderHeader();
+    if (state.charName) { elCharTag.textContent = state.charName; elCharTag.hidden = false; }
+    else elCharTag.hidden = true;
     renderTabs();
-    renderPresetsBar();
-    renderAlerts();
-    renderBody(false);
+    renderBody(null);
     renderFooter();
   }
 
@@ -2316,26 +1333,30 @@
     elBackdrop.dataset.theme = detectHostTheme();
     state.loading = true;
     state.charName = readCurrentCharName();
-    state.config = loadStoredConfig();
+    state.store = loadStore();
     renderAll();
 
-    const [allBooks, globals] = await Promise.all([listHostWorldbooks(), listGlobalWorldbooks()]);
+    state.hostBooks = await listHostWorldbooks();
     if (dead) return;
-    state.allHostBooks = allBooks;
-    state.globalBooks = globals;
 
-    if (!state.activeBook || !state.config.books.some(b => b.name === state.activeBook)) {
-      state.activeBook = state.config.books[0]?.name || '';
+    // Load selection based on current target mode
+    const nextSel = new Set();
+    if (state.store.targetMode === 'chat') {
+      const saved = parseSavedChatPicker(readChatPickerVar());
+      if (saved.hasSaved) {
+        for (const it of saved.items) nextSel.add(itemKey(it.book, it.title));
+      } else if (state.store.defaultPresetId) {
+        const def = state.store.presets.find(p => p.id === state.store.defaultPresetId);
+        if (def) for (const it of def.items) nextSel.add(itemKey(it.book, it.title));
+      }
+    } else {
+      for (const it of state.store.lastPersonaItems || []) nextSel.add(itemKey(it.book, it.title));
     }
+    state.selected = nextSel;
 
-    const liveEntriesMap = await loadBoundWorldbooks(state.config, allBooks);
-    if (dead) return;
-
-    state.model = buildRuntimeModel(state.config, liveEntriesMap);
-    const saved = parseSavedPicker(readChatPickerVar());
-    const init = initSelection(saved, state.config, state.model.liveSets);
-    state.selected = init.selected;
-    state.stale = init.stale;
+    if (state.tab === 'wb' && state.activeWb) {
+      await ensureWbLoaded(state.activeWb);
+    }
     state.loading = false;
     renderAll();
   }
@@ -2344,12 +1365,9 @@
     if (dead) return;
     elBackdrop.dataset.theme = detectHostTheme();
     state.open = true;
-    state.view = 'picker';
-    state.editMode = false;
-    state.searchQuery = '';
-    state.showNewForm = false;
-    state.presetForm.open = false;
-    state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false };
+    state.subView = '';
+    state.editPickMode = false;
+    state.wbSearch = '';
     elBackdrop.hidden = false;
     syncMenuExpanded();
     void refreshState();
@@ -2357,60 +1375,36 @@
 
   function closeModal() {
     state.open = false;
-    state.editMode = false;
-    state.showNewForm = false;
-    state.presetForm.open = false;
+    state.subView = '';
+    state.editPickMode = false;
     elBackdrop.hidden = true;
     syncMenuExpanded();
   }
 
-  function openEditEntry(book, title) {
-    state.editEntryDraft = {
-      book,
-      oldTitle: title,
-      title,
-      group: state.config.catOverrides?.[book]?.[title] || '',
-      slot: state.config.slotOverrides?.[book]?.[title] || '',
-      content: state.model?.entryContentMap?.[book]?.[title] || '',
-      error: '',
-      busy: false,
-    };
-    state.view = 'edit_entry';
-    renderAll();
-  }
-
-  async function handleQuickAddBook(name) {
-    if (state.config.books.some(b => b.name === name)) return;
-    const entries = await loadSingleWorldbook(name);
-    const names = Array.isArray(entries) ? entries.map(e => e?.name).filter(Boolean) : [];
-    const rec = detectRecommendedBookMode(names);
-    state.config.books.push({
-      name,
-      label: name.replace(/^User[·:：_-]?/i, '') || name,
-      mode: rec.mode,
-      layout: rec.layout,
-      preserveCatsOnReplace: [],
-      catOrder: [],
-    });
-    saveStoredConfig(state.config);
-    state.activeBook = name;
-    await refreshState();
-  }
-
   async function handleSave() {
     if (state.saving || state.loading) return;
-    if (!hasActiveChat()) {
-      notify('请先打开一个聊天再保存', 'warning');
-      return;
-    }
     state.saving = true;
     renderFooter();
     try {
-      const payload = serializeSelection(state.selected, state.charName, state.config, state.model);
-      await writeChatPickerVar(payload);
-      state.stale = [];
-      closeModal();
-      notify(payload.wi.length > 0 ? '已保存 ' + payload.wi.length + ' 项' : '已清空保存', 'success');
+      await ensureSelectedWbsLoaded();
+      const out = assembleOutput(state.selected, state.store, buildWbContentMap());
+
+      if (state.store.targetMode === 'persona') {
+        const personaName = await writeToCurrentPersona(out.text);
+        state.store.lastPersonaItems = out.wi.map(({ book, title }) => ({ book, title }));
+        saveStore(state.store);
+        closeModal();
+        notify(out.count > 0 ? '已写入用户人设「' + personaName + '」（' + out.count + ' 条）' : '已从用户人设清除生成段', 'success');
+      } else {
+        if (!hasActiveChat()) {
+          notify('请先打开一个聊天，或切到「填入用户人设」', 'warning');
+          return;
+        }
+        await ensureOpeningBookSilent();
+        await writeChatPickerVar({ v: 1, char: state.charName, wi: out.wi });
+        closeModal();
+        notify(out.count > 0 ? '已保存到当前聊天（' + out.count + ' 条）' : '已清空当前聊天人设', 'success');
+      }
     } catch (err) {
       notify('保存失败：' + (err?.message || String(err)), 'error');
     } finally {
@@ -2419,420 +1413,260 @@
     }
   }
 
-  async function handleSubmitNewEntry() {
-    const bookCfg = currentBookCfg();
-    if (!bookCfg) return;
-    const d = state.newDraft;
+  async function handleSaveDraft() {
+    const d = state.draft;
     if (d.busy) return;
+    const title = String(d.title || '').trim();
+    const content = String(d.content || '').trim();
+    if (!title) { d.error = '请填写标题'; renderBody(null); return; }
+    if (!content) { d.error = '请填写正文'; renderBody(null); return; }
 
-    const existingSet = state.model?.liveSets?.[bookCfg.name];
-    if (existingSet === null) {
-      d.error = '未找到世界书：' + bookCfg.name;
-      renderBody(false);
+    if (d.book === LIB_BOOK) {
+      if (state.subView === 'new') {
+        if (findLibraryEntry(state.store, title)) { d.error = '已有同名条目'; renderBody(null); return; }
+        state.store.customEntries.push({ id: 'c_' + Date.now().toString(36), title, content, isRule: false });
+        state.selected.add(itemKey(LIB_BOOK, title));
+      } else if (d.isCustom) {
+        const item = state.store.customEntries.find(e => e.title === d.oldTitle);
+        if (item) {
+          item.title = title;
+          item.content = content;
+          if (title !== d.oldTitle && state.selected.has(itemKey(LIB_BOOK, d.oldTitle))) {
+            state.selected.delete(itemKey(LIB_BOOK, d.oldTitle));
+            state.selected.add(itemKey(LIB_BOOK, title));
+          }
+        }
+      } else {
+        state.store.builtinEdits[d.oldTitle] = content;
+      }
+      saveStore(state.store);
+      state.subView = '';
+      notify('已保存', 'success');
+      renderAll();
       return;
     }
 
-    const built = bookCfg.mode === 'if'
-      ? formatNewIfEntry(state.charName, d.shortName, d.relation, d.secret, existingSet)
-      : formatNewGenericEntry(d.title, d.content, existingSet);
-
-    if (!built.ok) {
-      d.error = built.error;
-      renderBody(false);
-      return;
-    }
-
+    // Worldbook create or edit
     d.busy = true;
     d.error = '';
-    renderBody(false);
+    renderBody(null);
     try {
-      await createEntryInBook(bookCfg.name, built.entry);
-      const customGroup = String(d.group || '').trim();
-      if (customGroup) {
-        state.config.catOverrides[bookCfg.name] = state.config.catOverrides[bookCfg.name] || {};
-        state.config.catOverrides[bookCfg.name][built.fullTitle] = customGroup;
+      if (state.subView === 'new') {
+        await createEntryInWorldbook(d.book, buildWorldbookEntry(title, content));
+        state.selected.add(itemKey(d.book, title));
+      } else {
+        await updateEntryInWorldbook(d.book, d.oldTitle, title, content);
+        if (title !== d.oldTitle && state.selected.has(itemKey(d.book, d.oldTitle))) {
+          state.selected.delete(itemKey(d.book, d.oldTitle));
+          state.selected.add(itemKey(d.book, title));
+        }
       }
-      if (d.slot === 'rule' || d.slot === 'depth1') {
-        state.config.slotOverrides[bookCfg.name] = state.config.slotOverrides[bookCfg.name] || {};
-        state.config.slotOverrides[bookCfg.name][built.fullTitle] = d.slot;
-      }
-      if (customGroup || d.slot) saveStoredConfig(state.config);
-
-      state.selected.add(itemKey(bookCfg.name, built.fullTitle));
-      state.showNewForm = false;
-      state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false };
-      notify('已创建并勾选：' + built.fullTitle, 'success');
-      const liveEntriesMap = await loadBoundWorldbooks(state.config, state.allHostBooks);
-      state.model = buildRuntimeModel(state.config, liveEntriesMap);
+      state.wbCache[d.book] = await loadWorldbookEntries(d.book);
+      state.subView = '';
+      notify('已写入世界书', 'success');
       renderAll();
     } catch (err) {
       d.busy = false;
       d.error = '写入失败：' + (err?.message || String(err));
-      renderBody(false);
+      renderBody(null);
     }
-  }
-
-  async function handleSaveEditEntry() {
-    const d = state.editEntryDraft;
-    if (d.busy) return;
-    const newTitle = String(d.title || '').trim();
-    const newContent = String(d.content || '');
-    if (!newTitle) { d.error = '标题不能为空'; renderBody(false); return; }
-    const existingSet = state.model?.liveSets?.[d.book];
-    if (newTitle !== d.oldTitle && existingSet && existingSet.has(newTitle)) {
-      d.error = '同名条目已存在';
-      renderBody(false);
-      return;
-    }
-    d.busy = true;
-    d.error = '';
-    renderBody(false);
-    try {
-      await updateEntryInBook(d.book, d.oldTitle, newTitle, newContent);
-      if (newTitle !== d.oldTitle) {
-        const oldK = itemKey(d.book, d.oldTitle);
-        if (state.selected.has(oldK)) {
-          state.selected.delete(oldK);
-          state.selected.add(itemKey(d.book, newTitle));
-        }
-        renameReferenceInConfig(state.config, d.book, d.oldTitle, newTitle);
-      }
-
-      const customGroup = String(d.group || '').trim();
-      state.config.catOverrides[d.book] = state.config.catOverrides[d.book] || {};
-      if (customGroup) state.config.catOverrides[d.book][newTitle] = customGroup;
-      else delete state.config.catOverrides[d.book][newTitle];
-
-      state.config.slotOverrides[d.book] = state.config.slotOverrides[d.book] || {};
-      if (d.slot === 'rule' || d.slot === 'depth1') state.config.slotOverrides[d.book][newTitle] = d.slot;
-      else delete state.config.slotOverrides[d.book][newTitle];
-
-      saveStoredConfig(state.config);
-      const liveEntriesMap = await loadBoundWorldbooks(state.config, state.allHostBooks);
-      state.model = buildRuntimeModel(state.config, liveEntriesMap);
-      state.view = 'picker';
-      notify('已保存条目修改', 'success');
-      renderAll();
-    } catch (err) {
-      d.busy = false;
-      d.error = '保存失败：' + (err?.message || String(err));
-      renderBody(false);
-    }
-  }
-
-  function handleExportConfig() {
-    const text = JSON.stringify(state.config, null, 2);
-    const copyFn = getApi('builtin')?.value?.copyText;
-    if (typeof copyFn === 'function') {
-      try { copyFn(text); notify('配置 JSON 已复制到剪贴板', 'success'); return; } catch (_) {}
-    }
-    if (Env.pwin.navigator?.clipboard?.writeText) {
-      Env.pwin.navigator.clipboard.writeText(text).then(
-        () => notify('配置 JSON 已复制到剪贴板', 'success'),
-        () => downloadConfigFile(text)
-      );
-      return;
-    }
-    downloadConfigFile(text);
-  }
-
-  function downloadConfigFile(text) {
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = Env.pdoc.createElement('a');
-    a.href = url;
-    a.download = 'user-persona-picker-config.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    notify('已导出配置文件', 'success');
-  }
-
-  function applyImportedConfigText(text) {
-    try {
-      const parsed = JSON.parse(String(text || ''));
-      state.config = normalizeConfig(parsed);
-      saveStoredConfig(state.config);
-      state.importDraft = { open: false, text: '', error: '' };
-      state.view = 'picker';
-      notify('配置导入成功', 'success');
-      void refreshState();
-    } catch (err) {
-      state.importDraft.error = 'JSON 格式无效：' + (err?.message || String(err));
-      renderBody(false);
-    }
-  }
-
-  function pickImportFile() {
-    const input = Env.pdoc.createElement('input');
-    input.type = 'file';
-    input.accept = '.json,application/json';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => applyImportedConfigText(String(reader.result || ''));
-      reader.readAsText(file, 'utf8');
-    };
-    input.click();
   }
 
   // =========================
-  // Shadow DOM Event Handling
+  // Events
   // =========================
 
-  listen(elBackdrop, 'click', ev => {
-    if (ev.target === elBackdrop) closeModal();
-  });
+  listen(elBackdrop, 'click', ev => { if (ev.target === elBackdrop) closeModal(); });
 
   listen(shadow, 'input', ev => {
     const el = ev.target;
-    if (el?.dataset?.searchInput) {
-      state.searchQuery = el.value;
-      renderBody(true);
-    } else if (el?.dataset?.newField) {
-      state.newDraft[el.dataset.newField] = el.value;
-      if (state.newDraft.error) { state.newDraft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
-    } else if (el?.dataset?.editField) {
-      state.editEntryDraft[el.dataset.editField] = el.value;
-      if (state.editEntryDraft.error) { state.editEntryDraft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
-    } else if (el?.dataset?.pfField) {
-      state.presetForm[el.dataset.pfField] = el.value;
-      if (el.dataset.pfField === 'mode') renderBody(false);
-    } else if (el?.dataset?.importField) {
-      state.importDraft[el.dataset.importField] = el.value;
-    } else if (el?.dataset?.exField) {
-      state.exDraft[el.dataset.exField] = el.value;
-    }
-  });
-
-  listen(shadow, 'change', ev => {
-    const el = ev.target;
-    if (el?.dataset?.pfField) {
-      state.presetForm[el.dataset.pfField] = el.value;
-      if (el.dataset.pfField === 'mode') renderBody(false);
-    } else if (el?.dataset?.newField) {
-      state.newDraft[el.dataset.newField] = el.value;
-    } else if (el?.dataset?.editField) {
-      state.editEntryDraft[el.dataset.editField] = el.value;
+    if (el?.dataset?.wbSearch) {
+      state.wbSearch = el.value;
+      renderBody('[data-wb-search]');
+    } else if (el?.dataset?.presetInput) {
+      state.presetNameInput = el.value;
+    } else if (el?.dataset?.importText) {
+      state.importText = el.value;
+    } else if (el?.dataset?.draftField) {
+      state.draft[el.dataset.draftField] = el.value;
+      if (state.draft.error) { state.draft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
     }
   });
 
   listen(shadow, 'click', ev => {
-    const target = ev.target.closest('button');
-    if (!target) return;
+    const btn = ev.target.closest('button');
+    if (!btn) return;
 
-    const act = target.dataset.act;
+    const act = btn.dataset.act;
     if (act === 'close') { closeModal(); return; }
     if (act === 'save') { void handleSave(); return; }
     if (act === 'clear') { state.selected = new Set(); renderAll(); return; }
-    if (act === 'clear-stale') { state.stale = []; renderAlerts(); return; }
-    if (act === 'clear-search') { state.searchQuery = ''; renderBody(true); return; }
-    if (act === 'back-picker') { state.view = 'picker'; renderAll(); return; }
+    if (act === 'close-sub') { state.subView = ''; renderAll(); return; }
+    if (act === 'toggle-edit') { state.editPickMode = !state.editPickMode; renderBody(null); return; }
+    if (act === 'show-all-chars') { state.showAllChars = true; renderBody(null); return; }
 
-    if (act === 'toggle-edit-mode') { state.view = 'picker'; state.editMode = !state.editMode; renderAll(); return; }
-    if (act === 'toggle-preview') { state.view = state.view === 'preview' ? 'picker' : 'preview'; renderAll(); return; }
-    if (act === 'toggle-settings') { state.view = state.view === 'settings' ? 'picker' : 'settings'; renderAll(); return; }
-    if (act === 'open-presets') { state.view = 'presets'; renderAll(); return; }
-    if (act === 'toggle-layout') {
-      const b = currentBookCfg();
-      if (b) {
-        b.layout = b.layout === 'list' ? 'chips' : 'list';
-        saveStoredConfig(state.config);
-        renderBody(false);
-      }
-      return;
-    }
-
-    if (act === 'create-starter-persona' || act === 'create-starter-blank') {
-      void createStarterWorldbook(act === 'create-starter-persona').then(bookName => {
-        notify('已创建世界书：' + bookName, 'success');
-        return handleQuickAddBook(bookName);
-      }).catch(err => notify('创建失败：' + (err?.message || String(err)), 'error'));
-      return;
-    }
-
-    if (act === 'open-save-preset') {
-      state.presetForm = {
-        open: !state.presetForm.open,
-        label: '',
-        mode: 'replace_all',
-        targetBook: currentBookCfg()?.name || '',
-        error: '',
-      };
-      renderBody(false);
-      return;
-    }
-    if (act === 'cancel-save-preset') { state.presetForm.open = false; renderBody(false); return; }
-    if (act === 'confirm-save-preset') {
-      const label = String(state.presetForm.label || '').trim();
-      if (!label) { state.presetForm.error = '请填写方案名称'; renderBody(false); return; }
-      const payload = serializeSelection(state.selected, state.charName, state.config, state.model);
-      const items = state.presetForm.mode === 'replace_book' && state.presetForm.targetBook
-        ? payload.wi.filter(it => it.book === state.presetForm.targetBook)
-        : payload.wi;
-      state.config.presets.push({
-        id: 'p_' + Date.now().toString(36),
-        label,
-        mode: state.presetForm.mode,
-        targetBook: state.presetForm.mode === 'replace_book' ? state.presetForm.targetBook : '',
-        items: items.map(({ book, title }) => ({ book, title })),
+    if (act === 'preview') {
+      void ensureSelectedWbsLoaded().then(() => {
+        state.subView = state.subView === 'preview' ? '' : 'preview';
+        renderAll();
       });
-      saveStoredConfig(state.config);
-      state.presetForm.open = false;
-      notify('已保存方案：' + label, 'success');
+      return;
+    }
+
+    if (act === 'open-new-lib') {
+      state.draft = { book: LIB_BOOK, oldTitle: '', title: '', content: '', isCustom: true, error: '', busy: false };
+      state.subView = 'new';
+      renderAll();
+      return;
+    }
+    if (act === 'open-new-wb') {
+      if (!state.activeWb) return;
+      state.draft = { book: state.activeWb, oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false };
+      state.subView = 'new';
+      renderAll();
+      return;
+    }
+    if (act === 'save-draft') { void handleSaveDraft(); return; }
+    if (act === 'delete-custom') {
+      const t = state.draft.oldTitle;
+      state.store.customEntries = state.store.customEntries.filter(e => e.title !== t);
+      state.selected.delete(itemKey(LIB_BOOK, t));
+      saveStore(state.store);
+      state.subView = '';
       renderAll();
       return;
     }
 
-    if (act === 'toggle-all-chars') { state.showAllChars = !state.showAllChars; renderBody(false); return; }
-    if (act === 'toggle-new') { state.showNewForm = !state.showNewForm; state.newDraft.error = ''; renderBody(false); return; }
-    if (act === 'cancel-new') { state.showNewForm = false; state.newDraft.error = ''; renderBody(false); return; }
-    if (act === 'submit-new') { void handleSubmitNewEntry(); return; }
-    if (act === 'save-edit-entry') { void handleSaveEditEntry(); return; }
-
-    if (act === 'ensure-opening') {
-      const name = state.config.openingBook || DEFAULT_OPENING_BOOK;
-      void ensureOpeningWorldbook(name).then(() => {
-        notify('已启用总控世界书：' + name, 'success');
-        void refreshState();
-      }).catch(err => notify('操作失败：' + (err?.message || String(err)), 'error'));
-      return;
-    }
-
-    if (act === 'export-config') { handleExportConfig(); return; }
-    if (act === 'toggle-import') { state.importDraft.open = !state.importDraft.open; state.importDraft.error = ''; renderBody(false); return; }
-    if (act === 'pick-import-file') { pickImportFile(); return; }
-    if (act === 'confirm-import') { applyImportedConfigText(state.importDraft.text); return; }
-
-    if (act === 'add-ex') {
-      const label = String(state.exDraft.label || '').trim();
-      const items = String(state.exDraft.itemsText || '').split(/[,，/\n]+/).map(s => s.trim()).filter(Boolean);
-      if (!label || items.length < 2) { state.exDraft.error = '请填写组名与至少 2 个条目标题'; renderBody(false); return; }
-      state.config.exclusive.push({ id: 'ex_' + Date.now().toString(36), label, items });
-      saveStoredConfig(state.config);
-      state.exDraft = { label: '', itemsText: '', error: '' };
-      renderBody(false);
-      return;
-    }
-
-    if (target.dataset.quickAdd) {
-      void handleQuickAddBook(target.dataset.quickAdd);
-      return;
-    }
-
-    if (target.dataset.bookCycleMode !== undefined) {
-      const idx = Number(target.dataset.bookCycleMode);
-      const b = state.config.books[idx];
-      if (b) {
-        const order = ['flat', 'prefix', 'if'];
-        b.mode = order[(order.indexOf(b.mode) + 1) % order.length];
-        saveStoredConfig(state.config);
-        void refreshState();
-      }
-      return;
-    }
-
-    if (target.dataset.bookRemove !== undefined) {
-      const idx = Number(target.dataset.bookRemove);
-      if (Number.isInteger(idx) && idx >= 0) {
-        state.config.books.splice(idx, 1);
-        saveStoredConfig(state.config);
-        void refreshState();
-      }
-      return;
-    }
-
-    if (target.dataset.exDel !== undefined) {
-      const idx = Number(target.dataset.exDel);
-      if (Number.isInteger(idx) && idx >= 0) {
-        state.config.exclusive.splice(idx, 1);
-        saveStoredConfig(state.config);
-        renderBody(false);
-      }
-      return;
-    }
-
-    if (target.dataset.presetDef) {
-      const id = target.dataset.presetDef;
-      state.config.defaultPresetId = state.config.defaultPresetId === id ? '' : id;
-      saveStoredConfig(state.config);
+    if (act === 'create-preset') {
+      const label = String(state.presetNameInput || '').trim();
+      if (!label) { notify('先输个方案名', 'warning'); return; }
+      const items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
+      state.store.presets.unshift({ id: 'p_' + Date.now().toString(36), label, items });
+      state.presetNameInput = '';
+      saveStore(state.store);
+      notify('已存为方案：' + label, 'success');
       renderAll();
       return;
     }
-    if (target.dataset.presetOverwrite) {
-      const p = state.config.presets.find(x => x.id === target.dataset.presetOverwrite);
-      if (p) {
-        const payload = serializeSelection(state.selected, state.charName, state.config, state.model);
-        const items = p.mode === 'replace_book' && p.targetBook
-          ? payload.wi.filter(it => it.book === p.targetBook)
-          : payload.wi;
-        p.items = items.map(({ book, title }) => ({ book, title }));
-        saveStoredConfig(state.config);
-        notify('已更新方案：' + p.label, 'success');
+
+    if (act === 'export-store') {
+      const txt = JSON.stringify({ presets: state.store.presets, customEntries: state.store.customEntries, defaultPresetId: state.store.defaultPresetId }, null, 2);
+      const copyFn = getApi('builtin')?.value?.copyText;
+      if (typeof copyFn === 'function') { try { copyFn(txt); notify('已复制方案 JSON', 'success'); return; } catch (_) {} }
+      Env.pwin.navigator?.clipboard?.writeText?.(txt).then(() => notify('已复制方案 JSON', 'success'));
+      return;
+    }
+    if (act === 'toggle-import') { state.importOpen = !state.importOpen; renderBody(null); return; }
+    if (act === 'confirm-import') {
+      try {
+        const data = JSON.parse(state.importText || '');
+        if (Array.isArray(data.presets)) state.store.presets = normalizeStore({ presets: data.presets }).presets;
+        if (Array.isArray(data.customEntries)) state.store.customEntries = normalizeStore({ customEntries: data.customEntries }).customEntries;
+        if (typeof data.defaultPresetId === 'string') state.store.defaultPresetId = data.defaultPresetId;
+        saveStore(state.store);
+        state.importOpen = false;
+        state.importText = '';
+        notify('导入成功', 'success');
         renderAll();
+      } catch (_) {
+        notify('JSON 格式不对', 'error');
       }
       return;
     }
-    if (target.dataset.presetDel) {
-      const id = target.dataset.presetDel;
-      state.config.presets = state.config.presets.filter(x => x.id !== id);
-      if (state.config.defaultPresetId === id) state.config.defaultPresetId = '';
-      saveStoredConfig(state.config);
-      renderAll();
+
+    if (btn.dataset.mode) {
+      state.store.targetMode = btn.dataset.mode === 'chat' ? 'chat' : 'persona';
+      saveStore(state.store);
+      void refreshState();
       return;
     }
 
-    if (target.dataset.bookTab) {
-      state.activeBook = target.dataset.bookTab;
-      state.searchQuery = '';
-      state.showNewForm = false;
+    if (btn.dataset.tab) {
+      state.tab = btn.dataset.tab;
+      state.subView = '';
+      state.editPickMode = false;
       elBody.scrollTop = 0;
-      renderTabs();
-      renderBody(false);
-      return;
-    }
-
-    if (target.dataset.preset) {
-      const preset = (state.config.presets || []).find(p => p.id === target.dataset.preset);
-      if (preset) {
-        state.selected = applyPreset(state.selected, preset, state.config, state.model?.liveSets);
+      if (state.tab === 'wb' && state.hostBooks.length) {
+        const targetBook = state.activeWb || state.store.recentBooks.find(b => state.hostBooks.includes(b)) || state.hostBooks[0];
+        state.activeWb = targetBook;
+        void ensureWbLoaded(targetBook).then(() => renderAll());
+      } else {
         renderAll();
       }
       return;
     }
 
-    if (target.dataset.staleIdx !== undefined) {
-      const idx = Number(target.dataset.staleIdx);
-      if (Number.isInteger(idx) && idx >= 0 && idx < state.stale.length) {
-        state.stale.splice(idx, 1);
-        renderAlerts();
+    if (btn.dataset.pickWb) {
+      const name = btn.dataset.pickWb;
+      state.activeWb = name;
+      state.wbSearch = '';
+      state.showAllChars = false;
+      state.store.recentBooks = [name, ...state.store.recentBooks.filter(x => x !== name)].slice(0, 12);
+      saveStore(state.store);
+      renderBody(null);
+      void ensureWbLoaded(name).then(() => renderAll());
+      return;
+    }
+
+    if (btn.dataset.presetApply) {
+      const p = state.store.presets.find(x => x.id === btn.dataset.presetApply);
+      if (p) {
+        state.selected = new Set(p.items.map(it => itemKey(it.book, it.title)));
+        notify('已套用「' + p.label + '」，点底部保存生效', 'info');
+        renderAll();
       }
       return;
     }
-
-    if (target.dataset.expand) {
-      const gid = target.dataset.expand;
-      if (state.expandedGroups.has(gid)) state.expandedGroups.delete(gid);
-      else state.expandedGroups.add(gid);
-      renderBody(false);
+    if (btn.dataset.presetOverwrite) {
+      const p = state.store.presets.find(x => x.id === btn.dataset.presetOverwrite);
+      if (p) {
+        p.items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
+        saveStore(state.store);
+        notify('已更新「' + p.label + '」', 'success');
+        renderAll();
+      }
+      return;
+    }
+    if (btn.dataset.presetDel) {
+      const id = btn.dataset.presetDel;
+      state.store.presets = state.store.presets.filter(x => x.id !== id);
+      if (state.store.defaultPresetId === id) state.store.defaultPresetId = '';
+      saveStore(state.store);
+      renderAll();
+      return;
+    }
+    if (btn.dataset.presetDef) {
+      const id = btn.dataset.presetDef;
+      state.store.defaultPresetId = state.store.defaultPresetId === id ? '' : id;
+      saveStore(state.store);
+      renderAll();
       return;
     }
 
-    if (target.dataset.editBook && target.dataset.editTitle) {
-      openEditEntry(target.dataset.editBook, target.dataset.editTitle);
-      return;
-    }
-
-    if (target.dataset.book && target.dataset.title) {
-      const book = target.dataset.book;
-      const title = target.dataset.title;
-      if (state.editMode) {
-        openEditEntry(book, title);
+    if (btn.dataset.book && btn.dataset.title) {
+      const book = btn.dataset.book;
+      const title = btn.dataset.title;
+      if (state.editPickMode) {
+        if (book === LIB_BOOK) {
+          const entry = findLibraryEntry(state.store, title);
+          if (entry) {
+            state.draft = { book: LIB_BOOK, oldTitle: title, title: entry.title, content: entry.content, isCustom: entry.isCustom, error: '', busy: false };
+            state.subView = 'edit';
+            renderAll();
+          }
+        } else {
+          const content = buildWbContentMap()[book]?.[title] || '';
+          state.draft = { book, oldTitle: title, title, content, isCustom: false, error: '', busy: false };
+          state.subView = 'edit';
+          renderAll();
+        }
         return;
       }
-      state.selected = toggleItem(state.selected, book, title, state.config);
+      const k = itemKey(book, title);
+      if (state.selected.has(k)) state.selected.delete(k);
+      else state.selected.add(k);
       renderTabs();
-      renderBody(false);
+      renderBody(null);
       renderFooter();
     }
   });
@@ -2840,8 +1674,7 @@
   listen(Env.pdoc, 'keydown', ev => {
     if (!state.open || ev.key !== 'Escape') return;
     ev.stopPropagation();
-    if (state.view !== 'picker') { state.view = 'picker'; renderAll(); }
-    else if (state.showNewForm || state.presetForm.open) { state.showNewForm = false; state.presetForm.open = false; renderBody(false); }
+    if (state.subView) { state.subView = ''; renderAll(); }
     else closeModal();
   });
 
@@ -2854,25 +1687,20 @@
   menuEntry.className = 'list-group-item flex-container flexGap5 interactable';
   menuEntry.setAttribute('role', 'button');
   menuEntry.tabIndex = 0;
-  menuEntry.setAttribute('aria-label', '打开 User 人设点选');
+  menuEntry.setAttribute('aria-label', '打开 User 人设');
   menuEntry.setAttribute('aria-controls', APP_ID);
   menuEntry.setAttribute('aria-expanded', 'false');
-  menuEntry.title = 'User 人设点选';
+  menuEntry.title = 'User 人设';
   menuEntry.innerHTML =
     '<span class="extensionsMenuExtensionButton" aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">' +
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>' +
-        '<circle cx="12" cy="7" r="4"/>' +
+        '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' +
       '</svg>' +
-    '</span>' +
-    '<span>User 人设点选</span>';
+    '</span><span>User 人设</span>';
 
   function syncMenuExpanded() { menuEntry.setAttribute('aria-expanded', String(state.open)); }
-
   listen(menuEntry, 'click', ev => { ev.preventDefault(); if (state.open) closeModal(); else openModal(); });
-  listen(menuEntry, 'keydown', ev => {
-    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (state.open) closeModal(); else openModal(); }
-  });
+  listen(menuEntry, 'keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (state.open) closeModal(); else openModal(); } });
 
   function mountExtensionMenu() {
     if (dead) return false;
@@ -2900,15 +1728,15 @@
 
   if (eventOnFn && getBtnEvtFn) {
     try {
-      const btnSub = eventOnFn(getBtnEvtFn(BUTTON_NAME), () => { if (state.open) closeModal(); else openModal(); });
-      if (btnSub && typeof btnSub.stop === 'function') cleanup.push(() => btnSub.stop());
+      const sub = eventOnFn(getBtnEvtFn(BUTTON_NAME), () => { if (state.open) closeModal(); else openModal(); });
+      if (sub?.stop) cleanup.push(() => sub.stop());
     } catch (_) {}
   }
 
   if (eventOnFn && tavernEvents?.CHAT_CHANGED) {
     try {
-      const chatSub = eventOnFn(tavernEvents.CHAT_CHANGED, () => { if (state.open) void refreshState(); });
-      if (chatSub && typeof chatSub.stop === 'function') cleanup.push(() => chatSub.stop());
+      const sub = eventOnFn(tavernEvents.CHAT_CHANGED, () => { if (state.open) void refreshState(); });
+      if (sub?.stop) cleanup.push(() => sub.stop());
     } catch (_) {}
   }
 
