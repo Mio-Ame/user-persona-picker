@@ -41,6 +41,8 @@ import {
   groupWorldbooksByOrganizer,
   inferThemeFromTextColor,
   inspectTagHygiene,
+  markStoreOnWorldbookDeleted,
+  migrateStoreOnWorldbookRename,
   normalizeNativePreset,
   normalizeText,
   parseImportJson,
@@ -119,7 +121,7 @@ function applyThemeToElement(el, mode) {
   });
   if (resolvedMode === 'host') {
     const hv = readHostThemeVars();
-    el.dataset.theme = hv.isLight ? 'glass-light' : 'glass-dark';
+    el.dataset.theme = hv.isLight ? 'paper' : 'glass-dark';
     if (hv.blurBg) el.style.setProperty('--bg', hv.blurBg);
     if (hv.bodyColor) el.style.setProperty('--text', hv.bodyColor);
     if (hv.borderCol) {
@@ -1027,77 +1029,107 @@ const STYLE_CSS = `
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-/* Theme Palettes: paper (default warm paper & ink) | glass-light | glass-dark */
+/* Unified Theme Palettes: paper (素纸) | ink (青岚) | warm (暖砂) | sakura (淡樱) | glass-dark (深色夜间) */
 .upp-backdrop,
 .upp-fab-root {
-  --bg: #fbfbfb;
-  --surface: #f4f4f4;
-  --surface-strong: #ffffff;
-  --surface-hover: #eaeae6;
-  --border: #e2e2de;
-  --border-strong: #cfcfca;
+  --bg: #f6f6f3;
+  --surface: #eeeeea;
+  --surface-strong: #fcfcfb;
+  --surface-hover: #e7e7e1;
+  --border: #e2e2dc;
+  --border-strong: #c8c8c0;
   --text: #262626;
-  --muted: #777777;
-  --accent: #56819a;
-  --accent-soft: rgba(86, 129, 154, 0.13);
-  --accent-text: #ffffff;
-  --ok: #4f8689;
-  --ok-soft: rgba(79, 134, 137, 0.14);
+  --muted: #70706c;
+  --accent: #2c2c2e;
+  --accent-soft: rgba(44, 44, 46, 0.09);
+  --accent-text: #fcfcfb;
+  --ok: #3f7a6d;
+  --ok-soft: rgba(63, 122, 109, 0.13);
   --warn: #a66e38;
   --warn-soft: rgba(166, 110, 56, 0.13);
   --danger: #a53c3c;
   --danger-soft: rgba(165, 60, 60, 0.11);
-  --switch-off: #d4d4d0;
-  --shadow: 0 18px 46px rgba(38, 38, 38, 0.14);
+  --switch-off: #d2d2cc;
+  --shadow: 0 18px 46px rgba(24, 24, 24, 0.14);
   --modal-blur: 0px;
 }
 
-.upp-backdrop[data-theme="glass-light"],
-.upp-fab-root[data-theme="glass-light"] {
-  --bg: rgba(247, 249, 253, 0.94);
-  --surface: rgba(255, 255, 255, 0.78);
-  --surface-strong: rgba(255, 255, 255, 0.96);
-  --surface-hover: rgba(58, 123, 213, 0.08);
-  --border: rgba(25, 36, 56, 0.11);
-  --border-strong: rgba(25, 36, 56, 0.18);
-  --text: #1c2434;
-  --muted: #647087;
-  --accent: #3a7bd5;
-  --accent-soft: rgba(58, 123, 213, 0.12);
+.upp-backdrop[data-theme="ink"],
+.upp-fab-root[data-theme="ink"] {
+  --bg: #f1f4f6;
+  --surface: #e7ecef;
+  --surface-strong: #fbfcfd;
+  --surface-hover: #dce6ec;
+  --border: #d4dde3;
+  --border-strong: #aebec9;
+  --text: #1f2b33;
+  --muted: #5d707d;
+  --accent: #2c7a7b;
+  --accent-soft: rgba(44, 122, 123, 0.12);
   --accent-text: #ffffff;
-  --ok: #1d9a6c;
-  --ok-soft: rgba(29, 154, 108, 0.13);
-  --warn: #c77716;
-  --warn-soft: rgba(199, 119, 22, 0.13);
-  --danger: #d64545;
-  --danger-soft: rgba(214, 69, 69, 0.11);
-  --switch-off: rgba(28, 36, 52, 0.18);
-  --shadow: 0 22px 60px rgba(18, 28, 48, 0.18);
-  --modal-blur: 22px;
+  --ok: #2c7a7b;
+  --ok-soft: rgba(44, 122, 123, 0.13);
+  --switch-off: #c3d1da;
+}
+
+.upp-backdrop[data-theme="warm"],
+.upp-fab-root[data-theme="warm"] {
+  --bg: #f6f2ea;
+  --surface: #ede7dc;
+  --surface-strong: #fdfbf7;
+  --surface-hover: #e6dfd2;
+  --border: #dfd6c8;
+  --border-strong: #c5b8a4;
+  --text: #2f2820;
+  --muted: #7b6f60;
+  --accent: #8c6239;
+  --accent-soft: rgba(140, 98, 57, 0.12);
+  --accent-text: #ffffff;
+  --ok: #4d7c66;
+  --ok-soft: rgba(77, 124, 102, 0.13);
+  --switch-off: #d4cab9;
+}
+
+.upp-backdrop[data-theme="sakura"],
+.upp-fab-root[data-theme="sakura"] {
+  --bg: #faf3f5;
+  --surface: #f3e8ec;
+  --surface-strong: #fffcfd;
+  --surface-hover: #ecdde3;
+  --border: #e6d5dc;
+  --border-strong: #cfb4bf;
+  --text: #34242b;
+  --muted: #7f6670;
+  --accent: #b85d7a;
+  --accent-soft: rgba(184, 93, 122, 0.12);
+  --accent-text: #ffffff;
+  --ok: #4c8376;
+  --ok-soft: rgba(76, 131, 118, 0.13);
+  --switch-off: #dec7d0;
 }
 
 .upp-backdrop[data-theme="glass-dark"],
 .upp-fab-root[data-theme="glass-dark"] {
-  --bg: rgba(24, 28, 37, 0.96);
-  --surface: rgba(36, 42, 56, 0.82);
-  --surface-strong: rgba(42, 49, 64, 0.97);
-  --surface-hover: rgba(104, 160, 245, 0.13);
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --text: #edf1f8;
-  --muted: #98a3b8;
-  --accent: #68a0f5;
-  --accent-soft: rgba(104, 160, 245, 0.16);
-  --accent-text: #0f1624;
-  --ok: #42c994;
-  --ok-soft: rgba(66, 201, 148, 0.16);
-  --warn: #f0ab4c;
-  --warn-soft: rgba(240, 171, 76, 0.16);
-  --danger: #f06a6a;
-  --danger-soft: rgba(240, 106, 106, 0.16);
+  --bg: rgba(25, 26, 29, 0.96);
+  --surface: rgba(35, 36, 41, 0.9);
+  --surface-strong: rgba(44, 46, 52, 0.98);
+  --surface-hover: rgba(220, 220, 216, 0.12);
+  --border: #313238;
+  --border-strong: #484a52;
+  --text: #ecece8;
+  --muted: #9a9b9f;
+  --accent: #dcdcd8;
+  --accent-soft: rgba(220, 220, 216, 0.14);
+  --accent-text: #18191c;
+  --ok: #56b49c;
+  --ok-soft: rgba(86, 180, 156, 0.16);
+  --warn: #e5a95c;
+  --warn-soft: rgba(229, 169, 92, 0.16);
+  --danger: #e06c6c;
+  --danger-soft: rgba(224, 108, 108, 0.16);
   --switch-off: rgba(255, 255, 255, 0.2);
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  --modal-blur: 22px;
+  --modal-blur: 18px;
 }
 
 .upp-backdrop {
@@ -1614,8 +1646,10 @@ function initExtension() {
       <div class="upp-head-actions">
         <select class="upp-select" id="upp-theme-select" title="切换面板配色" style="max-width:96px;padding:0 8px;">
           <option value="paper">素纸</option>
+          <option value="ink">青岚</option>
+          <option value="warm">暖砂</option>
+          <option value="sakura">淡樱</option>
           <option value="host">跟随酒馆</option>
-          <option value="glass-light">浅色玻璃</option>
           <option value="glass-dark">深色夜间</option>
         </select>
         <button class="upp-btn" id="upp-fab-vis-btn" title="显示或隐藏悬浮球">悬浮球</button>
@@ -1803,6 +1837,9 @@ function initExtension() {
       if (s.scope.worldbooks && s.worldbooks) {
         const bkCount = Object.keys(s.worldbooks.entries || {}).length;
         scopeBadges.push(`<span class="upp-badge">世界书 ${bkCount} 本</span>`);
+        if (Array.isArray(s.worldbooks.deletedBooks) && s.worldbooks.deletedBooks.length) {
+          scopeBadges.push(`<span class="upp-badge warn">含已删书 ${s.worldbooks.deletedBooks.length}</span>`);
+        }
       }
       if (s.scope.preset && s.preset) {
         scopeBadges.push(`<span class="upp-badge">预设: ${escapeHtml(s.preset.name || '当前')}</span>`);
@@ -1918,6 +1955,7 @@ function initExtension() {
     const isPinned = activeBook && state.store.settings.pinnedWorldbooks.includes(activeBook);
     const isGlobal = activeBook && state.globalWorldbooks.includes(activeBook);
 
+    const hasOrg = !!getOrganizerSettings();
     elToolbar.innerHTML = `
       <div class="upp-row">
         <button class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="选择或搜索世界书">
@@ -1926,6 +1964,7 @@ function initExtension() {
         </button>
         <button class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
         <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="全局绑定开关" ${activeBook ? '' : 'disabled'}>全局</button>
+        ${hasOrg ? `<button class="upp-btn" id="upp-open-wbo-btn" title="直达世界书整理面板">整理分组</button>` : ''}
         <div class="upp-spacer"></div>
         <button class="upp-btn" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
         <button class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
@@ -2223,8 +2262,11 @@ function initExtension() {
         bodyEl.innerHTML = `<div class="upp-empty">本快照仅记录全局世界书绑定，未录具体条目开关</div>`;
         return;
       }
+      const liveBookSet = new Set(Host.listWorldbooks());
+      const deletedSet = new Set(Array.isArray(s.worldbooks.deletedBooks) ? s.worldbooks.deletedBooks : []);
       const blocks = bookNames.map(bk => {
         const map = entriesMap[bk] || {};
+        const isMissingBook = deletedSet.has(bk) || !liveBookSet.has(bk);
         const liveList = d.wbDetails[bk] || [];
         const byUid = new Map(liveList.map(e => [String(e.uid), e]));
         const allUids = Object.keys(map);
@@ -2243,6 +2285,7 @@ function initExtension() {
               <button type="button" class="upp-group-toggle-btn" data-sv-fold="wb::${escapeHtml(bk)}">
                 <span class="upp-group-chev">${ICONS.chevron}</span>
                 <span class="upp-group-name">${escapeHtml(bk)}</span>
+                ${isMissingBook ? `<span class="upp-badge warn">已从酒馆删除</span>` : ''}
                 <span class="upp-badge accent">${onCount}/${allUids.length} 开启</span>
               </button>
             </div>
@@ -2371,6 +2414,7 @@ function initExtension() {
               <span class="upp-group-chev">${ICONS.chevron}</span>
               ${dotHtml}
               <span class="upp-group-name">${escapeHtml(sec.name)}</span>
+              ${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}
               <span class="upp-badge">${sec.items.length}</span>
             </button>
           </div>
@@ -2452,11 +2496,15 @@ function initExtension() {
     }
 
     if (d.type === 'bookPicker') {
+      const hasOrg = !!getOrganizerSettings();
       elDrawerMask.innerHTML = `
         <div class="upp-drawer">
           <div class="upp-drawer-head">
             <span>选择世界书</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <div class="upp-row-nowrap">
+              ${hasOrg ? `<button class="upp-btn" id="upp-open-wbo-in-drawer">整理分组</button>` : ''}
+              <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            </div>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-input-wrap" style="width:100%;">
@@ -2563,7 +2611,7 @@ function initExtension() {
                     const dotHtml = sec.color ? `<span class="upp-wb-dot" style="background:${escapeHtml(sec.color)};"></span>` : '';
                     return `
                       <div class="upp-wb-sec-head">
-                        <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span></span>
+                        <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span>${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}</span>
                         <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
                       </div>
                       ${sec.items.map(it => `
@@ -2912,6 +2960,11 @@ function initExtension() {
     }
 
     if (target.closest('#upp-book-picker-btn')) { state.drawer = { type: 'bookPicker', query: '', foldMap: {} }; renderDrawer(); return; }
+    if (target.closest('#upp-open-wbo-btn')) {
+      closeModal();
+      window.dispatchEvent(new CustomEvent('wbo:open-panel'));
+      return;
+    }
     if (target.closest('#upp-pin-book-btn') && state.activeBook) {
       const list = state.store.settings.pinnedWorldbooks;
       const idx = list.indexOf(state.activeBook);
@@ -3466,6 +3519,12 @@ function initExtension() {
       return;
     }
 
+    if (t.closest('#upp-open-wbo-in-drawer')) {
+      closeModal();
+      window.dispatchEvent(new CustomEvent('wbo:open-panel'));
+      return;
+    }
+
     const bpFold = t.closest('[data-bp-fold]');
     if (bpFold && d.type === 'bookPicker') {
       const sid = bpFold.getAttribute('data-bp-fold');
@@ -3964,6 +4023,52 @@ function initExtension() {
 
   eventSource.on(event_types.CHAT_CHANGED, scheduleAutoApply);
 
+  // Decoupled CustomEvent bridge with worldbook-organizer (rename / delete / live group refresh)
+  window.addEventListener('wbo:worldbook-renamed', ev => {
+    const { oldName, newName } = ev?.detail || {};
+    if (!oldName || !newName || oldName === newName) return;
+    state.store = loadStore();
+    const res = migrateStoreOnWorldbookRename(state.store, oldName, newName);
+    if (res.changed) persistStore(state.store);
+    if (state.activeBook === oldName) state.activeBook = newName;
+    if (state.bookEntriesCache[oldName]) {
+      state.bookEntriesCache[newName] = state.bookEntriesCache[oldName];
+      delete state.bookEntriesCache[oldName];
+    }
+    if (res.affectedSnapshots > 0) {
+      toast(`已同步更名世界书「${oldName} → ${newName}」（更新 ${res.affectedSnapshots} 个快照）`, 'info');
+    }
+    if (state.open) void refreshAll(false);
+  });
+
+  window.addEventListener('wbo:worldbook-deleted', ev => {
+    const names = Array.isArray(ev?.detail?.names) ? ev.detail.names : [];
+    if (!names.length) return;
+    state.store = loadStore();
+    const res = markStoreOnWorldbookDeleted(state.store, names);
+    if (res.changed) persistStore(state.store);
+    names.forEach(n => { delete state.bookEntriesCache[n]; });
+    if (names.includes(state.activeBook)) state.activeBook = '';
+    if (res.affectedSnapshots > 0) {
+      toast(`检测到世界书删除，已在 ${res.affectedSnapshots} 个快照中标记`, 'warning');
+    }
+    if (state.open) void refreshAll(false);
+  });
+
+  window.addEventListener('wbo:settings-updated', () => {
+    if (!state.open) return;
+    if (state.drawer?.type === 'bookPicker') {
+      renderBookPickerList(state.drawer);
+    } else if (state.drawer?.type === 'saveSnapshot') {
+      state.drawer.name = shadow.getElementById('upp-ss-name')?.value ?? state.drawer.name;
+      state.drawer.group = shadow.getElementById('upp-ss-group')?.value ?? state.drawer.group;
+      state.drawer.note = shadow.getElementById('upp-ss-note')?.value ?? state.drawer.note;
+      renderDrawer();
+    } else if (state.tab === 'worldbook') {
+      renderWorldbookToolbar();
+    }
+  });
+
   // Mount into #extensionsMenu (Magic Wand menu)
   function mountWandMenu() {
     const menu = document.getElementById('extensionsMenu');
@@ -4018,8 +4123,10 @@ function initExtension() {
           <span>面板配色</span>
           <select id="upp-ext-theme-sel" class="text_pole" style="width:auto;min-width:110px;">
             <option value="paper" ${state.store.settings.themeMode === 'paper' ? 'selected' : ''}>素纸</option>
+            <option value="ink" ${state.store.settings.themeMode === 'ink' ? 'selected' : ''}>青岚</option>
+            <option value="warm" ${state.store.settings.themeMode === 'warm' ? 'selected' : ''}>暖砂</option>
+            <option value="sakura" ${state.store.settings.themeMode === 'sakura' ? 'selected' : ''}>淡樱</option>
             <option value="host" ${state.store.settings.themeMode === 'host' ? 'selected' : ''}>跟随酒馆</option>
-            <option value="glass-light" ${state.store.settings.themeMode === 'glass-light' ? 'selected' : ''}>浅色玻璃</option>
             <option value="glass-dark" ${state.store.settings.themeMode === 'glass-dark' ? 'selected' : ''}>深色夜间</option>
           </select>
         </div>

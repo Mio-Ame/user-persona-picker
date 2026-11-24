@@ -1,8 +1,8 @@
 // Pure core logic for User 组装与快照 (Native SillyTavern Extension v7.0.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.2.0';
-export const THEME_MODES = ['paper', 'host', 'glass-light', 'glass-dark'];
+export const APP_VERSION = '7.3.0';
+export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
   return (prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
@@ -114,6 +114,9 @@ export function sanitizeStore(raw) {
               : null,
             chat: typeof wbRaw.chat === 'string' ? wbRaw.chat : null,
             entries: entriesOut,
+            deletedBooks: Array.isArray(wbRaw.deletedBooks)
+              ? Array.from(new Set(wbRaw.deletedBooks.map(String).filter(Boolean)))
+              : [],
           };
         }
         const prRaw = s.preset && typeof s.preset === 'object' ? s.preset : null;
@@ -677,6 +680,10 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   const assignments = org?.assignments && typeof org.assignments === 'object' ? org.assignments : {};
   const aliases = org?.aliases && typeof org.aliases === 'object' ? org.aliases : {};
   const cachedCharBindings = org?.cachedCharBindings && typeof org.cachedCharBindings === 'object' ? org.cachedCharBindings : {};
+  const excludedIds = new Set([
+    ...(Array.isArray(org?.globalHiddenGroupIds) ? org.globalHiddenGroupIds : []),
+    ...(Array.isArray(org?.editorHiddenGroupIds) ? org.editorHiddenGroupIds : []),
+  ].map(String));
 
   // Collect character-bound worldbooks known to the organizer cache
   const knownCharBooks = new Set();
@@ -690,16 +697,20 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   const groupMap = new Map();
   orgGroups.forEach(g => {
     if (!g || !g.id) return;
-    groupMap.set(String(g.id), {
-      id: String(g.id),
+    const gid = String(g.id);
+    const isExcluded = excludedIds.has(gid);
+    groupMap.set(gid, {
+      id: gid,
       name: String(g.name || '未命名分组'),
       color: typeof g.color === 'string' ? g.color : '',
+      isExcluded,
+      defaultCollapsed: isExcluded,
       items: [],
     });
   });
 
   const pinnedBucket = { id: '__pinned__', name: '常用与当前启用', color: '', items: [] };
-  const charBucket = { id: '__char__', name: '角色书', color: '', items: [], defaultCollapsed: true };
+  const charBucket = { id: '__char__', name: '角色书', color: '', items: [], isExcluded: excludedIds.has('__char__'), defaultCollapsed: true };
   const ungroupedBucket = { id: '__ungrouped__', name: orgGroups.length ? '未分组' : '全部世界书', color: '', items: [] };
 
   const makeItem = name => {
@@ -746,12 +757,131 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
 
   const sections = [];
   if (pinnedBucket.items.length) { sortItems(pinnedBucket.items); sections.push(pinnedBucket); }
+  const activeGroups = [];
+  const excludedGroups = [];
   groupMap.forEach(g => {
-    if (g.items.length) { sortItems(g.items); sections.push(g); }
+    if (!g.items.length) return;
+    sortItems(g.items);
+    if (g.isExcluded) excludedGroups.push(g);
+    else activeGroups.push(g);
   });
+  sections.push(...activeGroups);
   if (ungroupedBucket.items.length) { sortItems(ungroupedBucket.items); sections.push(ungroupedBucket); }
+  sections.push(...excludedGroups);
   if (charBucket.items.length) { sortItems(charBucket.items); sections.push(charBucket); }
 
   return { sections, hasOrganizer: orgGroups.length > 0 || knownCharBooks.size > 0 };
+}
+
+// Keep snapshots, pins, and persona lorebooks synchronized when a worldbook is renamed
+export function migrateStoreOnWorldbookRename(store, oldName, newName) {
+  const from = String(oldName || '').trim();
+  const to = String(newName || '').trim();
+  if (!store || !from || !to || from === to) return { changed: false, affectedSnapshots: 0 };
+
+  let changed = false;
+  let affectedSnapshots = 0;
+
+  if (Array.isArray(store.settings?.pinnedWorldbooks)) {
+    const idx = store.settings.pinnedWorldbooks.indexOf(from);
+    if (idx >= 0) {
+      store.settings.pinnedWorldbooks[idx] = to;
+      store.settings.pinnedWorldbooks = Array.from(new Set(store.settings.pinnedWorldbooks));
+      changed = true;
+    }
+  }
+
+  Object.values(store.personaVersions || {}).forEach(list => {
+    if (!Array.isArray(list)) return;
+    list.forEach(v => {
+      if (v && v.lorebook === from) { v.lorebook = to; changed = true; }
+    });
+  });
+
+  (store.snapshots || []).forEach(s => {
+    if (!s) return;
+    let snapHit = false;
+    if (s.persona && s.persona.lorebook === from) {
+      s.persona.lorebook = to;
+      snapHit = true;
+    }
+    const wb = s.worldbooks;
+    if (wb) {
+      if (Array.isArray(wb.global)) {
+        const gi = wb.global.indexOf(from);
+        if (gi >= 0) {
+          wb.global[gi] = to;
+          wb.global = Array.from(new Set(wb.global));
+          snapHit = true;
+        }
+      }
+      if (wb.char) {
+        if (wb.char.primary === from) { wb.char.primary = to; snapHit = true; }
+        if (Array.isArray(wb.char.additional)) {
+          const ai = wb.char.additional.indexOf(from);
+          if (ai >= 0) {
+            wb.char.additional[ai] = to;
+            wb.char.additional = Array.from(new Set(wb.char.additional));
+            snapHit = true;
+          }
+        }
+      }
+      if (wb.chat === from) { wb.chat = to; snapHit = true; }
+      if (wb.entries && Object.prototype.hasOwnProperty.call(wb.entries, from)) {
+        wb.entries[to] = wb.entries[from];
+        delete wb.entries[from];
+        snapHit = true;
+      }
+      if (Array.isArray(wb.deletedBooks) && wb.deletedBooks.includes(from)) {
+        wb.deletedBooks = wb.deletedBooks.filter(n => n !== from);
+        snapHit = true;
+      }
+    }
+    if (snapHit) { changed = true; affectedSnapshots++; }
+  });
+
+  return { changed, affectedSnapshots };
+}
+
+// Mark deleted worldbooks inside snapshots so users see which book is missing instead of silent loss
+export function markStoreOnWorldbookDeleted(store, deletedNames) {
+  const targets = new Set((Array.isArray(deletedNames) ? deletedNames : []).map(x => String(x || '').trim()).filter(Boolean));
+  if (!store || !targets.size) return { changed: false, affectedSnapshots: 0 };
+
+  let changed = false;
+  let affectedSnapshots = 0;
+
+  if (Array.isArray(store.settings?.pinnedWorldbooks)) {
+    const next = store.settings.pinnedWorldbooks.filter(n => !targets.has(n));
+    if (next.length !== store.settings.pinnedWorldbooks.length) {
+      store.settings.pinnedWorldbooks = next;
+      changed = true;
+    }
+  }
+
+  (store.snapshots || []).forEach(s => {
+    if (!s || !s.worldbooks) return;
+    const wb = s.worldbooks;
+    const hitBooks = new Set(Array.isArray(wb.deletedBooks) ? wb.deletedBooks : []);
+    let snapHit = false;
+    targets.forEach(name => {
+      const refsBook = (Array.isArray(wb.global) && wb.global.includes(name))
+        || wb.char?.primary === name
+        || (Array.isArray(wb.char?.additional) && wb.char.additional.includes(name))
+        || wb.chat === name
+        || (wb.entries && Object.prototype.hasOwnProperty.call(wb.entries, name));
+      if (refsBook && !hitBooks.has(name)) {
+        hitBooks.add(name);
+        snapHit = true;
+      }
+    });
+    if (snapHit) {
+      wb.deletedBooks = Array.from(hitBooks);
+      changed = true;
+      affectedSnapshots++;
+    }
+  });
+
+  return { changed, affectedSnapshots };
 }
 
