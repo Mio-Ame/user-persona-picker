@@ -1,7 +1,7 @@
-// Pure core logic for User 组装与快照 (Native SillyTavern Extension v7.0.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.4.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.3.0';
+export const APP_VERSION = '7.4.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
@@ -84,6 +84,7 @@ export function sanitizeStore(raw) {
       .map(v => ({
         id: String(v.id || uid('pv')),
         name: String(v.name || '未命名版本').slice(0, 60),
+        displayName: typeof v.displayName === 'string' ? v.displayName.trim().slice(0, 60) : '',
         description: String(v.description || ''),
         lorebook: typeof v.lorebook === 'string' ? v.lorebook : '',
         updatedAt: Number(v.updatedAt) || Date.now(),
@@ -363,7 +364,7 @@ export function buildPresetRenderNodes(normalizedPreset, opts) {
   return { nodes, hasGroups: groups.length > 0, groups };
 }
 
-// Xiaotian-grade Snapshot Preset Inspector model:
+// Grouped Snapshot Preset Inspector model:
 // Overlays saved snapshot prompt/group switches onto the REAL preset definition (even for non-active presets!)
 export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, opts) {
   const savedPrompts = (snapPreset && snapPreset.prompts) || {};
@@ -619,16 +620,53 @@ export function extractPersonaBaseName(name) {
 }
 
 export function detectProliferatedPersonas(personas) {
+  const list = (Array.isArray(personas) ? personas : []).filter(p => p && p.avatar_id);
   const groups = new Map();
-  (Array.isArray(personas) ? personas : []).forEach(p => {
-    if (!p || !p.avatar_id) return;
+  const baseByAvatar = new Map();
+
+  // Pass 1: group by base name (strips numeric/edition suffixes like 名字1 / 名字_现代版)
+  list.forEach(p => {
     const base = extractPersonaBaseName(p.name);
     const key = base.toLowerCase();
     if (!key) return;
+    baseByAvatar.set(p.avatar_id, base);
     if (!groups.has(key)) groups.set(key, { baseName: base, items: [] });
     groups.get(key).items.push(p);
   });
-  return Array.from(groups.values()).filter(g => g.items.length >= 2);
+
+  // Pass 2: detect Chinese given-name surname-swap groups sharing the same trailing 2-char given name
+  const suffixMap = new Map();
+  list.forEach(p => {
+    const base = baseByAvatar.get(p.avatar_id) || '';
+    if (/^[\u4e00-\u9fa5]{2,4}$/.test(base)) {
+      const tail2 = base.length >= 2 ? base.slice(-2) : '';
+      if (tail2) {
+        if (!suffixMap.has(tail2)) suffixMap.set(tail2, []);
+        suffixMap.get(tail2).push(p);
+      }
+    }
+  });
+
+  const mergedGroups = new Map();
+  const claimed = new Set();
+
+  // Prefer multi-item surname-swap groups first when 2+ items share the same 2-char Chinese given name
+  suffixMap.forEach((items, tail2) => {
+    const distinctFullNames = new Set(items.map(x => baseByAvatar.get(x.avatar_id)));
+    if (items.length >= 2 && distinctFullNames.size >= 2) {
+      mergedGroups.set('tail:' + tail2, { baseName: tail2, items: [...items] });
+      items.forEach(x => claimed.add(x.avatar_id));
+    }
+  });
+
+  groups.forEach((g, k) => {
+    const remaining = g.items.filter(x => !claimed.has(x.avatar_id));
+    if (remaining.length >= 2) {
+      mergedGroups.set(k, { baseName: g.baseName, items: remaining });
+    }
+  });
+
+  return Array.from(mergedGroups.values());
 }
 
 export function resolveBindingForContext(bindings, chatId, charId) {
@@ -666,6 +704,39 @@ export function inferThemeFromTextColor(colorStr, hasIgLight) {
   return lum < 140 ? 'light' : 'dark';
 }
 
+// Format a single worldbook's display title & optional small subtitle honoring worldbook-organizer modes
+export function formatWorldbookDisplay(name, orgSettings, charNameMap) {
+  const realName = String(name || '');
+  const org = orgSettings && typeof orgSettings === 'object' ? orgSettings : null;
+  const aliases = org?.aliases && typeof org.aliases === 'object' ? org.aliases : {};
+  const alias = typeof aliases[realName] === 'string' ? aliases[realName].trim() : '';
+  const charMode = ['char_with_sub', 'char_only', 'original'].includes(org?.charBookTitleMode)
+    ? org.charBookTitleMode
+    : 'char_with_sub';
+  const aliasMode = ['alias_with_sub', 'alias_only'].includes(org?.aliasTitleMode)
+    ? org.aliasTitleMode
+    : 'alias_with_sub';
+
+  if (alias) {
+    return {
+      primary: alias,
+      subtitle: aliasMode === 'alias_with_sub' && alias !== realName ? realName : '',
+      isCharLabel: false,
+    };
+  }
+
+  const charNames = charNameMap && charNameMap.get(realName);
+  if (Array.isArray(charNames) && charNames.length) {
+    const label = charNames.join(' / ');
+    if (charMode === 'char_only') return { primary: label, subtitle: '', isCharLabel: true };
+    if (charMode === 'char_with_sub') {
+      return { primary: label, subtitle: label !== realName ? realName : '', isCharLabel: true };
+    }
+  }
+
+  return { primary: realName, subtitle: '', isCharLabel: false };
+}
+
 // Group worldbooks using optional worldbook_organizer extension settings (read-only, graceful fallback)
 export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   const list = Array.isArray(worldbooks) ? worldbooks : [];
@@ -685,14 +756,33 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
     ...(Array.isArray(org?.editorHiddenGroupIds) ? org.editorHiddenGroupIds : []),
   ].map(String));
 
-  // Collect character-bound worldbooks known to the organizer cache
+  // Build worldbook -> character display names map from BOTH organizer cache AND live host bindings
   const knownCharBooks = new Set();
+  const charNameMap = new Map();
+  const addCharBinding = (bookName, charName) => {
+    const bk = String(bookName || '').trim();
+    const cn = String(charName || '').trim();
+    if (!bk) return;
+    knownCharBooks.add(bk);
+    if (!cn) return;
+    if (!charNameMap.has(bk)) charNameMap.set(bk, []);
+    const arr = charNameMap.get(bk);
+    if (!arr.includes(cn)) arr.push(cn);
+  };
+
   Object.values(cachedCharBindings).forEach(entry => {
     if (!entry || typeof entry !== 'object') return;
-    if (entry.primary) knownCharBooks.add(String(entry.primary));
-    if (entry.embedded) knownCharBooks.add(String(entry.embedded));
-    if (Array.isArray(entry.extra)) entry.extra.forEach(x => x && knownCharBooks.add(String(x)));
+    const cn = String(entry.name || '').trim();
+    if (entry.primary) addCharBinding(entry.primary, cn);
+    if (entry.embedded) addCharBinding(entry.embedded, cn);
+    if (Array.isArray(entry.extra)) entry.extra.forEach(x => x && addCharBinding(x, cn));
   });
+  if (meta.liveCharBookMap && typeof meta.liveCharBookMap === 'object') {
+    Object.keys(meta.liveCharBookMap).forEach(bk => {
+      const names = meta.liveCharBookMap[bk];
+      if (Array.isArray(names)) names.forEach(cn => addCharBinding(bk, cn));
+    });
+  }
 
   const groupMap = new Map();
   orgGroups.forEach(g => {
@@ -717,10 +807,14 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
     const alias = typeof aliases[name] === 'string' ? aliases[name].trim() : '';
     const gid = assignments[name] && groupMap.has(String(assignments[name])) ? String(assignments[name]) : '';
     const gName = gid ? groupMap.get(gid).name : (knownCharBooks.has(name) ? '角色书' : '');
+    const fmt = formatWorldbookDisplay(name, org, charNameMap);
+    const charNames = charNameMap.get(name) || [];
     return {
       name,
       alias,
-      displayTitle: alias || name,
+      displayTitle: fmt.primary,
+      subtitle: fmt.subtitle,
+      charNames,
       groupId: gid,
       groupName: gName,
       isPinned: pinnedSet.has(name),
@@ -740,7 +834,7 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   list.forEach(name => {
     const item = makeItem(name);
     if (query) {
-      const hay = normalizeText(item.name + ' ' + item.alias + ' ' + item.groupName);
+      const hay = normalizeText(item.name + ' ' + item.alias + ' ' + item.displayTitle + ' ' + item.groupName + ' ' + item.charNames.join(' '));
       if (!hay.includes(query)) return;
     }
     if (item.isPinned || item.isGlobal || item.isChar || item.isChat) {
@@ -770,7 +864,7 @@ export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   sections.push(...excludedGroups);
   if (charBucket.items.length) { sortItems(charBucket.items); sections.push(charBucket); }
 
-  return { sections, hasOrganizer: orgGroups.length > 0 || knownCharBooks.size > 0 };
+  return { sections, hasOrganizer: orgGroups.length > 0 || knownCharBooks.size > 0, charNameMap };
 }
 
 // Keep snapshots, pins, and persona lorebooks synchronized when a worldbook is renamed

@@ -7,6 +7,7 @@ import {
   getRequestHeaders,
   reloadCurrentChat,
   saveSettingsDebounced,
+  setUserName,
   this_chid,
 } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
@@ -38,6 +39,7 @@ import {
   escapeHtml,
   exportStoreJson,
   formatTimeShort,
+  formatWorldbookDisplay,
   groupWorldbooksByOrganizer,
   inferThemeFromTextColor,
   inspectTagHygiene,
@@ -81,8 +83,8 @@ function getContext() {
 
 function toast(msg, type = 'info') {
   const t = window.toastr;
-  if (t && typeof t[type] === 'function') t[type](String(msg), 'User 组装与快照');
-  else console.log('[User组装与快照]', msg);
+  if (t && typeof t[type] === 'function') t[type](String(msg), '快照管家');
+  else console.log('[快照管家]', msg);
 }
 
 function detectHostTheme() {
@@ -208,6 +210,69 @@ function getCharaFileNameSafe(ch) {
   return String(ch.avatar).replace(/\.[^/.]+$/, '');
 }
 
+function buildLiveCharBookMap() {
+  const map = {};
+  const add = (bk, cn) => {
+    const b = String(bk || '').trim();
+    const c = String(cn || '').trim();
+    if (!b || !c) return;
+    if (!map[b]) map[b] = [];
+    if (!map[b].includes(c)) map[b].push(c);
+  };
+  const avatarToName = new Map();
+  if (Array.isArray(characters)) {
+    characters.forEach(ch => {
+      if (!ch || !ch.name || ch.name === 'SillyTavern System') return;
+      const cName = String(ch.name).trim();
+      const fileKey = getCharaFileNameSafe(ch);
+      if (fileKey) avatarToName.set(fileKey, cName);
+      const primary = ch?.data?.extensions?.world;
+      if (primary) add(primary, cName);
+    });
+  }
+  try {
+    const charLore = getWorldInfoSettings()?.world_info?.charLore;
+    if (Array.isArray(charLore)) {
+      charLore.forEach(entry => {
+        if (!entry || !entry.name) return;
+        const cName = avatarToName.get(String(entry.name)) || '';
+        if (!cName) return;
+        if (Array.isArray(entry.extraBooks)) {
+          entry.extraBooks.forEach(bk => add(bk, cName));
+        }
+      });
+    }
+  } catch (_) {}
+  return map;
+}
+
+function buildCombinedCharNameMap(orgSettings) {
+  const charNameMap = new Map();
+  const add = (bk, cn) => {
+    const b = String(bk || '').trim();
+    const c = String(cn || '').trim();
+    if (!b || !c) return;
+    if (!charNameMap.has(b)) charNameMap.set(b, []);
+    const arr = charNameMap.get(b);
+    if (!arr.includes(c)) arr.push(c);
+  };
+  const cached = orgSettings?.cachedCharBindings;
+  if (cached && typeof cached === 'object') {
+    Object.values(cached).forEach(entry => {
+      if (!entry || typeof entry !== 'object') return;
+      const cn = String(entry.name || '').trim();
+      if (entry.primary) add(entry.primary, cn);
+      if (entry.embedded) add(entry.embedded, cn);
+      if (Array.isArray(entry.extra)) entry.extra.forEach(x => x && add(x, cn));
+    });
+  }
+  const live = buildLiveCharBookMap();
+  Object.keys(live).forEach(bk => {
+    live[bk].forEach(cn => add(bk, cn));
+  });
+  return charNameMap;
+}
+
 const Host = {
   // --- Personas ---
   listPersonas() {
@@ -263,6 +328,21 @@ const Host = {
     }
     saveSettingsDebounced();
     try { await getUserAvatars(true, targetId); } catch (_) {}
+  },
+  async renamePersonaInPlace(avatarId, newName) {
+    const targetId = avatarId || user_avatar;
+    const clean = String(newName || '').trim().slice(0, 60);
+    if (!targetId || !power_user?.personas?.[targetId]) throw new Error('未找到目标 User');
+    if (!clean) throw new Error('名字不能为空');
+    power_user.personas[targetId] = clean;
+    if (targetId === user_avatar) {
+      try { setUserName(clean, { toastPersonaNameChange: false }); } catch (_) {}
+      const nameInput = document.getElementById('your_name');
+      if (nameInput && nameInput.value !== clean) nameInput.value = clean;
+    }
+    saveSettingsDebounced();
+    try { await getUserAvatars(true, targetId); } catch (_) {}
+    return clean;
   },
   async deletePersonaById(avatarId) {
     if (!avatarId) return false;
@@ -791,22 +871,32 @@ function getDefaultSnapshotBooks(store) {
   return Array.from(set).filter(Boolean);
 }
 
-function findMatchingPersonaVersion(store, avatarId, liveDesc) {
+function findMatchingPersonaVersion(store, avatarId, liveDesc, liveName) {
   const list = (store.personaVersions && store.personaVersions[avatarId]) || [];
-  return list.find(v => String(v.description || '') === String(liveDesc || '')) || null;
+  const descStr = String(liveDesc || '');
+  const nameStr = String(liveName || '').trim();
+  const descMatches = list.filter(v => String(v.description || '') === descStr);
+  if (!descMatches.length) return null;
+  if (nameStr) {
+    const exact = descMatches.find(v => v.displayName && v.displayName === nameStr);
+    if (exact) return exact;
+  }
+  return descMatches.find(v => !v.displayName) || descMatches[0];
 }
 
 function autoBackupPersonaBeforeOverwrite(store, persona) {
   if (!persona || !persona.avatar_id) return;
   const desc = String(persona.description || '');
-  if (!desc.trim()) return;
+  const pName = String(persona.name || '').trim();
+  if (!desc.trim() && !pName) return;
   const list = store.personaVersions[persona.avatar_id] || [];
-  if (list.some(v => v.description === desc)) return;
+  if (list.some(v => v.description === desc && (!v.displayName || v.displayName === pName))) return;
   const backupName = '切换前备份';
   const next = list.filter(v => v.name !== backupName);
   next.unshift({
     id: uid('pv'),
     name: backupName,
+    displayName: pName,
     description: desc,
     lorebook: persona.lorebook || '',
     updatedAt: Date.now(),
@@ -838,7 +928,7 @@ async function captureLiveSnapshot(opts, store) {
   if (scope.persona) {
     const p = Host.getCurrentPersona();
     if (p) {
-      const matched = findMatchingPersonaVersion(store, p.avatar_id, p.description);
+      const matched = findMatchingPersonaVersion(store, p.avatar_id, p.description, p.name);
       snap.persona = {
         avatarId: p.avatar_id,
         name: p.name,
@@ -916,17 +1006,26 @@ async function applySnapshotLive(snap, store, silentPrefix) {
         await Host.switchPersona(target.avatar_id);
         let desc = snap.persona.description;
         let lorebook = snap.persona.lorebook;
+        let desiredName = String(snap.persona.name || '').trim();
         if (snap.persona.versionId) {
           const verList = (store.personaVersions && store.personaVersions[target.avatar_id]) || [];
           const foundVer = verList.find(v => v.id === snap.persona.versionId);
           if (foundVer) {
             desc = foundVer.description;
             lorebook = foundVer.lorebook;
+            if (foundVer.displayName) desiredName = foundVer.displayName;
           }
         }
-        if (target.description !== desc || (typeof lorebook === 'string' && target.lorebook !== lorebook)) {
+        const needRename = !!desiredName && target.name !== desiredName;
+        const needBody = target.description !== desc || (typeof lorebook === 'string' && target.lorebook !== lorebook);
+        if (needRename || needBody) {
           autoBackupPersonaBeforeOverwrite(store, target);
           persistStore(store);
+        }
+        if (needRename) {
+          await Host.renamePersonaInPlace(target.avatar_id, desiredName);
+        }
+        if (needBody) {
           await Host.updatePersonaInPlace(target.avatar_id, desc, lorebook);
         }
       } else {
@@ -982,7 +1081,7 @@ async function applySnapshotLive(snap, store, silentPrefix) {
       ? `${prefix}「${snap.name}」（跳过 ${totalSkipped} 项缺失引用）`
       : `${prefix}「${snap.name}」`, 'success');
   } catch (err) {
-    console.error('[User组装与快照] 应用失败', err);
+    console.error('[快照管家] 应用失败', err);
     toast('应用快照失败：' + (err?.message || err), 'error');
   } finally {
     isApplyingSnapshot = false;
@@ -1349,6 +1448,47 @@ const STYLE_CSS = `
 .upp-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .upp-entry-name { font-size: 13px; font-weight: 520; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-entry-preview { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-entry-wrap { display: flex; flex-direction: column; }
+.upp-entry-wrap.is-expanded > .upp-entry-row {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+.upp-entry-chev {
+  display: inline-flex; color: var(--muted); flex-shrink: 0; transition: transform 0.14s ease;
+}
+.upp-entry-wrap.is-expanded .upp-entry-chev { transform: rotate(180deg); }
+.upp-inline-panel {
+  border: 1px solid var(--border-strong);
+  border-top: 1px dashed var(--border);
+  border-radius: 0 0 10px 10px;
+  background: var(--bg);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.upp-inline-meta {
+  font-size: 11px; color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.upp-inline-pre {
+  margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-strong); color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  max-height: 280px; overflow-y: auto;
+}
+.upp-inline-textarea {
+  width: 100%; min-height: 150px; max-height: 320px; resize: vertical;
+  border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface-strong); color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  font-size: 12px; line-height: 1.55; padding: 8px 10px; outline: none;
+}
+.upp-inline-textarea:focus { border-color: var(--accent); }
+.upp-inline-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.upp-wb-sub { color: var(--muted); font-size: 11px; margin-left: 4px; font-weight: 400; }
 
 .upp-persona-live-box {
   font-size: 12.5px; line-height: 1.55; color: var(--text); background: var(--surface-strong);
@@ -1616,6 +1756,7 @@ function initExtension() {
     presetSearch: '',
     presetOnlyOn: false,
     presetFoldState: {},
+    expandedPresetIds: new Set(),
 
     regexScope: 'global',
     regexList: [],
@@ -1637,10 +1778,10 @@ function initExtension() {
   <div class="upp-fab-pop" id="upp-fab-pop" hidden></div>
 </div>
 <div class="upp-backdrop" hidden>
-  <div class="upp-modal" role="dialog" aria-modal="true" aria-label="User 组装与快照">
+  <div class="upp-modal" role="dialog" aria-modal="true" aria-label="快照管家">
     <div class="upp-header">
       <div class="upp-title-wrap">
-        <span class="upp-title">User 组装与快照</span>
+        <span class="upp-title">快照管家</span>
         <span class="upp-ctx-chip" id="upp-ctx-chip" hidden></span>
       </div>
       <div class="upp-head-actions">
@@ -1889,11 +2030,12 @@ function initExtension() {
     elToolbar.innerHTML = `
       <div class="upp-row">
         <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
+        <button class="upp-btn" id="upp-persona-rename-btn" ${curP ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
         <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
         <button class="upp-btn" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
         <button class="upp-btn" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
         <div class="upp-spacer"></div>
-        <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或旧分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
+        <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
       </div>
     `;
   }
@@ -1903,7 +2045,7 @@ function initExtension() {
     if (!curP) { elBody.innerHTML = `<div class="upp-empty">未读取到当前 User 人设</div>`; return; }
 
     const pVersions = state.store.personaVersions[curP.avatar_id] || [];
-    const matchedVer = findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description);
+    const matchedVer = findMatchingPersonaVersion(state.store, curP.avatar_id, curP.description, curP.name);
     const liveDesc = String(curP.description || '');
 
     let html = `
@@ -1919,7 +2061,7 @@ function initExtension() {
         <div class="upp-persona-live-box ${liveDesc.trim() ? '' : 'is-empty'}" id="upp-persona-preview-box">${escapeHtml(liveDesc.trim() ? liveDesc : '暂无描述，点击编辑')}</div>
       </div>
       <div class="upp-sec-title" style="padding: 2px 2px;">
-        <span>内部描述版本</span>
+        <span>内部描述版本（可绑不同名字，切换时原地改名）</span>
         <span>${pVersions.length} 个</span>
       </div>
     `;
@@ -1931,13 +2073,15 @@ function initExtension() {
     }
 
     html += `<div class="upp-entry-list">` + pVersions.map(v => {
-      const isCur = matchedVer && matchedVer.id === v.id;
+      const nameMatches = !v.displayName || v.displayName === curP.name;
+      const isCur = matchedVer && matchedVer.id === v.id && nameMatches;
       const snippet = String(v.description || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      const dnTag = v.displayName ? `<span class="upp-badge" style="margin-left:4px;">名字: ${escapeHtml(v.displayName)}</span>` : '';
       return `
         <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
           <button class="upp-entry-main" data-pv-view="${v.id}">
             <div class="upp-entry-text">
-              <div class="upp-entry-name">${escapeHtml(v.name)} ${isCur ? '<span class="upp-badge accent" style="margin-left:4px;">使用中</span>' : ''}</div>
+              <div class="upp-entry-name">${escapeHtml(v.name)}${dnTag}${isCur ? '<span class="upp-badge accent" style="margin-left:4px;">使用中</span>' : ''}</div>
               <div class="upp-entry-preview">${escapeHtml(snippet || '空描述')}</div>
             </div>
           </button>
@@ -1954,12 +2098,16 @@ function initExtension() {
     const activeBook = state.activeBook;
     const isPinned = activeBook && state.store.settings.pinnedWorldbooks.includes(activeBook);
     const isGlobal = activeBook && state.globalWorldbooks.includes(activeBook);
+    const org = getOrganizerSettings();
+    const hasOrg = !!org;
+    const bookFmt = activeBook ? formatWorldbookDisplay(activeBook, org, buildCombinedCharNameMap(org)) : null;
+    const bookLabel = bookFmt ? bookFmt.primary : '选择世界书';
+    const bookTitle = bookFmt ? (bookFmt.subtitle ? `${bookFmt.primary} (${bookFmt.subtitle})` : bookFmt.primary) : '选择或搜索世界书';
 
-    const hasOrg = !!getOrganizerSettings();
     elToolbar.innerHTML = `
       <div class="upp-row">
-        <button class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="选择或搜索世界书">
-          <span>${escapeHtml(activeBook || '选择世界书')}</span>
+        <button class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="${escapeHtml(bookTitle)}">
+          <span>${escapeHtml(bookLabel)}</span>
           ${ICONS.chevron}
         </button>
         <button class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
@@ -2069,16 +2217,43 @@ function initExtension() {
     const isPh = p.marker || typeof p.content !== 'string';
     const roleShort = isPh ? '占位' : (p.role === 'user' ? 'USR' : p.role === 'assistant' ? 'AST' : 'SYS');
     const snippet = isPh ? '酒馆原生占位槽位' : String(p.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+    const isExpanded = state.expandedPresetIds.has(p.id);
+    const pid = escapeHtml(p.id);
     return `
-      <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${escapeHtml(p.id)}">
-        <button class="upp-entry-main" data-pr-open="${escapeHtml(p.id)}">
-          <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
-          <div class="upp-entry-text">
-            <div class="upp-entry-name">${escapeHtml(p.name || p.id)}</div>
-            <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+      <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-pr-wrap="${pid}">
+        <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${pid}">
+          <button class="upp-entry-main" data-pr-open="${pid}">
+            <span class="upp-entry-chev">${ICONS.chevron}</span>
+            <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(p.name || p.id)}</div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+            </div>
+          </button>
+          <button type="button" class="upp-switch" role="switch" aria-checked="${!!p.enabled}" data-pr-toggle="${pid}"></button>
+        </div>
+        ${isExpanded ? `
+          <div class="upp-inline-panel" data-pr-panel="${pid}">
+            <div class="upp-inline-meta">
+              <span>ID: ${pid} · 角色: ${escapeHtml(p.role || 'system')}</span>
+              ${!isPh ? `<span>${String(p.content || '').length} 字</span>` : ''}
+            </div>
+            ${isPh ? `
+              <div class="upp-card-meta">此项为酒馆原生占位槽位，仅支持开关启停。</div>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-pr-inline-close="${pid}">收起</button>
+              </div>
+            ` : `
+              <input type="text" class="upp-text-input" data-pr-inline-name="${pid}" value="${escapeHtml(p.name || '')}" placeholder="条目名称" />
+              <textarea class="upp-inline-textarea" data-pr-inline-content="${pid}">${escapeHtml(p.content || '')}</textarea>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-pr-inline-copy="${pid}">${ICONS.copy}<span>复制</span></button>
+                <button type="button" class="upp-btn" data-pr-inline-close="${pid}">收起</button>
+                <button type="button" class="upp-btn primary" data-pr-inline-save="${pid}">保存</button>
+              </div>
+            `}
           </div>
-        </button>
-        <button type="button" class="upp-switch" role="switch" aria-checked="${!!p.enabled}" data-pr-toggle="${escapeHtml(p.id)}"></button>
+        ` : ''}
       </div>
     `;
   }
@@ -2163,25 +2338,45 @@ function initExtension() {
   }
 
   // =========================
-  // Full-Size Xiaotian-Style Snapshot Detail Viewer
+  // Full-Size Grouped Snapshot Detail Viewer
   // =========================
 
-  function renderSnapInspectPresetRow(item) {
+  function renderSnapInspectPresetRow(item, d) {
     const isPh = item.marker || typeof item.content !== 'string';
     const roleShort = isPh ? '占位' : (item.role === 'user' ? 'USR' : item.role === 'assistant' ? 'AST' : 'SYS');
     const snippet = isPh ? '酒馆原生占位槽位' : String(item.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+    const isExpanded = !!(d && d.expandedIds && d.expandedIds.has(item.id));
+    const pid = escapeHtml(item.id);
     return `
-      <div class="upp-entry-row ${item.effectiveOn ? 'is-on' : 'is-off'}">
-        <button class="upp-entry-main" data-view-snap-pr="${escapeHtml(item.id)}">
-          <span class="upp-dot ${item.effectiveOn ? 'snap-on' : 'snap-off'}" title="${item.effectiveOn ? '本快照中生效' : '本快照中关闭'}"></span>
-          <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
-          <div class="upp-entry-text">
-            <div class="upp-entry-name">${escapeHtml(item.name || item.id)}</div>
-            <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+      <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}">
+        <div class="upp-entry-row ${item.effectiveOn ? 'is-on' : 'is-off'}">
+          <button class="upp-entry-main" data-view-snap-pr="${pid}">
+            <span class="upp-entry-chev">${ICONS.chevron}</span>
+            <span class="upp-dot ${item.effectiveOn ? 'snap-on' : 'snap-off'}" title="${item.effectiveOn ? '本快照中生效' : '本快照中关闭'}"></span>
+            <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
+            <div class="upp-entry-text">
+              <div class="upp-entry-name">${escapeHtml(item.name || item.id)}</div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+            </div>
+            ${item.statusNote ? `<span class="upp-badge warn">${escapeHtml(item.statusNote)}</span>` : ''}
+          </button>
+          <button type="button" class="upp-switch" role="switch" aria-checked="${!!item.selfOn}" data-sv-pr-toggle="${pid}" title="切换此条目在本快照中的状态"></button>
+        </div>
+        ${isExpanded ? `
+          <div class="upp-inline-panel">
+            <div class="upp-inline-meta">
+              <span>ID: ${pid} · 角色: ${escapeHtml(item.role || 'system')}</span>
+              ${!isPh ? `<span>${String(item.content || '').length} 字</span>` : ''}
+            </div>
+            ${isPh
+              ? `<div class="upp-card-meta">酒馆原生占位槽位，无正文内容。</div>`
+              : `<pre class="upp-inline-pre">${escapeHtml(item.content || '（空正文）')}</pre>`}
+            <div class="upp-inline-foot">
+              ${!isPh ? `<button type="button" class="upp-btn" data-sv-pr-copy="${pid}">${ICONS.copy}<span>复制</span></button>` : ''}
+              <button type="button" class="upp-btn" data-sv-pr-close="${pid}">收起</button>
+            </div>
           </div>
-          ${item.statusNote ? `<span class="upp-badge warn">${escapeHtml(item.statusNote)}</span>` : ''}
-        </button>
-        <button type="button" class="upp-switch" role="switch" aria-checked="${!!item.selfOn}" data-sv-pr-toggle="${escapeHtml(item.id)}" title="切换此条目在本快照中的状态"></button>
+        ` : ''}
       </div>
     `;
   }
@@ -2218,7 +2413,7 @@ function initExtension() {
         return;
       }
       let html = `<div class="upp-entry-list">` + model.nodes.map(node => {
-        if (node.type === 'prompt') return renderSnapInspectPresetRow(node.prompt);
+        if (node.type === 'prompt') return renderSnapInspectPresetRow(node.prompt, d);
         const g = node.group;
         const collapsed = node.forceExpand
           ? false
@@ -2239,7 +2434,7 @@ function initExtension() {
               <button type="button" class="upp-switch" role="switch" aria-checked="${!!g.enabled}" data-sv-grp-toggle="${escapeHtml(g.id)}" title="整组总开关（直接保存）"></button>
             </div>
             <div class="upp-group-items">
-              ${node.items.map(it => renderSnapInspectPresetRow(it)).join('')}
+              ${node.items.map(it => renderSnapInspectPresetRow(it, d)).join('')}
             </div>
           </div>
         `;
@@ -2264,7 +2459,10 @@ function initExtension() {
       }
       const liveBookSet = new Set(Host.listWorldbooks());
       const deletedSet = new Set(Array.isArray(s.worldbooks.deletedBooks) ? s.worldbooks.deletedBooks : []);
+      const org = getOrganizerSettings();
+      const charNameMap = buildCombinedCharNameMap(org);
       const blocks = bookNames.map(bk => {
+        const fmt = formatWorldbookDisplay(bk, org, charNameMap);
         const map = entriesMap[bk] || {};
         const isMissingBook = deletedSet.has(bk) || !liveBookSet.has(bk);
         const liveList = d.wbDetails[bk] || [];
@@ -2275,16 +2473,17 @@ function initExtension() {
           if (d.onlyOn && !map[u]) return false;
           if (!q) return true;
           const live = byUid.get(u);
-          return normalizeText(bk + ' ' + (live ? (live.name + ' ' + live.content) : u)).includes(q);
+          return normalizeText(bk + ' ' + fmt.primary + ' ' + (live ? (live.name + ' ' + live.content) : u)).includes(q);
         });
         if (!rows.length) return '';
         const collapsed = !!q || d.onlyOn ? false : !!d.foldMap['wb::' + bk];
+        const subHtml = fmt.subtitle ? `<span class="upp-wb-sub">${escapeHtml(fmt.subtitle)}</span>` : '';
         return `
           <div class="upp-group-box ${collapsed ? 'is-collapsed' : ''}" data-sv-grp="wb::${escapeHtml(bk)}">
             <div class="upp-group-head">
               <button type="button" class="upp-group-toggle-btn" data-sv-fold="wb::${escapeHtml(bk)}">
                 <span class="upp-group-chev">${ICONS.chevron}</span>
-                <span class="upp-group-name">${escapeHtml(bk)}</span>
+                <span class="upp-group-name">${escapeHtml(fmt.primary)}${subHtml}</span>
                 ${isMissingBook ? `<span class="upp-badge warn">已从酒馆删除</span>` : ''}
                 <span class="upp-badge accent">${onCount}/${allUids.length} 开启</span>
               </button>
@@ -2397,6 +2596,7 @@ function initExtension() {
       globals: state.globalWorldbooks,
       charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
       chatBook: state.chatWorldbook,
+      liveCharBookMap: buildLiveCharBookMap(),
       query: d.query || '',
     });
     if (!sections.length) {
@@ -2425,7 +2625,7 @@ function initExtension() {
               if (item.isGlobal) tags.push('<span class="upp-badge accent">全局</span>');
               if (item.isChar) tags.push('<span class="upp-badge ok">角色</span>');
               if (item.isChat) tags.push('<span class="upp-badge ok">聊天</span>');
-              const sub = item.alias && item.alias !== item.name ? ` <span style="color:var(--muted);font-size:11px;">(${escapeHtml(item.name)})</span>` : '';
+              const sub = item.subtitle ? `<span class="upp-wb-sub">${escapeHtml(item.subtitle)}</span>` : '';
               return `
                 <button class="upp-detail-item" data-pick-book="${escapeHtml(item.name)}" style="${item.name === state.activeBook ? 'border-color:var(--accent);' : ''}">
                   <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.displayTitle)}${sub}</span>
@@ -2516,7 +2716,34 @@ function initExtension() {
         </div>
       `;
       renderBookPickerList(d);
-      window.setTimeout(() => shadow.getElementById('upp-book-search-input')?.focus(), 10);
+      if (window.innerWidth > 640) window.setTimeout(() => shadow.getElementById('upp-book-search-input')?.focus(), 10);
+      return;
+    }
+
+    if (d.type === 'renamePersona') {
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer" style="width:min(420px,100%);">
+          <div class="upp-drawer-head">
+            <span>修改当前 User 名字</span>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-field">
+              <label>新名字</label>
+              <div class="upp-row-nowrap">
+                <input class="upp-text-input" id="upp-rename-input" value="${escapeHtml(d.name || '')}" placeholder="输入新的 User 名字" />
+                <button type="button" class="upp-btn" id="upp-rename-clear-btn">清空</button>
+              </div>
+            </div>
+            <div class="upp-card-meta">直接在当前 User 槽位原地改名，立即生效为 {{user}}，不会在酒馆里多出新分身。</div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-rename-confirm-btn">确认改名</button>
+          </div>
+        </div>
+      `;
+      if (window.innerWidth > 640) window.setTimeout(() => shadow.getElementById('upp-rename-input')?.focus(), 10);
       return;
     }
 
@@ -2537,6 +2764,15 @@ function initExtension() {
               <div class="upp-field">
                 <label>标题</label>
                 <input class="upp-text-input" id="upp-ed-name" value="${escapeHtml(d.name || '')}" ${readOnly ? 'readonly' : ''} />
+              </div>
+            ` : ''}
+            ${d.allowDisplayName ? `
+              <div class="upp-field">
+                <label>切换时使用的 User 名字（可选，留空则沿用当前名字）</label>
+                <div class="upp-row-nowrap">
+                  <input class="upp-text-input" id="upp-ed-display-name" value="${escapeHtml(d.displayName || '')}" placeholder="例如按剧情换姓后的全名" />
+                  <button type="button" class="upp-btn" id="upp-ed-dn-clear-btn">清空</button>
+                </div>
               </div>
             ` : ''}
             ${d.showStrategy ? `
@@ -2604,6 +2840,7 @@ function initExtension() {
                     globals: state.globalWorldbooks,
                     charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
                     chatBook: state.chatWorldbook,
+                    liveCharBookMap: buildLiveCharBookMap(),
                   });
                   return sections.map(sec => {
                     const names = sec.items.map(it => it.name);
@@ -2614,13 +2851,16 @@ function initExtension() {
                         <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span>${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}</span>
                         <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
                       </div>
-                      ${sec.items.map(it => `
-                        <label class="upp-check-item" style="border:none;background:transparent;padding:4px 6px;">
-                          <input type="checkbox" data-ss-book="${escapeHtml(it.name)}" ${selectedSet.has(it.name) ? 'checked' : ''} />
-                          <span>${escapeHtml(it.displayTitle)}</span>
-                          ${it.isPinned ? '<span class="upp-badge warn" style="margin-left:auto;">置顶</span>' : ''}
-                        </label>
-                      `).join('')}
+                      ${sec.items.map(it => {
+                        const sub = it.subtitle ? `<span class="upp-wb-sub">${escapeHtml(it.subtitle)}</span>` : '';
+                        return `
+                          <label class="upp-check-item" style="border:none;background:transparent;padding:4px 6px;">
+                            <input type="checkbox" data-ss-book="${escapeHtml(it.name)}" ${selectedSet.has(it.name) ? 'checked' : ''} />
+                            <span>${escapeHtml(it.displayTitle)}${sub}</span>
+                            ${it.isPinned ? '<span class="upp-badge warn" style="margin-left:auto;">置顶</span>' : ''}
+                          </label>
+                        `;
+                      }).join('')}
                     `;
                   }).join('');
                 })()}
@@ -2633,7 +2873,7 @@ function initExtension() {
           </div>
         </div>
       `;
-      window.setTimeout(() => shadow.getElementById('upp-ss-name')?.focus(), 10);
+      if (window.innerWidth > 640) window.setTimeout(() => shadow.getElementById('upp-ss-name')?.focus(), 10);
       return;
     }
 
@@ -2689,14 +2929,21 @@ function initExtension() {
               <label>版本名称</label>
               <input class="upp-text-input" id="upp-pv-name" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
             </div>
+            <div class="upp-field">
+              <label>切换时使用的 User 名字（可选，剧情换姓直接填全名）</label>
+              <div class="upp-row-nowrap">
+                <input class="upp-text-input" id="upp-pv-display-name" placeholder="留空则切换时不改当前名字" value="${escapeHtml(d.displayName !== undefined ? d.displayName : (p?.name || ''))}" />
+                <button type="button" class="upp-btn" id="upp-pv-dn-clear-btn">清空</button>
+              </div>
+            </div>
             ${existing.length ? `
               <div class="upp-field">
                 <label>已有版本（点选同名可覆盖）</label>
                 <div class="upp-pop-list">
                   ${existing.map(v => `
                     <div class="upp-row-nowrap" style="padding:3px 4px;">
-                      <button type="button" class="upp-detail-item" data-pv-fill-name="${escapeHtml(v.name)}">
-                        <span>${escapeHtml(v.name)}</span>
+                      <button type="button" class="upp-detail-item" data-pv-fill-name="${escapeHtml(v.name)}" data-pv-fill-dn="${escapeHtml(v.displayName || '')}">
+                        <span>${escapeHtml(v.name)}${v.displayName ? ` <span class="upp-wb-sub">(${escapeHtml(v.displayName)})</span>` : ''}</span>
                         <span class="upp-card-meta">${formatTimeShort(v.updatedAt)}</span>
                       </button>
                       <button type="button" class="upp-btn icon-only danger" data-pv-del="${v.id}" title="删除版本">${ICONS.trash}</button>
@@ -2712,7 +2959,7 @@ function initExtension() {
           </div>
         </div>
       `;
-      window.setTimeout(() => shadow.getElementById('upp-pv-name')?.focus(), 10);
+      if (window.innerWidth > 640) window.setTimeout(() => shadow.getElementById('upp-pv-name')?.focus(), 10);
       return;
     }
 
@@ -2888,7 +3135,6 @@ function initExtension() {
 
   shadow.getElementById('upp-close-btn').addEventListener('click', closeModal);
   shadow.getElementById('upp-refresh-btn').addEventListener('click', () => { void refreshAll(true); });
-  elBackdrop.addEventListener('click', ev => { if (ev.target === elBackdrop) closeModal(); });
   elDrawerMask.addEventListener('click', ev => {
     if (ev.target === elDrawerMask && !elDrawerMask.classList.contains('is-full')) {
       state.drawer = null;
@@ -2938,11 +3184,15 @@ function initExtension() {
     const gBtn = target.closest('[data-snap-group]');
     if (gBtn) { state.snapGroup = gBtn.getAttribute('data-snap-group') || ''; renderSnapshotsToolbar(); renderSnapshotsBody(); return; }
 
+    if (target.closest('#upp-persona-rename-btn') && state.currentPersona) {
+      state.drawer = { type: 'renamePersona', avatarId: state.currentPersona.avatar_id, name: state.currentPersona.name || '' };
+      renderDrawer(); return;
+    }
     if (target.closest('#upp-persona-edit-btn') && state.currentPersona) {
       state.drawer = { type: 'entryEditor', mode: 'editPersona', heading: `编辑 User 正文 · ${state.currentPersona.name}`, content: state.currentPersona.description || '' };
       renderDrawer(); return;
     }
-    if (target.closest('#upp-persona-savever-btn') && state.currentPersona) { state.drawer = { type: 'savePersonaVersion', name: '' }; renderDrawer(); return; }
+    if (target.closest('#upp-persona-savever-btn') && state.currentPersona) { state.drawer = { type: 'savePersonaVersion', name: '', displayName: state.currentPersona.name || '' }; renderDrawer(); return; }
     if (target.closest('#upp-persona-diff-btn') && state.currentPersona) { state.drawer = { type: 'personaDiff' }; renderDrawer(); return; }
     if (target.closest('#upp-persona-merge-btn')) {
       const dupGroups = detectProliferatedPersonas(state.personas);
@@ -3052,6 +3302,7 @@ function initExtension() {
         await Host.selectPresetByName(targetPreset);
         state.loadedPresetName = Host.getLoadedPresetName();
         state.livePresetNorm = Host.getLiveNormalizedPreset();
+        state.expandedPresetIds.clear();
         renderPresetToolbar(); renderPresetBody(); renderFooter();
         toast('已切换预设：' + targetPreset, 'success');
       }
@@ -3096,6 +3347,7 @@ function initExtension() {
           onlyOn: false,
           allExpanded: false,
           foldMap: {},
+          expandedIds: new Set(),
           presetNorm,
           wbDetails,
           regexDetails,
@@ -3137,7 +3389,17 @@ function initExtension() {
       const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
       const ver = list.find(v => v.id === pvView.getAttribute('data-pv-view'));
       if (ver) {
-        state.drawer = { type: 'entryEditor', mode: 'editPersonaVersion', versionId: ver.id, heading: `编辑内部版本 · ${state.currentPersona.name}`, allowNameEdit: true, name: ver.name, content: ver.description || '' };
+        state.drawer = {
+          type: 'entryEditor',
+          mode: 'editPersonaVersion',
+          versionId: ver.id,
+          heading: `编辑内部版本 · ${state.currentPersona.name}`,
+          allowNameEdit: true,
+          allowDisplayName: true,
+          name: ver.name,
+          displayName: ver.displayName || '',
+          content: ver.description || '',
+        };
         renderDrawer();
       }
       return;
@@ -3149,10 +3411,15 @@ function initExtension() {
       if (ver) {
         autoBackupPersonaBeforeOverwrite(state.store, state.currentPersona);
         persistStore(state.store);
-        await Host.updatePersonaInPlace(state.currentPersona.avatar_id, ver.description, ver.lorebook || undefined);
+        const targetId = state.currentPersona.avatar_id;
+        if (ver.displayName && ver.displayName !== state.currentPersona.name) {
+          await Host.renamePersonaInPlace(targetId, ver.displayName);
+        }
+        await Host.updatePersonaInPlace(targetId, ver.description, ver.lorebook || undefined);
+        state.personas = Host.listPersonas();
         state.currentPersona = Host.getCurrentPersona();
-        renderUserToolbar(); renderUserBody();
-        toast(`已切换至「${ver.name}」`, 'success');
+        renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+        toast(ver.displayName ? `已切换至「${ver.name}」（名字：${ver.displayName}）` : `已切换至「${ver.name}」`, 'success');
       }
       return;
     }
@@ -3244,11 +3511,50 @@ function initExtension() {
     }
     const prOpen = t.closest('[data-pr-open]');
     if (prOpen) {
-      const item = (state.livePresetNorm.prompts || []).find(p => p.id === prOpen.getAttribute('data-pr-open'));
-      if (item) {
-        const isPh = item.marker || typeof item.content !== 'string';
-        state.drawer = { type: 'entryEditor', mode: 'editPreset', heading: `预设提示词 · ${state.loadedPresetName}`, promptId: item.id, allowNameEdit: !isPh, readOnly: isPh, name: item.name, content: isPh ? '此项为酒馆原生占位槽位，仅支持开关启停。' : item.content, meta: `ID: ${item.id} · 角色: ${item.role}` };
-        renderDrawer();
+      const pid = prOpen.getAttribute('data-pr-open');
+      if (pid) {
+        const scrollTop = elBody.scrollTop;
+        if (state.expandedPresetIds.has(pid)) state.expandedPresetIds.delete(pid);
+        else state.expandedPresetIds.add(pid);
+        renderPresetBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const prInlineClose = t.closest('[data-pr-inline-close]');
+    if (prInlineClose) {
+      const pid = prInlineClose.getAttribute('data-pr-inline-close');
+      if (pid) {
+        const scrollTop = elBody.scrollTop;
+        state.expandedPresetIds.delete(pid);
+        renderPresetBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const prInlineCopy = t.closest('[data-pr-inline-copy]');
+    if (prInlineCopy) {
+      const panel = prInlineCopy.closest('.upp-inline-panel');
+      const content = panel?.querySelector('[data-pr-inline-content]')?.value ?? '';
+      try { await navigator.clipboard.writeText(content); toast('已复制提示词正文', 'success'); }
+      catch (_) { toast('当前环境不支持自动复制，请手动全选复制', 'warning'); }
+      return;
+    }
+    const prInlineSave = t.closest('[data-pr-inline-save]');
+    if (prInlineSave) {
+      const pid = prInlineSave.getAttribute('data-pr-inline-save');
+      const panel = prInlineSave.closest('.upp-inline-panel');
+      const name = (panel?.querySelector('[data-pr-inline-name]')?.value || '').trim();
+      const content = panel?.querySelector('[data-pr-inline-content]')?.value ?? '';
+      try {
+        await Host.updatePresetPrompt(pid, name || pid, content);
+        state.livePresetNorm = Host.getLiveNormalizedPreset();
+        const scrollTop = elBody.scrollTop;
+        renderPresetBody();
+        elBody.scrollTop = scrollTop;
+        toast('已保存预设提示词', 'success');
+      } catch (err) {
+        toast('保存失败：' + (err?.message || err), 'error');
       }
       return;
     }
@@ -3384,7 +3690,7 @@ function initExtension() {
 
     if (d.type === 'viewSnapshot') {
       const tabBtn = t.closest('[data-sv-tab]');
-      if (tabBtn) { d.subTab = tabBtn.getAttribute('data-sv-tab'); d.search = ''; renderDrawer(); return; }
+      if (tabBtn) { d.subTab = tabBtn.getAttribute('data-sv-tab'); d.search = ''; d.expandedIds?.clear(); renderDrawer(); return; }
       if (t.closest('#upp-sv-only-on')) { d.onlyOn = !d.onlyOn; renderDrawer(); return; }
       if (t.closest('#upp-sv-fold-all')) {
         d.allExpanded = !d.allExpanded;
@@ -3464,18 +3770,36 @@ function initExtension() {
       const prItem = t.closest('[data-view-snap-pr]');
       if (prItem) {
         const pid = prItem.getAttribute('data-view-snap-pr');
+        if (pid) {
+          if (!d.expandedIds) d.expandedIds = new Set();
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          if (d.expandedIds.has(pid)) d.expandedIds.delete(pid);
+          else d.expandedIds.add(pid);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svPrClose = t.closest('[data-sv-pr-close]');
+      if (svPrClose) {
+        const pid = svPrClose.getAttribute('data-sv-pr-close');
+        if (pid && d.expandedIds) {
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          d.expandedIds.delete(pid);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svPrCopy = t.closest('[data-sv-pr-copy]');
+      if (svPrCopy) {
+        const pid = svPrCopy.getAttribute('data-sv-pr-copy');
         const live = (d.presetNorm?.prompts || []).find(p => p.id === pid);
-        if (live) {
-          state.drawer = {
-            type: 'entryEditor',
-            fullView: true,
-            heading: `${d.snapshot.preset.name || '预设'} · ${live.name || pid}`,
-            content: live.marker || typeof live.content !== 'string' ? '酒馆原生占位槽位，无正文内容。' : live.content,
-            readOnly: true,
-            meta: `ID: ${live.id} · 角色: ${live.role}`,
-            returnTo: d,
-          };
-          renderDrawer();
+        if (live && typeof live.content === 'string') {
+          try { await navigator.clipboard.writeText(live.content); toast('已复制提示词正文', 'success'); }
+          catch (_) { toast('当前环境不支持自动复制', 'warning'); }
         }
         return;
       }
@@ -3546,9 +3870,39 @@ function initExtension() {
       render(); return;
     }
 
+    if (d.type === 'renamePersona') {
+      if (t.closest('#upp-rename-clear-btn')) {
+        const inp = shadow.getElementById('upp-rename-input');
+        if (inp) { inp.value = ''; if (window.innerWidth > 640) inp.focus(); }
+        return;
+      }
+      if (t.closest('#upp-rename-confirm-btn')) {
+        const nextName = (shadow.getElementById('upp-rename-input')?.value || '').trim();
+        if (!nextName) { toast('请输入新的 User 名字', 'warning'); return; }
+        try {
+          await Host.renamePersonaInPlace(d.avatarId, nextName);
+          state.personas = Host.listPersonas();
+          state.currentPersona = Host.getCurrentPersona();
+          state.drawer = null;
+          render();
+          toast(`已将当前 User 改名为「${nextName}」`, 'success');
+        } catch (err) {
+          toast('改名失败：' + (err?.message || err), 'error');
+        }
+        return;
+      }
+    }
+
+    if (d.type === 'entryEditor' && t.closest('#upp-ed-dn-clear-btn')) {
+      const inp = shadow.getElementById('upp-ed-display-name');
+      if (inp) { inp.value = ''; if (window.innerWidth > 640) inp.focus(); }
+      return;
+    }
+
     if (t.closest('#upp-ed-save-btn') && d.type === 'entryEditor') {
       const content = shadow.getElementById('upp-ed-content')?.value ?? '';
       const name = shadow.getElementById('upp-ed-name')?.value?.trim() ?? d.name ?? '';
+      const displayName = shadow.getElementById('upp-ed-display-name')?.value?.trim() ?? '';
       const strategyType = shadow.getElementById('upp-ed-strategy')?.value;
       try {
         if (d.mode === 'editPersona' && state.currentPersona) {
@@ -3558,7 +3912,14 @@ function initExtension() {
         } else if (d.mode === 'editPersonaVersion' && state.currentPersona) {
           const aid = state.currentPersona.avatar_id;
           const ver = (state.store.personaVersions[aid] || []).find(v => v.id === d.versionId);
-          if (ver) { ver.name = name || ver.name; ver.description = content; ver.updatedAt = Date.now(); persistStore(state.store); toast('已更新内部版本', 'success'); }
+          if (ver) {
+            ver.name = name || ver.name;
+            ver.displayName = displayName.slice(0, 60);
+            ver.description = content;
+            ver.updatedAt = Date.now();
+            persistStore(state.store);
+            toast('已更新内部版本', 'success');
+          }
         } else if (d.mode === 'editWb') {
           await Host.updateWorldbookEntry(d.bookName, d.uid, name || '未命名条目', content, strategyType);
           await ensureBookEntries(d.bookName, true);
@@ -3588,6 +3949,7 @@ function initExtension() {
         globals: state.globalWorldbooks,
         charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
         chatBook: state.chatWorldbook,
+        liveCharBookMap: buildLiveCharBookMap(),
       });
       const sec = sections.find(x => x.id === sid);
       if (sec) {
@@ -3639,8 +4001,20 @@ function initExtension() {
     }
 
     if (d.type === 'savePersonaVersion' && state.currentPersona) {
+      if (t.closest('#upp-pv-dn-clear-btn')) {
+        const inp = shadow.getElementById('upp-pv-display-name');
+        if (inp) { inp.value = ''; if (window.innerWidth > 640) inp.focus(); }
+        return;
+      }
       const fillPv = t.closest('[data-pv-fill-name]');
-      if (fillPv) { const inp = shadow.getElementById('upp-pv-name'); if (inp) inp.value = fillPv.getAttribute('data-pv-fill-name') || ''; return; }
+      if (fillPv) {
+        const inp = shadow.getElementById('upp-pv-name');
+        if (inp) inp.value = fillPv.getAttribute('data-pv-fill-name') || '';
+        const dnInp = shadow.getElementById('upp-pv-display-name');
+        const fillDn = fillPv.getAttribute('data-pv-fill-dn');
+        if (dnInp && fillDn) dnInp.value = fillDn;
+        return;
+      }
       const delPv = t.closest('[data-pv-del]');
       if (delPv) {
         const aid = state.currentPersona.avatar_id;
@@ -3650,12 +4024,14 @@ function initExtension() {
       if (t.closest('#upp-pv-save-btn')) {
         const vName = (shadow.getElementById('upp-pv-name')?.value || '').trim();
         if (!vName) { toast('请填写版本名称', 'warning'); return; }
+        const vDisplayName = (shadow.getElementById('upp-pv-display-name')?.value || '').trim();
         const aid = state.currentPersona.avatar_id;
         const list = state.store.personaVersions[aid] || [];
         const existingIdx = list.findIndex(v => v.name === vName);
         const item = {
           id: existingIdx >= 0 ? list[existingIdx].id : uid('pv'),
           name: vName.slice(0, 60),
+          displayName: vDisplayName.slice(0, 60),
           description: state.currentPersona.description || '',
           lorebook: state.currentPersona.lorebook || '',
           updatedAt: Date.now(),
@@ -3692,8 +4068,8 @@ function initExtension() {
         const keep = state.personas.find(p => p.avatar_id === d.keepId);
         if (!keep) return;
         const list = state.store.personaVersions[keep.avatar_id] || [];
-        if ((keep.description || '').trim() && !list.some(v => v.description === keep.description)) {
-          list.unshift({ id: uid('pv'), name: '原主描述', description: keep.description, lorebook: keep.lorebook || '', updatedAt: Date.now() });
+        if ((keep.description || '').trim() && !list.some(v => v.description === keep.description && (!v.displayName || v.displayName === keep.name))) {
+          list.unshift({ id: uid('pv'), name: '原主描述', displayName: keep.name, description: keep.description, lorebook: keep.lorebook || '', updatedAt: Date.now() });
         }
         let absorbed = 0; let deleted = 0;
         for (const aid of (d.absorbIds || [])) {
@@ -3704,7 +4080,7 @@ function initExtension() {
             label = label.slice(keep.name.length).replace(/^[\s_\-·・/()（）【】\[\]]+/, '').replace(/[)）】\]]+$/, '') || oldP.name;
           }
           if (list.some(v => v.name === label)) label = `${label} (${absorbed + 1})`;
-          list.push({ id: uid('pv'), name: label.slice(0, 60), description: oldP.description || '', lorebook: oldP.lorebook || '', updatedAt: Date.now() });
+          list.push({ id: uid('pv'), name: label.slice(0, 60), displayName: oldP.name, description: oldP.description || '', lorebook: oldP.lorebook || '', updatedAt: Date.now() });
           absorbed++;
           if (d.deleteOld) { try { if (await Host.deletePersonaById(oldP.avatar_id)) deleted++; } catch (_) {} }
         }
@@ -4059,6 +4435,8 @@ function initExtension() {
     if (!state.open) return;
     if (state.drawer?.type === 'bookPicker') {
       renderBookPickerList(state.drawer);
+    } else if (state.drawer?.type === 'viewSnapshot' && state.drawer.subTab === 'worldbooks') {
+      renderViewSnapshotBody(state.drawer);
     } else if (state.drawer?.type === 'saveSnapshot') {
       state.drawer.name = shadow.getElementById('upp-ss-name')?.value ?? state.drawer.name;
       state.drawer.group = shadow.getElementById('upp-ss-group')?.value ?? state.drawer.group;
@@ -4080,7 +4458,7 @@ function initExtension() {
     item.setAttribute('role', 'button');
     item.innerHTML =
       '<i class="fa-solid fa-camera-retro extensionsMenuExtensionButton"></i>' +
-      '<span>User 组装与快照</span>';
+      '<span>快照管家</span>';
     item.addEventListener('click', ev => { ev.preventDefault(); if (state.open) closeModal(); else openModal(); });
     item.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (state.open) closeModal(); else openModal(); } });
     menu.appendChild(item);
@@ -4103,7 +4481,7 @@ function initExtension() {
     box.className = 'inline-drawer';
     box.innerHTML = `
       <div class="inline-drawer-toggle inline-drawer-header">
-        <b>User 组装与快照 v${APP_VERSION}</b>
+        <b>快照管家 v${APP_VERSION}</b>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
       </div>
       <div class="inline-drawer-content">
