@@ -1,7 +1,7 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '4.1.0';
+  const APP_VERSION = '5.0.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
@@ -9,11 +9,14 @@
   const VAR_KEY = 'user_picker';
   const LIB_BOOK = '__lib__';
   const OPENING_BOOK = 'User·总控入口';
-  const STORE_KEY = 'userPersonaPicker.v4';
+  const STORE_KEY = 'userPersonaPicker.v5';
+  const LEGACY_STORE_KEY = 'userPersonaPicker.v4';
   const KEY_SEP = '\u0000';
 
   const BUILTIN_LIBRARY = [{"cat":"外貌与发色","title":"清冷美人","content":"五官清隽疏朗，眉眼线条干净利落，不笑时自带淡然疏离的距离感，笑起来反差格外明显。"},{"cat":"外貌与发色","title":"浓颜明艳","content":"五官立体深邃、眉眼浓郁有神，红唇雪肤对比鲜明，在人群里第一眼就很抓人视线。"},{"cat":"外貌与发色","title":"邻家甜妹","content":"脸型柔和讨喜，眼尾微圆，笑起来眉眼弯弯带软意，气质亲近自然、让人不自觉放软语气。"},{"cat":"外貌与发色","title":"元气少女","content":"神态鲜活明快，眼神清亮有光，情绪外露而真诚，举手投足带着轻盈的朝气。"},{"cat":"外貌与发色","title":"冷艳御姐","content":"骨相利落大气，眼型偏长带几分凌厉感，气质从容笃定，气场沉稳压得住场。"},{"cat":"外貌与发色","title":"清俊少年感","content":"轮廓清爽舒展，眉骨清晰，身材修长匀称，带着干净坦荡、不加修饰的少年气息。"},{"cat":"外貌与发色","title":"娇小纤细","content":"个子偏娇小，骨架纤细单薄，肩颈与腕骨线条秀气，在对方身边显得很需要照顾。"},{"cat":"外貌与发色","title":"高挑修长","content":"身材高挑匀称，肩背舒展、腿型笔直修长，站姿挺拔有存在感。"},{"cat":"外貌与发色","title":"黑长直","content":"留着一头顺滑乌黑的长直发，垂落肩背，衬得肤色更显白皙干净。"},{"cat":"外貌与发色","title":"波浪长卷发","content":"留着蓬松柔顺的长卷发，发尾自然垂卷，低头或转身时带着柔和的慵懒氛围。"},{"cat":"外貌与发色","title":"利落短发","content":"留着干净利落的短发，露出清晰的下颌线与颈侧线条，显得清爽有精神。"},{"cat":"外貌与发色","title":"浅色长发","content":"留着浅金、浅棕或银白系长发，光线照过时发丝泛着柔和光泽，视觉辨识度很高。"},{"cat":"穿搭与气质","title":"简约日常风","content":"穿衣偏爱剪裁利落的纯色基础款，注重版型与舒适度，干净清爽不过度堆砌配饰。"},{"cat":"穿搭与气质","title":"温柔知性风","content":"常穿针织、衬衫与柔和低饱和色系，举止从容得体，自带沉静温和的书卷气。"},{"cat":"穿搭与气质","title":"甜酷辣妹风","content":"擅长把明快剪裁与利落配饰混搭，既有精致明艳的一面，也带着随性洒脱的锋芒。"},{"cat":"穿搭与气质","title":"精致大小姐风","content":"衣着面料考究、细节精致，举止自带优渥教养养出的从容感，但不刻意炫耀。"},{"cat":"穿搭与气质","title":"松弛学院风","content":"偏爱卫衣、针织开衫、百褶裙或直筒裤等轻便单品，自然减龄、没有紧绷感。"},{"cat":"穿搭与气质","title":"古风雅致风","content":"衣袂飘逸、配色清雅，佩饰克制而有细节，行止间合乎古韵礼度而不失灵气。"},{"cat":"性格底色","title":"温柔体贴","content":"性格温和细腻，能敏锐察觉他人情绪并照顾分寸，说话轻声但心里有主见，不是无底线迁就。"},{"cat":"性格底色","title":"娇气爱撒娇","content":"有点小娇气，面对亲近的人习惯软声撒娇、求抱求哄，受委屈会眼眶泛红，顺毛哄两句就会心软。"},{"cat":"性格底色","title":"傲娇嘴硬","content":"嘴上爱逞强拌嘴、不肯轻易服软，其实心软护短，被直球夸奖或靠近时容易耳根发红。"},{"cat":"性格底色","title":"独立清醒","content":"情绪稳定、边界清晰，遇事冷静有判断力，不内耗也不轻易被言语画饼或道德绑架。"},{"cat":"性格底色","title":"呆萌迷糊","content":"日常偶尔慢半拍、带点天然的迷糊感，对弯弯绕绕反应不敏锐，但对在乎的事格外执着认真。"},{"cat":"性格底色","title":"社恐慢热","content":"面对陌生人拘谨话少、不喜多余寒暄，混熟并确认安全感后才会卸下防备露出柔软或话痨一面。"},{"cat":"性格底色","title":"活泼直球","content":"性格外向坦率，喜欢和不满都直接摆在明面上，不藏弯弯绕绕，聊天节奏明快自然。"},{"cat":"性格底色","title":"腹黑绿茶","content":"表面软糯无辜、很懂示弱拿捏情绪，心里却精明通透，擅长不动声色地把主动权握在手里。"},{"cat":"性格底色","title":"高冷少言","content":"平时话不多、表情克制，习惯用眼神和动作代替废话，只在真正在意的人面前展露细微偏爱。"},{"cat":"性格底色","title":"咸鱼摆烂","content":"随性松弛、能躺绝不站，对琐事佛系不内卷，人生最高优先级是吃好睡好和舒服自在。"},{"cat":"性格底色","title":"猫系若即若离","content":"像猫一样看心情亲近，需要空间时不爱被步步紧逼，放松时又会主动贴过来蹭一蹭。"},{"cat":"性格底色","title":"犬系粘人热情","content":"情绪热忱真诚，对喜欢的人藏不住开心，习惯主动贴近、分享日常和求夸求回应。"},{"cat":"性格底色","title":"毒舌心软","content":"嘴上吐槽犀利一针见血，真遇上事却总是第一个帮忙兜底，属于刀子嘴豆腐心。"},{"cat":"性格底色","title":"理智克制","content":"习惯先观察再表态，哪怕心动也会保持体面与分寸，情绪很少失控，越克制越显张力。"},{"cat":"恋爱与依恋","title":"粘人恋爱脑","content":"确认喜欢后会把对方放在很靠前的位置，喜欢频繁贴贴、报备日常，很吃偏爱与回应。"},{"cat":"恋爱与依恋","title":"慢热观察型","content":"不会因一时冲动交出真心，需要通过长期细节观察对方是否可靠，动心后反而极其长情。"},{"cat":"恋爱与依恋","title":"口是心非","content":"心里明明在意得要命，嘴上偏说“随便”“无所谓”，细微眼神和小动作却总会露馅。"},{"cat":"恋爱与依恋","title":"护短偏爱","content":"对外客气有礼，对认定的人极其护短，哪怕对方嘴硬也会不动声色地站在同一边。"},{"cat":"恋爱与依恋","title":"回避试探型","content":"害怕受伤与落空，关系一升温就容易下意识退半步试探，需要坚定而耐心的确认才敢靠近。"},{"cat":"恋爱与依恋","title":"占有欲偏强","content":"表面不动声色，心里却极在意唯一性，看到对方和旁人过近会安静吃醋或暗暗宣示存在感。"},{"cat":"恋爱与依恋","title":"情感洁癖","content":"对待感情纯粹认真，容不得含糊不清的暧昧与欺瞒，爱则全心投入，越界则干脆抽身。"},{"cat":"恋爱与依恋","title":"直球偏爱","content":"不玩推拉猜心，喜欢就会大方夸奖和靠近，用坦荡的态度把安全感直接递到对方手里。"},{"cat":"表达方式","title":"语气温软","content":"说话尾音偏轻偏软，即使生气也不大吼大叫，更像轻声控诉或冷着脸憋着不理人。"},{"cat":"表达方式","title":"话少精简","content":"开口言简意赅，不爱长篇大论解释，很多态度藏在停顿、目光和短句里。"},{"cat":"表达方式","title":"爱吐槽接梗","content":"反应快、有幽默感，擅长在紧张或暧昧气氛里冷不丁接一句俏皮吐槽打破僵局。"},{"cat":"表达方式","title":"爱撒娇拖尾音","content":"和熟人说话时偶尔会拖长尾音或软声喊人，自然娇憨而不做作。"},{"cat":"表达方式","title":"克制礼貌","content":"对不熟的人措辞客气周全，哪怕拒绝也带着礼貌的疏离，让人挑不出错却难再进一步。"},{"cat":"表达方式","title":"脑回路清奇","content":"思考角度偶尔跳脱出人意料，常在严肃场景里冒出认真又荒诞的直白结论。"},{"cat":"关系阶段","title":"初见陌生","content":"与{{char}}刚刚相识，彼此还停留在礼貌试探阶段，尚未建立亲密信任与越界习惯。"},{"cat":"关系阶段","title":"熟人暗恋","content":"与{{char}}原本相熟，关系里藏着尚未挑明的心动与试探，日常互动带着微妙的克制。"},{"cat":"关系阶段","title":"暧昧拉扯","content":"与{{char}}处于心照不宣的暧昧期，言语和肢体都在试探边界，谁都还没正式捅破那层纸。"},{"cat":"关系阶段","title":"热恋交往","content":"已与{{char}}正式确定恋爱关系，相处自然亲密，习惯彼此的陪伴、偏爱与日常小腻歪。"},{"cat":"关系阶段","title":"欢喜冤家","content":"与{{char}}平时见面就爱互相斗嘴拆台，表面针锋相对，真遇上事却最护着对方。"},{"cat":"关系阶段","title":"冷战僵持","content":"与{{char}}因误会或分歧正在冷战，表面各自端着架子不肯先低头，暗地里却都在意对方动静。"},{"cat":"关系阶段","title":"分手前任","content":"曾与{{char}}有过一段认真感情但已分手，再次照面时熟悉感与疏离感并存，旧账未清。"},{"cat":"关系阶段","title":"破镜重圆","content":"与{{char}}分开一段时间后再度重逢，彼此都有成长与未尽的情意，旧情与心结交织拉扯。"},{"cat":"关系阶段","title":"契约关系","content":"与{{char}}因约定或利益结成契约关系，台面上按协议各取所需，私下界限却在悄然松动。"},{"cat":"关系阶段","title":"已婚同居","content":"已与{{char}}领证结婚并同居生活，熟悉彼此生活习惯，兼具琐碎烟火气与亲密默契。"},{"cat":"背景身份","title":"在校学生","content":"当前身份为在校大学生或研究生，生活围绕校园、学业、社团与年轻人的日常展开。"},{"cat":"背景身份","title":"职场新人","content":"初入职场不久，经济独立、努力适应社会节奏，偶尔会因工作疲惫但仍保留鲜活劲头。"},{"cat":"背景身份","title":"独立从业者","content":"从事自由职业、设计、创作或独立经营，时间相对灵活，有自己的专业底气与生活秩序。"},{"cat":"背景身份","title":"豪门世家","content":"出身优渥的豪门家庭，自小受过良好教养，见识开阔、处事从容，低调但不缺底气。"},{"cat":"背景身份","title":"普通温馨家庭","content":"成长于普通和睦的家庭，三观端正、内心有底气，懂得珍惜日常烟火与真诚待人。"},{"cat":"背景身份","title":"古风世家","content":"身处古代背景，出身书香或勋贵之家，知礼守度却不迂腐，言行藏着自己的玲珑心思。"},{"cat":"背景身份","title":"西幻冒险者","content":"身处剑与魔法的奇幻世界，具备一定自保与探索能力，游历于城镇、学院或秘境之间。"},{"cat":"背景身份","title":"修仙宗门","content":"身处修真世界，为宗门弟子或散修，日常修行历练，兼顾道心、师门与红尘因果。"},{"cat":"互动规则","title":"禁止代写User言行","isRule":true,"content":"严格禁止替{{user}}描写对话、动作、神态、心理活动或擅自替{{user}}做决定，所有反应留给{{user}}本人。"},{"cat":"互动规则","title":"尊重User自主权","isRule":true,"content":"{{char}}不得无视{{user}}的拒绝或单方面包办剧情走向，关键节点必须留出回应与选择空间。"},{"cat":"互动规则","title":"称呼自然少喊全名","isRule":true,"content":"关系亲近后称呼自然贴合语境，非严肃、生疏或生气场合不频繁生硬地连名带姓喊全名。"},{"cat":"互动规则","title":"保持角色本色","isRule":true,"content":"{{char}}始终保持原有性格、立场与说话习惯，不因迎合{{user}}而突然变得谄媚或失去个性。"},{"cat":"互动规则","title":"不擅自推进亲密进度","isRule":true,"content":"感情与肢体亲密须随剧情自然铺垫，未经{{user}}回应或默许不突然跳过阶段强行升级。"},{"cat":"互动规则","title":"重动作与细节描写","isRule":true,"content":"多通过具体动作、微表情、语气停顿与环境细节展现情绪，少用空洞抽象的心理总结。"},{"cat":"互动规则","title":"允许自然拉扯与分歧","isRule":true,"content":"互动中允许存在观念差异、轻微试探与情绪拉扯，不必每句话都顺着说或强行圆场。"},{"cat":"互动规则","title":"避免说教与总结腔","isRule":true,"content":"对话与叙述保持自然生活感，避免结尾升华总结、人生道理说教或反复复述前文。"}];
+  const CONFLICT_GROUPS = [{"id":"body_size","label":"体型身高","items":["娇小纤细","高挑修长"]},{"id":"hair_len","label":"发型冲突","items":["黑长直","波浪长卷发","利落短发"]},{"id":"hair_color","label":"发色冲突","items":["黑长直","浅色长发"]},{"id":"vibe","label":"外貌气质","items":["清冷美人","邻家甜妹","元气少女","冷艳御姐","清俊少年感"]},{"id":"social","label":"社交性格","items":["社恐慢热","活泼直球"]},{"id":"talk","label":"话量冲突","items":["高冷少言","活泼直球"]},{"id":"speech","label":"表达冲突","items":["话少精简","爱吐槽接梗"]},{"id":"love_style","label":"恋爱态度","items":["直球偏爱","口是心非","回避试探型"]},{"id":"stage_core","label":"关系阶段","items":["初见陌生","熟人暗恋","暧昧拉扯","热恋交往","分手前任","已婚同居"]},{"id":"era","label":"时代世界观","items":["在校学生","职场新人","古风世家","西幻冒险者","修仙宗门"]}];
 
+  // Worldbook EJS renders pre-formatted text if provided, or pulls live worldbook entries cleanly
   const OPENING_BODY_EJS = [
     '<%_',
     'const _getPick = function () {',
@@ -37,6 +40,7 @@
     'const _pk = _getPick();',
     'const _list = Array.isArray(_pk.wi) ? _pk.wi : [];',
     'const _body = [], _rules = [];',
+    "if (typeof _pk.profileText === 'string' && _pk.profileText.trim()) _body.push(_pk.profileText.trim());",
     'for (let _i = 0; _i < _list.length; _i++) {',
     '  const _it = _list[_i] || {};',
     "  if (_it.title === '红线') continue;",
@@ -135,16 +139,139 @@
     return nt.includes(c) || (cb.length >= 2 && nt.includes(cb));
   }
 
-  // Format each entry cleanly without breaking YAML or Markdown headers
-  function formatEntryBlock(title, content) {
+  // Smart unit completion for structured basic profile fields (e.g. "20" -> "20岁", "162" -> "162cm")
+  function formatAge(raw) {
+    const s = normalizeName(raw);
+    if (!s) return '';
+    if (/^\d+(?:\.\d+)?$/.test(s)) return s + '岁';
+    return s;
+  }
+
+  function formatHeight(raw) {
+    const s = normalizeName(raw);
+    if (!s) return '';
+    if (/^\d{2,3}(?:\.\d+)?$/.test(s)) return s + 'cm';
+    if (/^1\.\d{1,2}$/.test(s)) return Math.round(Number(s) * 100) + 'cm';
+    return s;
+  }
+
+  function createEmptyProfile() {
+    return { name: '', gender: '', age: '', height: '', role: '', traits: '' };
+  }
+
+  function normalizeProfile(raw) {
+    const base = createEmptyProfile();
+    if (!raw || typeof raw !== 'object') return base;
+    for (const k of Object.keys(base)) {
+      if (typeof raw[k] === 'string') base[k] = raw[k].trim();
+    }
+    return base;
+  }
+
+  function hasProfileData(profile) {
+    if (!profile) return false;
+    return Object.values(profile).some(v => typeof v === 'string' && v.trim().length > 0);
+  }
+
+  function formatProfileBlock(profile, outputFormat) {
+    const p = normalizeProfile(profile);
+    const age = formatAge(p.age);
+    const height = formatHeight(p.height);
+    const fields = [];
+    if (p.name) fields.push(['姓名', p.name]);
+    if (p.gender) fields.push(['性别', p.gender]);
+    if (age) fields.push(['年龄', age]);
+    if (height) fields.push(['身高', height]);
+    if (p.role) fields.push(['身份', p.role]);
+    if (p.traits) fields.push(['外貌与特征', p.traits]);
+    if (!fields.length) return '';
+
+    if (outputFormat === 'prose') {
+      const parts = [];
+      if (p.name) parts.push('姓名' + p.name);
+      if (p.gender) parts.push(p.gender);
+      if (age) parts.push(age);
+      if (height) parts.push('身高' + height);
+      if (p.role) parts.push('身份为' + p.role);
+      const head = parts.length ? parts.join('，') + '。' : '';
+      const tail = p.traits ? (head ? '\n' : '') + '特征：' + p.traits : '';
+      return '【基础信息】\n' + head + tail;
+    }
+
+    // Both 'yaml' and 'hybrid' use clean YAML for structured basic info
+    return '基础信息:\n' + fields.map(([k, v]) => '  ' + k + ': ' + v).join('\n');
+  }
+
+  function isYamlLike(content) {
+    const first = String(content || '').trim().split(/\r?\n/)[0].trim();
+    return /^[^\s:#]+:\s*$/.test(first) || /^[^\s:#]+:\s+\S/.test(first);
+  }
+
+  function formatEntryForStyle(title, content, outputFormat) {
     const c = String(content || '').trim();
     if (!c) return '';
-    const firstLine = c.split(/\r?\n/)[0].trim();
-    // Preserve verbatim if already has YAML root key ("key:"), Markdown heading ("#"), or bracket heading ("【...】")
-    if (/^#/.test(firstLine) || /^【.+】/.test(firstLine) || /^[^\s:#]+:\s*$/.test(firstLine)) {
-      return c;
+    const first = c.split(/\r?\n/)[0].trim();
+    const alreadyStructured = /^#/.test(first) || /^【.+】/.test(first) || /^[^\s:#]+:\s*$/.test(first);
+
+    if (outputFormat === 'yaml') {
+      if (isYamlLike(c)) return c;
+      const lines = c.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 1) return title + ': ' + lines[0];
+      return title + ':\n' + lines.map(l => '  - ' + l).join('\n');
     }
-    return title ? ('【' + title + '】\n' + c) : c;
+
+    if (outputFormat === 'prose') {
+      if (alreadyStructured) return c;
+      return '【' + title + '】\n' + c;
+    }
+
+    // 'hybrid': preserve YAML/heading entries verbatim; cleanly format plain prose with bracket header
+    if (alreadyStructured) return c;
+    return '【' + title + '】\n' + c;
+  }
+
+  // Detect conflicts among selected entries (returns [{ id, label, keys, titles }])
+  function detectConflicts(selectedSet) {
+    const selectedOrder = [...selectedSet];
+    const titleToKeys = new Map();
+    for (const k of selectedOrder) {
+      const { title } = parseKey(k);
+      if (!titleToKeys.has(title)) titleToKeys.set(title, []);
+      titleToKeys.get(title).push(k);
+    }
+
+    const conflicts = [];
+    for (const g of CONFLICT_GROUPS) {
+      const matched = [];
+      for (const t of g.items) {
+        const ks = titleToKeys.get(t);
+        if (ks && ks.length) {
+          for (const k of ks) matched.push({ key: k, title: t, order: selectedOrder.indexOf(k) });
+        }
+      }
+      if (matched.length >= 2) {
+        matched.sort((a, b) => a.order - b.order);
+        conflicts.push({
+          id: g.id,
+          label: g.label,
+          keys: matched.map(m => m.key),
+          titles: matched.map(m => m.title),
+          latestKey: matched[matched.length - 1].key,
+        });
+      }
+    }
+    return conflicts;
+  }
+
+  function resolveConflictsKeepLatest(selectedSet) {
+    const conflicts = detectConflicts(selectedSet);
+    const next = new Set(selectedSet);
+    for (const c of conflicts) {
+      for (const k of c.keys) {
+        if (k !== c.latestKey) next.delete(k);
+      }
+    }
+    return next;
   }
 
   function parseRgb(colorStr) {
@@ -172,25 +299,33 @@
 
   function createDefaultStore() {
     return {
-      v: 4,
-      targetMode: 'persona',
+      v: 5,
+      outputFormat: 'hybrid', // 'hybrid' | 'yaml' | 'prose'
       defaultPresetId: '',
       recentBooks: [],
-      customEntries: [],
+      customCategories: ['我的自定义'],
+      customEntries: [], // [{ id, cat, title, content, isRule? }]
       builtinEdits: {},
-      presets: [],
-      lastPersonaItems: [],
-      personaBackup: null, // { name, description, savedAt }
+      profile: createEmptyProfile(),
+      presets: [], // [{ id, label, items, profile, outputFormat }]
+      lastItems: [],
+      personaBackup: null,
     };
   }
 
   function normalizeStore(raw) {
     const base = createDefaultStore();
     if (!raw || typeof raw !== 'object') return base;
-    if (raw.targetMode === 'chat' || raw.targetMode === 'persona') base.targetMode = raw.targetMode;
+    if (raw.outputFormat === 'yaml' || raw.outputFormat === 'prose' || raw.outputFormat === 'hybrid') {
+      base.outputFormat = raw.outputFormat;
+    }
     if (typeof raw.defaultPresetId === 'string') base.defaultPresetId = raw.defaultPresetId;
     if (Array.isArray(raw.recentBooks)) {
       base.recentBooks = [...new Set(raw.recentBooks.filter(x => typeof x === 'string' && x.trim()))].slice(0, 12);
+    }
+    if (Array.isArray(raw.customCategories)) {
+      const cats = [...new Set(raw.customCategories.map(x => String(x || '').trim()).filter(Boolean))];
+      base.customCategories = cats.length ? cats : ['我的自定义'];
     }
     if (Array.isArray(raw.customEntries)) {
       const seen = new Set();
@@ -199,8 +334,11 @@
         const title = e.title.trim();
         if (seen.has(title)) continue;
         seen.add(title);
+        const cat = typeof e.cat === 'string' && e.cat.trim() ? e.cat.trim() : base.customCategories[0];
+        if (!base.customCategories.includes(cat)) base.customCategories.push(cat);
         base.customEntries.push({
           id: typeof e.id === 'string' && e.id ? e.id : 'c_' + Date.now().toString(36) + '_' + seen.size,
+          cat,
           title,
           content: typeof e.content === 'string' ? e.content : '',
           isRule: Boolean(e.isRule),
@@ -212,6 +350,7 @@
         if (typeof k === 'string' && typeof v === 'string') base.builtinEdits[k] = v;
       }
     }
+    if (raw.profile) base.profile = normalizeProfile(raw.profile);
     if (Array.isArray(raw.presets)) {
       for (let i = 0; i < raw.presets.length; i++) {
         const p = raw.presets[i];
@@ -223,11 +362,14 @@
           id: typeof p.id === 'string' && p.id ? p.id : 'p_' + Date.now().toString(36) + '_' + i,
           label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : '方案 ' + (i + 1),
           items,
+          profile: p.profile ? normalizeProfile(p.profile) : createEmptyProfile(),
+          outputFormat: (p.outputFormat === 'yaml' || p.outputFormat === 'prose' || p.outputFormat === 'hybrid') ? p.outputFormat : 'hybrid',
         });
       }
     }
-    if (Array.isArray(raw.lastPersonaItems)) {
-      base.lastPersonaItems = raw.lastPersonaItems
+    const lastSrc = Array.isArray(raw.lastItems) ? raw.lastItems : raw.lastPersonaItems;
+    if (Array.isArray(lastSrc)) {
+      base.lastItems = lastSrc
         .filter(it => it && typeof it.book === 'string' && typeof it.title === 'string' && it.book && it.title)
         .map(it => ({ book: it.book, title: it.title }));
     }
@@ -241,59 +383,76 @@
     return base;
   }
 
-  function getLibraryGroups(store, query) {
-    const q = normalizeName(query).toLocaleLowerCase();
-    const map = new Map();
+  function getBuiltinCategories() {
+    const cats = [];
     for (const item of BUILTIN_LIBRARY) {
+      if (!cats.includes(item.cat)) cats.push(item.cat);
+    }
+    return cats;
+  }
+
+  function getAllCategories(store) {
+    const builtin = getBuiltinCategories();
+    const custom = (store.customCategories || []).filter(c => !builtin.includes(c));
+    return [...builtin, ...custom];
+  }
+
+  function getEntriesForCategory(store, cat) {
+    const out = [];
+    for (const item of BUILTIN_LIBRARY) {
+      if (item.cat !== cat) continue;
       const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
         ? store.builtinEdits[item.title]
         : item.content;
-      if (q && !normalizeName(item.title).toLocaleLowerCase().includes(q) && !normalizeName(content).toLocaleLowerCase().includes(q)) {
-        continue;
+      out.push({ book: LIB_BOOK, cat, title: item.title, content, isRule: Boolean(item.isRule), isCustom: false });
+    }
+    for (const e of store.customEntries || []) {
+      if (e.cat !== cat) continue;
+      out.push({ book: LIB_BOOK, cat, title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true });
+    }
+    return out;
+  }
+
+  function searchAllLibraryEntries(store, query) {
+    const q = normalizeName(query).toLocaleLowerCase();
+    if (!q) return [];
+    const out = [];
+    for (const cat of getAllCategories(store)) {
+      for (const item of getEntriesForCategory(store, cat)) {
+        if (normalizeName(item.title).toLocaleLowerCase().includes(q) || normalizeName(item.content).toLocaleLowerCase().includes(q)) {
+          out.push(item);
+        }
       }
-      if (!map.has(item.cat)) map.set(item.cat, []);
-      map.get(item.cat).push({
-        book: LIB_BOOK,
-        title: item.title,
-        content,
-        isRule: Boolean(item.isRule),
-        isCustom: false,
-      });
     }
-    const groups = [...map.entries()].map(([cat, items]) => ({ cat, items }));
-    const customItems = (store.customEntries || [])
-      .filter(e => !q || normalizeName(e.title).toLocaleLowerCase().includes(q) || normalizeName(e.content).toLocaleLowerCase().includes(q))
-      .map(e => ({ book: LIB_BOOK, title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true }));
-    if (!q || customItems.length > 0) {
-      groups.push({ cat: '我的自定义', isCustomGroup: true, items: customItems });
-    }
-    return groups;
+    return out;
   }
 
   function findLibraryEntry(store, title) {
     for (const e of store.customEntries || []) {
-      if (e.title === title) return { title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true };
+      if (e.title === title) return { cat: e.cat, title: e.title, content: e.content, isRule: Boolean(e.isRule), isCustom: true };
     }
     for (const item of BUILTIN_LIBRARY) {
       if (item.title === title) {
         const content = Object.prototype.hasOwnProperty.call(store.builtinEdits, item.title)
           ? store.builtinEdits[item.title]
           : item.content;
-        return { title: item.title, content, isRule: Boolean(item.isRule), isCustom: false };
+        return { cat: item.cat, title: item.title, content, isRule: Boolean(item.isRule), isCustom: false };
       }
     }
     return null;
+  }
+
+  function filterWorldbookNames(bookNames, query) {
+    const q = normalizeName(query).toLocaleLowerCase();
+    if (!q) return bookNames;
+    return bookNames.filter(name => normalizeName(name).toLocaleLowerCase().includes(q));
   }
 
   function organizeWorldbookEntries(entries, currentChar, showAllChars, query) {
     const q = normalizeName(query).toLocaleLowerCase();
     const list = (entries || [])
       .filter(e => e && typeof e.name === 'string' && e.name.trim())
-      .filter(e => {
-        if (!q) return true;
-        return normalizeName(e.name).toLocaleLowerCase().includes(q) ||
-          normalizeName(e.content || '').toLocaleLowerCase().includes(q);
-      });
+      .filter(e => !q || normalizeName(e.name).toLocaleLowerCase().includes(q) || normalizeName(e.content || '').toLocaleLowerCase().includes(q));
 
     const bracketCount = list.filter(e => Boolean(parseBracketTitle(e.name))).length;
     if (list.length >= 3 && bracketCount / list.length >= 0.4) {
@@ -351,11 +510,15 @@
     return name;
   }
 
-  function assembleOutput(selectedSet, store, wbContentMap) {
+  function assembleOutput(selectedSet, store, wbContentMap, outputFormatOverride) {
+    const fmt = outputFormatOverride || store.outputFormat || 'hybrid';
     const body = [];
     const rules = [];
     const redlines = [];
     const wiPayload = [];
+
+    const profileBlock = formatProfileBlock(store.profile, fmt);
+    if (profileBlock) body.push(profileBlock);
 
     for (const k of selectedSet) {
       const { book, title } = parseKey(k);
@@ -365,18 +528,18 @@
         if (!entry) continue;
         const text = String(entry.content || '').trim();
         if (!text) continue;
-        wiPayload.push({ book: LIB_BOOK, title, text, isRule: entry.isRule });
-        const block = formatEntryBlock(title, text);
-        if (entry.isRule) rules.push(block);
-        else body.push(block);
+        const formatted = formatEntryForStyle(title, text, fmt);
+        wiPayload.push({ book: LIB_BOOK, title, text: formatted, isRule: entry.isRule });
+        if (entry.isRule) rules.push(formatted);
+        else body.push(formatted);
       } else {
         const text = String(wbContentMap?.[book]?.[title] || '').trim();
         wiPayload.push({ book, title });
         if (!text) continue;
-        const block = formatEntryBlock(title, text);
-        if (title === '红线') redlines.push(block);
-        else if (/^(写作约束|演绎准则)/.test(title)) rules.push(block);
-        else body.push(block);
+        const formatted = formatEntryForStyle(title, text, fmt);
+        if (title === '红线') redlines.push(formatted);
+        else if (/^(写作约束|演绎准则)/.test(title)) rules.push(formatted);
+        else body.push(formatted);
       }
     }
 
@@ -385,7 +548,12 @@
     if (rules.length) blocks.push('<USER写作规则>\n' + rules.join('\n\n') + '\n</USER写作规则>');
     if (redlines.length) blocks.push('<USER红线>\n' + redlines.join('\n\n') + '\n</USER红线>');
 
-    return { text: blocks.join('\n\n'), wi: wiPayload, count: wiPayload.length };
+    return {
+      text: blocks.join('\n\n'),
+      profileText: profileBlock,
+      wi: wiPayload,
+      count: wiPayload.length + (profileBlock ? 1 : 0),
+    };
   }
 
   function mergeIntoPersonaDescription(existingDesc, generatedBlock, replaceAll) {
@@ -407,7 +575,7 @@
       try { obj = JSON.parse(obj); } catch (_) { obj = null; }
     }
     if (!obj || typeof obj !== 'object' || !Array.isArray(obj.wi)) {
-      return { hasSaved: false, items: [] };
+      return { hasSaved: false, items: [], profile: null };
     }
     const items = [];
     const seen = new Set();
@@ -421,7 +589,7 @@
       seen.add(k);
       items.push({ book, title });
     }
-    return { hasSaved: true, items };
+    return { hasSaved: true, items, profile: obj.profile ? normalizeProfile(obj.profile) : null };
   }
 
   function buildWorldbookEntry(name, content) {
@@ -455,8 +623,8 @@
           keys_secondary: { logic: 'and_any', keys: [] },
           scan_depth: 'same_as_global',
         },
-        // order: 999 keeps our atomic XML block cleanly at the tail of after_character_definition, never inside another wrapper
-        position: { type: 'after_character_definition', role: 'system', depth: 4, order: 999 },
+        // order: 99999 stays cleanly outside author worldbook wrappers (even those ending at 999 or 9999)
+        position: { type: 'after_character_definition', role: 'system', depth: 4, order: 99999 },
         probability: 100,
         recursion: { prevent_incoming: true, prevent_outgoing: true, delay_until: null },
         effect: { sticky: null, cooldown: null, delay: null },
@@ -484,17 +652,30 @@
     APP_VERSION,
     LIB_BOOK,
     BUILTIN_LIBRARY,
+    CONFLICT_GROUPS,
     itemKey,
     parseKey,
     normalizeName,
     sanitizeCharName,
     matchesChar,
-    formatEntryBlock,
+    formatAge,
+    formatHeight,
+    createEmptyProfile,
+    normalizeProfile,
+    hasProfileData,
+    formatProfileBlock,
+    formatEntryForStyle,
+    detectConflicts,
+    resolveConflictsKeepLatest,
     inferThemeFromTextColor,
     createDefaultStore,
     normalizeStore,
-    getLibraryGroups,
+    getBuiltinCategories,
+    getAllCategories,
+    getEntriesForCategory,
+    searchAllLibraryEntries,
     findLibraryEntry,
+    filterWorldbookNames,
     organizeWorldbookEntries,
     displayEntryLabel,
     assembleOutput,
@@ -548,9 +729,20 @@
     console.log('[User人设]', msg);
   }
 
+  function copyToClipboard(text) {
+    const copyFn = getApi('builtin')?.value?.copyText;
+    if (typeof copyFn === 'function') {
+      try { copyFn(text); return Promise.resolve(true); } catch (_) {}
+    }
+    if (Env.pwin.navigator?.clipboard?.writeText) {
+      return Env.pwin.navigator.clipboard.writeText(text).then(() => true, () => false);
+    }
+    return Promise.resolve(false);
+  }
+
   function loadStore() {
     try {
-      const raw = Env.pwin.localStorage?.getItem(STORE_KEY);
+      const raw = Env.pwin.localStorage?.getItem(STORE_KEY) || Env.pwin.localStorage?.getItem(LEGACY_STORE_KEY);
       if (raw) return normalizeStore(JSON.parse(raw));
     } catch (_) {}
     return createDefaultStore();
@@ -589,10 +781,23 @@
     try { return fn('current') || null; } catch (_) { return null; }
   }
 
+  function listPersonaNames() {
+    const fn = getFn('getPersonaNames');
+    if (!fn) return [];
+    try { const r = fn(); return Array.isArray(r) ? r : []; } catch (_) { return []; }
+  }
+
   async function replaceCurrentPersonaDesc(nextDesc) {
     const fn = getFn('replacePersona');
     if (!fn) throw new Error('当前酒馆助手版本不支持写入用户人设');
     await Promise.resolve(fn('current', { description: nextDesc }, { render: 'immediate' }));
+  }
+
+  async function createNewPersonaWithDesc(name, desc) {
+    const fn = getFn('createPersona');
+    if (!fn) throw new Error('当前酒馆助手版本不支持新建用户人设');
+    const ok = await Promise.resolve(fn(name, { description: desc }, { render: 'immediate' }));
+    if (!ok) throw new Error('新建失败（可能已存在同名用户人设）');
   }
 
   function hasActiveChat() {
@@ -739,8 +944,8 @@
 
     .upp-backdrop[data-theme="light"] {
       --upp-veil: rgba(18, 24, 38, 0.26);
-      --upp-shell-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.93) 0%, rgba(244, 247, 252, 0.89) 100%);
-      --upp-shell-border: rgba(255, 255, 255, 0.88);
+      --upp-shell-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.94) 0%, rgba(244, 247, 252, 0.90) 100%);
+      --upp-shell-border: rgba(255, 255, 255, 0.90);
       --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 24px 64px rgba(15, 23, 42, 0.18), 0 4px 16px rgba(15, 23, 42, 0.06);
       --upp-divider: rgba(27, 30, 40, 0.08);
       --upp-card-bg: rgba(255, 255, 255, 0.68);
@@ -754,11 +959,11 @@
       --upp-seg-active-shadow: 0 2px 8px rgba(15, 23, 42, 0.09), 0 0.5px 1px rgba(15, 23, 42, 0.05);
       --upp-chip-bg: rgba(255, 255, 255, 0.88);
       --upp-chip-hover: #ffffff;
-      --upp-chip-border: rgba(27, 30, 40, 0.09);
+      --upp-chip-border: rgba(27, 30, 40, 0.10);
       --upp-chip-tx: #262b38;
       --upp-accent: #3a7bd5;
       --upp-accent-bg: rgba(58, 123, 213, 0.13);
-      --upp-accent-border: rgba(58, 123, 213, 0.45);
+      --upp-accent-border: rgba(58, 123, 213, 0.46);
       --upp-accent-tx: #1b52a4;
       --upp-badge-bg: rgba(58, 123, 213, 0.12);
       --upp-badge-tx: #245db3;
@@ -769,12 +974,12 @@
       --upp-primary-bg: linear-gradient(180deg, #4b8ae2 0%, #3472cb 100%);
       --upp-primary-hover: linear-gradient(180deg, #5793e8 0%, #3d7bd4 100%);
       --upp-primary-shadow: 0 4px 14px rgba(58, 123, 213, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.30);
-      --upp-foot-bg: rgba(255, 255, 255, 0.68);
-      --upp-inspect-bg: rgba(247, 250, 255, 0.92);
+      --upp-foot-bg: rgba(255, 255, 255, 0.70);
+      --upp-inspect-bg: rgba(247, 250, 255, 0.94);
       --upp-input-bg: rgba(255, 255, 255, 0.92);
       --upp-input-border: rgba(27, 30, 40, 0.14);
-      --upp-warn-bg: rgba(217, 130, 43, 0.10);
-      --upp-warn-border: rgba(217, 130, 43, 0.40);
+      --upp-warn-bg: rgba(217, 130, 43, 0.11);
+      --upp-warn-border: rgba(217, 130, 43, 0.50);
       --upp-warn-tx: #94510c;
       --upp-danger-tx: #b52b2b;
       --upp-scroll: rgba(27, 30, 40, 0.16);
@@ -783,7 +988,7 @@
 
     .upp-backdrop[data-theme="dark"] {
       --upp-veil: rgba(6, 8, 14, 0.62);
-      --upp-shell-bg: linear-gradient(165deg, rgba(28, 31, 41, 0.93) 0%, rgba(20, 22, 30, 0.95) 100%);
+      --upp-shell-bg: linear-gradient(165deg, rgba(28, 31, 41, 0.94) 0%, rgba(20, 22, 30, 0.96) 100%);
       --upp-shell-border: rgba(255, 255, 255, 0.13);
       --upp-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 24px 64px rgba(0, 0, 0, 0.52);
       --upp-divider: rgba(255, 255, 255, 0.08);
@@ -817,8 +1022,8 @@
       --upp-inspect-bg: rgba(32, 36, 48, 0.96);
       --upp-input-bg: rgba(0, 0, 0, 0.28);
       --upp-input-border: rgba(255, 255, 255, 0.12);
-      --upp-warn-bg: rgba(234, 169, 79, 0.14);
-      --upp-warn-border: rgba(234, 169, 79, 0.45);
+      --upp-warn-bg: rgba(234, 169, 79, 0.15);
+      --upp-warn-border: rgba(234, 169, 79, 0.55);
       --upp-warn-tx: #f6d19a;
       --upp-danger-tx: #fbb8b8;
       --upp-scroll: rgba(255, 255, 255, 0.16);
@@ -838,7 +1043,7 @@
     .upp-backdrop[hidden] { display: none; }
 
     .upp-modal {
-      width: 100%; max-width: 580px; max-height: 86dvh;
+      width: 100%; max-width: 590px; max-height: 86dvh;
       background: var(--upp-shell-bg); backdrop-filter: blur(28px) saturate(185%); -webkit-backdrop-filter: blur(28px) saturate(185%);
       color: var(--upp-tx); border: 1px solid var(--upp-shell-border); border-radius: 22px;
       box-shadow: var(--upp-shell-shadow); display: flex; flex-direction: column; overflow: hidden;
@@ -856,12 +1061,10 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
     }
     .upp-char-tag[hidden] { display: none; }
-
     .upp-close-btn {
       width: 30px; height: 30px; border-radius: 999px;
       border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-tx2);
-      font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
-      cursor: pointer; flex-shrink: 0;
+      font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
     }
     .upp-close-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
 
@@ -877,17 +1080,24 @@
     .upp-tab.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
     .upp-tab-count { font-size: 11px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--upp-badge-bg); color: var(--upp-badge-tx); }
 
-    /* Fixed non-shrinking toolbar above scrolling body (fixes clipped worldbook selector!) */
     .upp-toolbar {
-      padding: 10px 16px 8px;
-      border-bottom: 1px solid var(--upp-divider);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex-shrink: 0;
+      padding: 10px 16px 9px; border-bottom: 1px solid var(--upp-divider);
+      display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
     }
     .upp-toolbar:empty { display: none; }
-    .upp-toolbar-row { display: flex; align-items: center; gap: 8px; }
+    .upp-toolbar-row { display: flex; align-items: center; gap: 7px; }
+
+    .upp-cat-strip {
+      display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px;
+    }
+    .upp-cat-strip::-webkit-scrollbar { display: none; }
+    .upp-cat-pill {
+      height: 29px; padding: 0 11px; border-radius: 999px; flex-shrink: 0;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-tx2);
+      font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+    }
+    .upp-cat-pill:hover { background: var(--upp-chip-hover); color: var(--upp-tx); }
+    .upp-cat-pill.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 600; }
 
     .upp-body {
       flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
@@ -907,7 +1117,7 @@
     .upp-search-input { height: 34px; padding: 0 11px; flex: 1 1 auto; min-width: 0; }
     .upp-input { padding: 8px 11px; }
     .upp-textarea { padding: 8px 11px; resize: vertical; min-height: 84px; line-height: 1.5; }
-    .upp-textarea.is-tall { min-height: 150px; }
+    .upp-textarea.is-tall { min-height: 140px; }
     .upp-search-input::placeholder, .upp-input::placeholder, .upp-textarea::placeholder { color: var(--upp-tx3); }
     .upp-select:focus, .upp-search-input:focus, .upp-input:focus, .upp-textarea:focus {
       border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg);
@@ -915,7 +1125,8 @@
 
     .upp-warn-strip {
       border: 1px solid var(--upp-warn-border); background: var(--upp-warn-bg); color: var(--upp-warn-tx);
-      border-radius: 10px; padding: 6px 10px; font-size: 12px; line-height: 1.4;
+      border-radius: 11px; padding: 7px 11px; font-size: 12px; line-height: 1.4;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
 
     .upp-group {
@@ -927,19 +1138,48 @@
     .upp-group-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); display: inline-flex; align-items: center; gap: 6px; }
     .upp-group-badge { font-size: 11px; font-weight: 600; color: var(--upp-badge-tx); background: var(--upp-badge-bg); border-radius: 999px; padding: 1px 7px; }
 
+    /* Dual-zone Chip: tap text to READ content, tap right circle to CHECK! */
     .upp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-    .upp-chip {
-      min-height: 34px; padding: 6px 12px; border-radius: 10px;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-chip-tx);
-      font-size: 13px; line-height: 1.25; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 6px; text-align: left; word-break: break-word;
-      transition: background 0.14s var(--upp-ease), border-color 0.14s ease, color 0.14s ease, transform 0.10s ease;
+    .upp-chip-wrap {
+      display: inline-flex; align-items: stretch; border-radius: 10px; overflow: hidden;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
+      transition: background 0.14s var(--upp-ease), border-color 0.14s ease, box-shadow 0.14s ease;
     }
-    .upp-chip:hover { background: var(--upp-chip-hover); }
-    .upp-chip:active { transform: scale(0.97); }
-    .upp-chip.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 500; }
-    .upp-chip.is-selected::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--upp-accent); flex-shrink: 0; }
-    .upp-chip.is-inspected { box-shadow: 0 0 0 2px var(--upp-accent-border); }
+    .upp-chip-wrap:hover { background: var(--upp-chip-hover); }
+    .upp-chip-wrap.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); }
+    .upp-chip-wrap.is-conflict { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); }
+    .upp-chip-wrap.is-inspected { box-shadow: 0 0 0 2px var(--upp-accent-border); }
+
+    .upp-chip-read {
+      min-height: 34px; padding: 6px 8px 6px 11px; border: none; background: transparent;
+      color: var(--upp-chip-tx); font: inherit; font-size: 13px; line-height: 1.25;
+      cursor: pointer; text-align: left; word-break: break-word;
+    }
+    .upp-chip-wrap.is-selected .upp-chip-read { color: var(--upp-accent-tx); font-weight: 500; }
+    .upp-chip-wrap.is-conflict .upp-chip-read { color: var(--upp-warn-tx); }
+
+    .upp-chip-check {
+      width: 30px; min-height: 34px; border: none; border-left: 1px solid var(--upp-divider);
+      background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .upp-chip-circle {
+      width: 16px; height: 16px; border-radius: 999px; border: 1.5px solid var(--upp-tx3);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: transparent;
+    }
+    .upp-chip-wrap.is-selected .upp-chip-circle { border-color: var(--upp-accent); background: var(--upp-accent); color: #ffffff; }
+    .upp-chip-wrap.is-conflict .upp-chip-circle { border-color: #d9822b; background: #d9822b; color: #ffffff; }
+
+    /* Structured Profile Form */
+    .upp-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .upp-field { display: flex; flex-direction: column; gap: 5px; }
+    .upp-field.is-full { grid-column: 1 / -1; }
+    .upp-label { font-size: 12px; font-weight: 500; color: var(--upp-tx2); display: flex; justify-content: space-between; }
+    .upp-quick-row { display: flex; flex-wrap: wrap; gap: 5px; }
+    .upp-qpill {
+      height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--upp-chip-border);
+      background: var(--upp-chip-bg); color: var(--upp-tx2); font-size: 11px; cursor: pointer;
+    }
+    .upp-qpill.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 600; }
 
     .upp-mini-btn {
       height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
@@ -950,26 +1190,21 @@
     .upp-mini-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
     .upp-mini-btn.is-danger { color: var(--upp-danger-tx); }
 
-    /* Inline Entry Inspector Card (click any chip to immediately read its full content!) */
     .upp-inspector {
-      flex-shrink: 0;
-      border-top: 1px solid var(--upp-divider);
-      background: var(--upp-inspect-bg);
-      padding: 10px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+      flex-shrink: 0; border-top: 1px solid var(--upp-divider); background: var(--upp-inspect-bg);
+      padding: 10px 16px; display: flex; flex-direction: column; gap: 6px;
     }
     .upp-inspector[hidden] { display: none; }
     .upp-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .upp-inspector-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .upp-inspector-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .upp-inspector-body {
-      font-size: 12px; line-height: 1.5; color: var(--upp-tx2);
-      white-space: pre-wrap; word-break: break-word;
-      max-height: 92px; overflow-y: auto;
-      scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
+      font-size: 12px; line-height: 1.5; color: var(--upp-tx2); white-space: pre-wrap; word-break: break-word;
+      max-height: 96px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
     }
+
+    .upp-conflicts { flex-shrink: 0; padding: 8px 16px 0; }
+    .upp-conflicts:empty { display: none; }
 
     .upp-inline-save { display: flex; gap: 7px; }
     .upp-form {
@@ -997,40 +1232,37 @@
     .upp-row-sub { font-size: 11px; color: var(--upp-tx3); }
     .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
+    .upp-seg-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 11px; background: var(--upp-track-bg); }
+    .upp-seg-btn {
+      height: 28px; border-radius: 8px; border: none; background: transparent; color: var(--upp-tx2);
+      font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    }
+    .upp-seg-btn.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
+
     .upp-radio-group { display: flex; flex-direction: column; gap: 6px; }
     .upp-radio-opt {
-      display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
-      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); font-size: 12px; color: var(--upp-tx); cursor: pointer;
+      display: flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 10px;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); font-size: 12px; color: var(--upp-tx); cursor: pointer; text-align: left;
     }
     .upp-radio-opt.is-active { border-color: var(--upp-accent-border); background: var(--upp-accent-bg); color: var(--upp-accent-tx); font-weight: 500; }
 
     .upp-preview-pre {
       margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55;
       color: var(--upp-tx); background: var(--upp-input-bg); border: 1px solid var(--upp-input-border);
-      border-radius: 12px; padding: 12px; max-height: 44dvh; overflow-y: auto;
+      border-radius: 12px; padding: 11px; max-height: 36dvh; overflow-y: auto;
     }
 
     .upp-empty { font-size: 12px; color: var(--upp-tx3); padding: 4px 0; }
 
     .upp-foot {
-      display: flex; flex-direction: column; gap: 9px;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
       padding: 10px 16px 12px; border-top: 1px solid var(--upp-divider); background: var(--upp-foot-bg); flex-shrink: 0;
     }
-    .upp-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .upp-mode-label { font-size: 12px; color: var(--upp-tx2); white-space: nowrap; }
-    .upp-mode-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 10px; background: var(--upp-track-bg); }
-    .upp-mode-btn {
-      height: 26px; padding: 0 11px; border-radius: 8px; border: none; background: transparent;
-      color: var(--upp-tx2); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
-    }
-    .upp-mode-btn.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
-
-    .upp-action-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .upp-action-left, .upp-action-right { display: flex; align-items: center; gap: 8px; }
     .upp-total { font-size: 12px; font-weight: 500; color: var(--upp-tx2); white-space: nowrap; }
 
     .upp-btn {
-      height: 36px; min-width: 68px; padding: 0 14px; border-radius: 999px;
+      height: 36px; min-width: 66px; padding: 0 14px; border-radius: 999px;
       border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-btn-tx);
       font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center;
       cursor: pointer; white-space: nowrap;
@@ -1046,7 +1278,7 @@
       .upp-grab { display: block; }
       .upp-head { padding: 10px 16px 8px; }
       .upp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-      .upp-chip { min-height: 36px; padding: 7px 13px; }
+      .upp-profile-grid { grid-template-columns: 1fr; }
     }
   `;
 
@@ -1071,24 +1303,16 @@
         </div>
         <div class="upp-toolbar"></div>
         <div class="upp-body"></div>
+        <div class="upp-conflicts"></div>
         <div class="upp-inspector" hidden></div>
         <div class="upp-foot">
-          <div class="upp-mode-row">
-            <span class="upp-mode-label">写入位置</span>
-            <div class="upp-mode-seg">
-              <button type="button" class="upp-mode-btn is-active" data-mode="persona">填入用户人设</button>
-              <button type="button" class="upp-mode-btn" data-mode="chat">仅当前聊天</button>
-            </div>
+          <div class="upp-action-left">
+            <button type="button" class="upp-btn" data-act="clear">清空</button>
+            <button type="button" class="upp-btn" data-act="quick-copy">复制文本</button>
           </div>
-          <div class="upp-action-row">
-            <div class="upp-action-left">
-              <button type="button" class="upp-btn" data-act="clear">清空</button>
-              <button type="button" class="upp-btn" data-act="preview">预览</button>
-            </div>
-            <div class="upp-action-right">
-              <span class="upp-total">已选 0</span>
-              <button type="button" class="upp-btn upp-btn-primary" data-act="save">保存</button>
-            </div>
+          <div class="upp-action-right">
+            <span class="upp-total">已选 0</span>
+            <button type="button" class="upp-btn upp-btn-primary" data-act="open-apply">应用 / 保存</button>
           </div>
         </div>
       </div>
@@ -1101,9 +1325,10 @@
   const elTabs = $('.upp-tabs');
   const elToolbar = $('.upp-toolbar');
   const elBody = $('.upp-body');
+  const elConflicts = $('.upp-conflicts');
   const elInspector = $('.upp-inspector');
   const elTotal = $('.upp-total');
-  const elSaveBtn = $('[data-act="save"]');
+  const elApplyBtn = $('[data-act="open-apply"]');
   const elFoot = $('.upp-foot');
 
   const state = {
@@ -1111,7 +1336,8 @@
     loading: false,
     saving: false,
     tab: 'lib', // 'lib' | 'wb' | 'presets'
-    subView: '', // '' | 'preview' | 'edit' | 'new' | 'confirm_persona'
+    activeCat: '__profile__', // '__profile__' | '__selected__' | <category name>
+    subView: '', // '' | 'edit' | 'new' | 'new_cat' | 'apply'
     charName: '',
     store: loadStore(),
     selected: new Set(),
@@ -1119,15 +1345,17 @@
     hostBooks: [],
     globalBooks: [],
     activeWb: '',
+    wbBookSearch: '',
+    wbEntrySearch: '',
     wbCache: Object.create(null),
     libSearch: '',
-    wbSearch: '',
     showAllChars: false,
     presetNameInput: '',
+    newCatName: '',
     importOpen: false,
     importText: '',
-    draft: { book: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false },
-    confirmPersona: { name: '', existingDesc: '', generatedText: '', count: 0, wi: [], replaceAll: false },
+    draft: { book: '', cat: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false },
+    applyCfg: { target: 'persona_update', replaceAll: false, newPersonaName: '', currentPersonaName: '', existingDesc: '', error: '' },
   };
 
   function countSelectedBySource() {
@@ -1136,6 +1364,7 @@
       if (parseKey(k).book === LIB_BOOK) lib++;
       else wb++;
     }
+    if (hasProfileData(state.store.profile)) lib++;
     return { lib, wb };
   }
 
@@ -1143,9 +1372,7 @@
     const map = Object.create(null);
     for (const [book, entries] of Object.entries(state.wbCache)) {
       map[book] = Object.create(null);
-      for (const e of entries || []) {
-        if (e && e.name) map[book][e.name] = e.content || '';
-      }
+      for (const e of entries || []) if (e && e.name) map[book][e.name] = e.content || '';
     }
     return map;
   }
@@ -1173,6 +1400,30 @@
     ];
   }
 
+  function getConflictKeySet() {
+    const set = new Set();
+    for (const c of detectConflicts(state.selected)) {
+      for (const k of c.keys) set.add(k);
+    }
+    return set;
+  }
+
+  function renderChip(book, title, label, conflictKeySet) {
+    const k = itemKey(book, title);
+    const isSel = state.selected.has(k);
+    const isConflict = isSel && conflictKeySet.has(k);
+    const isIns = state.inspected && state.inspected.book === book && state.inspected.title === title;
+    return '<span class="upp-chip-wrap' +
+      (isSel ? ' is-selected' : '') +
+      (isConflict ? ' is-conflict' : '') +
+      (isIns ? ' is-inspected' : '') + '">' +
+      '<button type="button" class="upp-chip-read" data-read-book="' + esc(book) + '" data-read-title="' + esc(title) + '" title="点击查看正文">' + esc(label) + '</button>' +
+      '<button type="button" class="upp-chip-check" data-toggle-book="' + esc(book) + '" data-toggle-title="' + esc(title) + '" title="' + (isSel ? '取消勾选' : '勾选') + '" aria-label="' + (isSel ? '取消勾选' : '勾选') + '">' +
+        '<span class="upp-chip-circle">' + (isSel ? '✓' : '') + '</span>' +
+      '</button>' +
+    '</span>';
+  }
+
   function renderTabs() {
     const counts = countSelectedBySource();
     const map = { lib: ['条目库', counts.lib], wb: ['世界书', counts.wb], presets: ['方案', state.store.presets.length] };
@@ -1191,46 +1442,75 @@
     }
 
     if (state.tab === 'lib') {
+      const allCats = getAllCategories(state.store);
+      const profFilled = hasProfileData(state.store.profile);
+      const catPills = [
+        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__profile__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__profile__">基础资料' + (profFilled ? ' · ✓' : '') + '</button>',
+        '<button type="button" class="upp-cat-pill' + (state.activeCat === '__selected__' && !state.libSearch ? ' is-active' : '') + '" data-cat="__selected__">已选 ' + state.selected.size + '</button>',
+      ];
+      for (const cat of allCats) {
+        let sel = 0;
+        for (const it of getEntriesForCategory(state.store, cat)) {
+          if (state.selected.has(itemKey(LIB_BOOK, it.title))) sel++;
+        }
+        catPills.push(
+          '<button type="button" class="upp-cat-pill' + (state.activeCat === cat && !state.libSearch ? ' is-active' : '') +
+            '" data-cat="' + esc(cat) + '">' + esc(cat) + (sel > 0 ? ' ' + sel : '') + '</button>'
+        );
+      }
+      catPills.push('<button type="button" class="upp-cat-pill" data-act="open-new-cat">+ 分类</button>');
+
       elToolbar.innerHTML =
         '<div class="upp-toolbar-row">' +
-          '<input type="text" class="upp-search-input" data-lib-search="1" value="' + esc(state.libSearch) + '" placeholder="搜条目名称或正文" />' +
+          '<input type="text" class="upp-search-input" data-lib-search="1" value="' + esc(state.libSearch) + '" placeholder="搜条目名称或正文（点文字看内容，点圆圈勾选）" />' +
           '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 新建</button>' +
-        '</div>';
+        '</div>' +
+        '<div class="upp-cat-strip">' + catPills.join('') + '</div>';
       return;
     }
 
-    // Worldbook tab: pinned dropdown selector + search bar (never squashed or hidden!)
+    // Worldbook tab: search worldbooks + select + search entries
     const ordered = getOrderedHostBooks();
-    if (!ordered.length) {
-      elToolbar.innerHTML = '';
-      return;
-    }
-    if (!state.activeWb || !state.hostBooks.includes(state.activeWb)) {
-      state.activeWb = ordered[0];
+    if (!ordered.length) { elToolbar.innerHTML = ''; return; }
+    const filteredBooks = filterWorldbookNames(ordered, state.wbBookSearch);
+    if (filteredBooks.length && !filteredBooks.includes(state.activeWb)) {
+      state.activeWb = filteredBooks[0];
     }
 
-    const opts = ordered.map(name => {
-      let sel = 0;
-      for (const k of state.selected) if (parseKey(k).book === name) sel++;
-      const label = name + (sel > 0 ? '（已选 ' + sel + '）' : '');
-      return '<option value="' + esc(name) + '"' + (state.activeWb === name ? ' selected' : '') + '>' + esc(label) + '</option>';
-    }).join('');
+    const opts = filteredBooks.length
+      ? filteredBooks.map(name => {
+          let sel = 0;
+          for (const k of state.selected) if (parseKey(k).book === name) sel++;
+          return '<option value="' + esc(name) + '"' + (state.activeWb === name ? ' selected' : '') + '>' + esc(name + (sel > 0 ? '（已选 ' + sel + '）' : '')) + '</option>';
+        }).join('')
+      : '<option value="">无匹配世界书</option>';
 
-    const isGlobalOn = state.globalBooks.includes(state.activeWb);
-    const entries = state.wbCache[state.activeWb];
-    const warnHtml = isGlobalOn
-      ? '<div class="upp-warn-strip">该世界书当前已全局开启，勾选后可能与原世界书重复生效</div>'
-      : '';
-
+    const isGlobalOn = state.activeWb && state.globalBooks.includes(state.activeWb);
     elToolbar.innerHTML =
       '<div class="upp-toolbar-row">' +
+        '<input type="text" class="upp-search-input" style="max-width:165px" data-wb-book-search="1" value="' + esc(state.wbBookSearch) + '" placeholder="搜世界书名" />' +
         '<select class="upp-select" data-wb-select="1">' + opts + '</select>' +
         '<button type="button" class="upp-mini-btn" data-act="open-new-wb">+ 新建</button>' +
       '</div>' +
-      (Array.isArray(entries) && entries.length > 8
-        ? '<div class="upp-toolbar-row"><input type="text" class="upp-search-input" data-wb-search="1" value="' + esc(state.wbSearch) + '" placeholder="搜当前世界书标题或正文" /></div>'
-        : '') +
-      warnHtml;
+      '<div class="upp-toolbar-row">' +
+        '<input type="text" class="upp-search-input" data-wb-entry-search="1" value="' + esc(state.wbEntrySearch) + '" placeholder="搜当前世界书内条目标题或正文" />' +
+      '</div>' +
+      (isGlobalOn ? '<div class="upp-warn-strip"><span>该世界书当前已全局开启，勾选后可能重复注入</span></div>' : '');
+  }
+
+  function renderConflicts() {
+    if (state.subView) { elConflicts.innerHTML = ''; return; }
+    const list = detectConflicts(state.selected);
+    if (!list.length) { elConflicts.innerHTML = ''; return; }
+    const first = list[0];
+    const summary = list.length === 1
+      ? '检测到冲突：' + first.label + '（' + first.titles.join(' / ') + '）'
+      : '检测到 ' + list.length + ' 处冲突：' + list.map(c => c.label).join('、');
+    elConflicts.innerHTML =
+      '<div class="upp-warn-strip">' +
+        '<span>' + esc(summary) + '</span>' +
+        '<button type="button" class="upp-mini-btn" data-act="resolve-conflicts">只留最新</button>' +
+      '</div>';
   }
 
   function renderInspector() {
@@ -1254,7 +1534,7 @@
       '<div class="upp-inspector-head">' +
         '<span class="upp-inspector-title">' + esc(title) + '</span>' +
         '<div class="upp-inspector-actions">' +
-          '<button type="button" class="upp-mini-btn' + (isSel ? ' is-active' : '') + '" data-inspect-toggle="1">' + (isSel ? '已勾选' : '勾选') + '</button>' +
+          '<button type="button" class="upp-mini-btn' + (isSel ? ' is-active' : '') + '" data-inspect-toggle="1">' + (isSel ? '取消勾选' : '勾选此条') + '</button>' +
           '<button type="button" class="upp-mini-btn" data-inspect-edit="1">编辑</button>' +
           '<button type="button" class="upp-mini-btn" data-inspect-close="1">×</button>' +
         '</div>' +
@@ -1263,63 +1543,130 @@
   }
 
   function renderFooter() {
-    elFoot.style.display = state.subView === 'confirm_persona' ? 'none' : '';
-    elTotal.textContent = '已选 ' + state.selected.size;
-    elSaveBtn.disabled = state.loading || state.saving;
-    shadow.querySelectorAll('.upp-mode-btn').forEach(btn => {
-      btn.classList.toggle('is-active', btn.dataset.mode === state.store.targetMode);
-    });
+    elFoot.style.display = state.subView === 'apply' ? 'none' : '';
+    const total = state.selected.size + (hasProfileData(state.store.profile) ? 1 : 0);
+    elTotal.textContent = '已选 ' + total;
+    elApplyBtn.disabled = state.loading || state.saving;
+  }
+
+  function renderProfileForm() {
+    const p = state.store.profile;
+    const qp = (field, values) => '<div class="upp-quick-row">' + values.map(v =>
+      '<button type="button" class="upp-qpill' + (p[field] === v ? ' is-active' : '') + '" data-prof-quick="' + field + '" data-prof-val="' + esc(v) + '">' + esc(v) + '</button>'
+    ).join('') + '</div>';
+
+    const agePreview = formatAge(p.age);
+    const heightPreview = formatHeight(p.height);
+
+    return '<section class="upp-group">' +
+      '<div class="upp-group-head">' +
+        '<span class="upp-group-title">基础资料</span>' +
+        (hasProfileData(p) ? '<button type="button" class="upp-mini-btn" data-act="clear-profile">清空资料</button>' : '') +
+      '</div>' +
+      '<div class="upp-profile-grid">' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>姓名</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="name" value="' + esc(p.name) + '" placeholder="留空默认 {{user}}" />' +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>性别</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="gender" value="' + esc(p.gender) + '" placeholder="选填" />' +
+          qp('gender', ['女', '男', '双性']) +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>年龄</span><span>' + esc(agePreview) + '</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="age" value="' + esc(p.age) + '" placeholder="输数字自动补「岁」" />' +
+          qp('age', ['18', '20', '22', '25']) +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>身高</span><span>' + esc(heightPreview) + '</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="height" value="' + esc(p.height) + '" placeholder="输数字自动补「cm」" />' +
+          qp('height', ['158', '163', '168', '175']) +
+        '</div>' +
+        '<div class="upp-field is-full">' +
+          '<label class="upp-label"><span>身份 / 职业</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="role" value="' + esc(p.role) + '" placeholder="例如：大三美术生、插画师" />' +
+          qp('role', ['在校大学生', '职场上班族', '自由职业', '豪门千金']) +
+        '</div>' +
+        '<div class="upp-field is-full">' +
+          '<label class="upp-label"><span>外貌特征补充</span></label>' +
+          '<input type="text" class="upp-input" data-prof-field="traits" value="' + esc(p.traits) + '" placeholder="例如：黑发红瞳，左眼下有颗小泪痣" />' +
+        '</div>' +
+      '</div>' +
+    '</section>';
   }
 
   function renderLibTab() {
-    const groups = getLibraryGroups(state.store, state.libSearch);
-    if (!groups.length) return '<section class="upp-group"><div class="upp-empty">没有找到匹配条目</div></section>';
+    const conflictSet = getConflictKeySet();
 
-    return groups.map(g => {
-      let selCount = 0;
-      for (const it of g.items) if (state.selected.has(itemKey(LIB_BOOK, it.title))) selCount++;
-      const chips = g.items.map(it => {
-        const isSel = state.selected.has(itemKey(LIB_BOOK, it.title));
-        const isIns = state.inspected && state.inspected.book === LIB_BOOK && state.inspected.title === it.title;
-        return '<button type="button" class="upp-chip' + (isSel ? ' is-selected' : '') + (isIns ? ' is-inspected' : '') +
-          '" data-book="' + esc(LIB_BOOK) + '" data-title="' + esc(it.title) + '">' + esc(it.title) + '</button>';
-      }).join('');
-
+    if (state.libSearch.trim()) {
+      const hits = searchAllLibraryEntries(state.store, state.libSearch);
+      if (!hits.length) return '<section class="upp-group"><div class="upp-empty">没有找到匹配条目</div></section>';
       return '<section class="upp-group">' +
-        '<div class="upp-group-head">' +
-          '<span class="upp-group-title">' + esc(g.cat) + (selCount > 0 ? '<span class="upp-group-badge">' + selCount + '</span>' : '') + '</span>' +
-          (g.isCustomGroup ? '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 添加</button>' : '') +
-        '</div>' +
-        (chips ? '<div class="upp-chips">' + chips + '</div>' : '<div class="upp-empty">点「+ 添加」写你自己的常用设定</div>') +
+        '<div class="upp-group-head"><span class="upp-group-title">搜索结果<span class="upp-group-badge">' + hits.length + '</span></span></div>' +
+        '<div class="upp-chips">' + hits.map(it => renderChip(LIB_BOOK, it.title, it.title, conflictSet)).join('') + '</div>' +
       '</section>';
-    }).join('');
+    }
+
+    if (state.activeCat === '__profile__') return renderProfileForm();
+
+    if (state.activeCat === '__selected__') {
+      const items = [...state.selected].map(parseKey);
+      if (!items.length && !hasProfileData(state.store.profile)) {
+        return '<section class="upp-group"><div class="upp-empty">还没勾选任何条目，切换上方分类即可点选</div></section>';
+      }
+      const parts = [];
+      if (hasProfileData(state.store.profile)) {
+        parts.push('<section class="upp-group"><div class="upp-group-head"><span class="upp-group-title">已填基础资料</span><button type="button" class="upp-mini-btn" data-cat="__profile__">去修改</button></div><pre class="upp-preview-pre">' + esc(formatProfileBlock(state.store.profile, state.store.outputFormat)) + '</pre></section>');
+      }
+      if (items.length) {
+        parts.push(
+          '<section class="upp-group">' +
+            '<div class="upp-group-head"><span class="upp-group-title">已勾选条目<span class="upp-group-badge">' + items.length + '</span></span></div>' +
+            '<div class="upp-chips">' + items.map(it => renderChip(it.book, it.title, it.title, conflictSet)).join('') + '</div>' +
+          '</section>'
+        );
+      }
+      return parts.join('');
+    }
+
+    const cat = state.activeCat;
+    const isCustomCat = !getBuiltinCategories().includes(cat);
+    const items = getEntriesForCategory(state.store, cat);
+    return '<section class="upp-group">' +
+      '<div class="upp-group-head">' +
+        '<span class="upp-group-title">' + esc(cat) + '<span class="upp-group-badge">' + items.length + ' 条</span></span>' +
+        '<div class="upp-row-btns">' +
+          (isCustomCat ? '<button type="button" class="upp-mini-btn is-danger" data-del-cat="' + esc(cat) + '">删分类</button>' : '') +
+          '<button type="button" class="upp-mini-btn" data-act="open-new-lib">+ 加到此分类</button>' +
+        '</div>' +
+      '</div>' +
+      (items.length
+        ? '<div class="upp-chips">' + items.map(it => renderChip(LIB_BOOK, it.title, it.title, conflictSet)).join('') + '</div>'
+        : '<div class="upp-empty">该分类暂无条目，点右上角「+ 加到此分类」新建</div>') +
+    '</section>';
   }
 
   function renderWbTab() {
     if (!state.hostBooks.length) {
       return '<section class="upp-group"><div class="upp-empty">当前酒馆里没有可用的世界书，可直接用「条目库」。</div></section>';
     }
-    const entries = state.wbCache[state.activeWb];
-    if (!Array.isArray(entries)) {
-      return '<div class="upp-empty">加载世界书…</div>';
+    if (!state.activeWb) {
+      return '<section class="upp-group"><div class="upp-empty">没有匹配的世界书</div></section>';
     }
+    const entries = state.wbCache[state.activeWb];
+    if (!Array.isArray(entries)) return '<div class="upp-empty">加载世界书…</div>';
 
-    const org = organizeWorldbookEntries(entries, state.charName, state.showAllChars, state.wbSearch);
+    const conflictSet = getConflictKeySet();
+    const org = organizeWorldbookEntries(entries, state.charName, state.showAllChars, state.wbEntrySearch);
     const parts = [];
     if (!org.sections.length) {
-      parts.push('<section class="upp-group"><div class="upp-empty">' + (state.wbSearch ? '没有找到匹配条目' : '这本书暂无条目') + '</div></section>');
+      parts.push('<section class="upp-group"><div class="upp-empty">' + (state.wbEntrySearch ? '没有找到匹配条目' : '这本书暂无条目') + '</div></section>');
     } else {
       for (const sec of org.sections) {
         let selCount = 0;
         for (const e of sec.items) if (state.selected.has(itemKey(state.activeWb, e.name))) selCount++;
-        const chips = sec.items.map(e => {
-          const isSel = state.selected.has(itemKey(state.activeWb, e.name));
-          const isIns = state.inspected && state.inspected.book === state.activeWb && state.inspected.title === e.name;
-          const label = displayEntryLabel(e.name, sec);
-          return '<button type="button" class="upp-chip' + (isSel ? ' is-selected' : '') + (isIns ? ' is-inspected' : '') +
-            '" data-book="' + esc(state.activeWb) + '" data-title="' + esc(e.name) + '" title="' + esc(e.name) + '">' + esc(label) + '</button>';
-        }).join('');
-
+        const chips = sec.items.map(e => renderChip(state.activeWb, e.name, displayEntryLabel(e.name, sec), conflictSet)).join('');
         parts.push(
           '<section class="upp-group">' +
             (sec.cat ? '<div class="upp-group-head"><span class="upp-group-title">' + esc(sec.cat) + (selCount > 0 ? '<span class="upp-group-badge">' + selCount + '</span>' : '') + '</span></div>' : '') +
@@ -1342,7 +1689,7 @@
           '<button type="button" class="upp-star-btn' + (isDef ? ' is-default' : '') + '" data-preset-def="' + esc(p.id) + '" title="设为新聊天默认">' + (isDef ? '★' : '☆') + '</button>' +
           '<div class="upp-row-main">' +
             '<span class="upp-row-title">' + esc(p.label) + '</span>' +
-            '<span class="upp-row-sub">' + p.items.length + ' 条设定</span>' +
+            '<span class="upp-row-sub">' + p.items.length + ' 条' + (hasProfileData(p.profile) ? ' + 基础资料' : '') + '</span>' +
           '</div>' +
         '</div>' +
         '<div class="upp-row-btns">' +
@@ -1364,7 +1711,7 @@
       : '';
 
     return '<section class="upp-group">' +
-      '<div class="upp-group-head"><span class="upp-group-title">把当前勾选存成方案</span><span class="upp-row-sub">已选 ' + state.selected.size + ' 条</span></div>' +
+      '<div class="upp-group-head"><span class="upp-group-title">把当前设定存成方案</span><span class="upp-row-sub">含基础资料与已选条目</span></div>' +
       '<div class="upp-inline-save">' +
         '<input type="text" class="upp-input" data-preset-input="1" value="' + esc(state.presetNameInput) + '" placeholder="输入方案名，如：甜妹日常" />' +
         '<button type="button" class="upp-btn upp-btn-primary" data-act="create-preset">保存</button>' +
@@ -1372,7 +1719,7 @@
     '</section>' +
     '<section class="upp-group">' +
       '<div class="upp-group-head"><span class="upp-group-title">已存方案</span></div>' +
-      '<div class="upp-row-list">' + (rows || '<div class="upp-empty">选好标签后在上方输个名字，下次就能一键切换</div>') + '</div>' +
+      '<div class="upp-row-list">' + (rows || '<div class="upp-empty">选好设定后在上方输个名字，下次就能一键套用</div>') + '</div>' +
     '</section>' +
     backupRow +
     '<section class="upp-group">' +
@@ -1391,46 +1738,82 @@
   }
 
   function renderSubView() {
-    if (state.subView === 'preview') {
-      const out = assembleOutput(state.selected, state.store, buildWbContentMap());
-      return '<section class="upp-group">' +
-        '<div class="upp-group-head">' +
-          '<span class="upp-group-title">效果预览<span class="upp-group-badge">' + out.count + ' 条 · ' + out.text.length + ' 字</span></span>' +
-          '<button type="button" class="upp-mini-btn" data-act="close-sub">返回</button>' +
-        '</div>' +
-        (out.text ? '<pre class="upp-preview-pre">' + esc(out.text) + '</pre>' : '<div class="upp-empty">还没勾选任何条目</div>') +
-      '</section>';
-    }
-
-    if (state.subView === 'confirm_persona') {
-      const cp = state.confirmPersona;
-      const finalPreview = mergeIntoPersonaDescription(cp.existingDesc, cp.generatedText, cp.replaceAll);
+    if (state.subView === 'new_cat') {
       return '<div class="upp-form">' +
-        '<div class="upp-group-head">' +
-          '<span class="upp-group-title">确认写入用户人设「' + esc(cp.name) + '」</span>' +
-          '<span class="upp-row-sub">共 ' + finalPreview.length + ' 字</span>' +
-        '</div>' +
-        '<div class="upp-radio-group">' +
-          '<button type="button" class="upp-radio-opt' + (!cp.replaceAll ? ' is-active' : '') + '" data-persona-merge="keep">保留你原有简介，仅更新 &lt;USER人设&gt; 区块</button>' +
-          '<button type="button" class="upp-radio-opt' + (cp.replaceAll ? ' is-active' : '') + '" data-persona-merge="replace">完整替换整份人设描述</button>' +
-        '</div>' +
-        '<pre class="upp-preview-pre">' + esc(finalPreview || '（将清空描述）') + '</pre>' +
-        '<div class="upp-empty">写入前会自动留一份原文备份，随时可在「方案」页一键恢复。</div>' +
+        '<div class="upp-group-head"><span class="upp-group-title">新建条目分类</span></div>' +
+        '<input type="text" class="upp-input" data-new-cat-input="1" value="' + esc(state.newCatName) + '" placeholder="例如：古风设定、常用XP" />' +
         '<div class="upp-form-actions">' +
           '<button type="button" class="upp-btn" data-act="close-sub">取消</button>' +
-          '<button type="button" class="upp-btn upp-btn-primary" data-act="confirm-write-persona"' + (state.saving ? ' disabled' : '') + '>确认写入</button>' +
+          '<button type="button" class="upp-btn upp-btn-primary" data-act="confirm-new-cat">创建分类</button>' +
         '</div>' +
       '</div>';
     }
 
+    if (state.subView === 'apply') {
+      const ac = state.applyCfg;
+      const fmt = state.store.outputFormat;
+      const out = assembleOutput(state.selected, state.store, buildWbContentMap(), fmt);
+      const previewText = ac.target === 'persona_update'
+        ? mergeIntoPersonaDescription(ac.existingDesc, out.text, ac.replaceAll)
+        : out.text;
+
+      return '<div class="upp-form">' +
+        '<div class="upp-group-head">' +
+          '<span class="upp-group-title">预览与应用</span>' +
+          '<span class="upp-row-sub">' + out.count + ' 项 · ' + previewText.length + ' 字</span>' +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>输出格式</span></label>' +
+          '<div class="upp-seg-3">' +
+            '<button type="button" class="upp-seg-btn' + (fmt === 'hybrid' ? ' is-active' : '') + '" data-fmt="hybrid">YAML+自然语言</button>' +
+            '<button type="button" class="upp-seg-btn' + (fmt === 'yaml' ? ' is-active' : '') + '" data-fmt="yaml">纯 YAML</button>' +
+            '<button type="button" class="upp-seg-btn' + (fmt === 'prose' ? ' is-active' : '') + '" data-fmt="prose">自然语言</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>写入目标</span></label>' +
+          '<div class="upp-radio-group">' +
+            '<button type="button" class="upp-radio-opt' + (ac.target === 'persona_update' ? ' is-active' : '') + '" data-apply-target="persona_update">更新当前用户人设「' + esc(ac.currentPersonaName || '未检测到') + '」</button>' +
+            '<button type="button" class="upp-radio-opt' + (ac.target === 'persona_new' ? ' is-active' : '') + '" data-apply-target="persona_new">另存为新的用户人设（不改原人设）</button>' +
+            '<button type="button" class="upp-radio-opt' + (ac.target === 'chat' ? ' is-active' : '') + '" data-apply-target="chat">仅当前聊天生效（按聊天隔离）</button>' +
+          '</div>' +
+        '</div>' +
+        (ac.target === 'persona_update'
+          ? '<div class="upp-quick-row">' +
+              '<button type="button" class="upp-qpill' + (!ac.replaceAll ? ' is-active' : '') + '" data-merge-mode="keep">保留原有简介，仅更新人设块</button>' +
+              '<button type="button" class="upp-qpill' + (ac.replaceAll ? ' is-active' : '') + '" data-merge-mode="replace">完整替换整份描述</button>' +
+            '</div>'
+          : '') +
+        (ac.target === 'persona_new'
+          ? '<input type="text" class="upp-input" data-new-persona-name="1" value="' + esc(ac.newPersonaName) + '" placeholder="输入新用户人设的名称，如：林栀·古风版" />'
+          : '') +
+        '<pre class="upp-preview-pre">' + esc(previewText || '（暂无内容）') + '</pre>' +
+        (ac.error ? '<div class="upp-form-error">' + esc(ac.error) + '</div>' : '') +
+        '<div class="upp-form-actions">' +
+          '<button type="button" class="upp-btn" data-act="close-sub">返回</button>' +
+          '<button type="button" class="upp-btn" data-act="copy-apply-preview">复制文本</button>' +
+          '<button type="button" class="upp-btn upp-btn-primary" data-act="execute-apply"' + (state.saving ? ' disabled' : '') + '>确认执行</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    // Edit or New Entry
     const d = state.draft;
     const isNew = state.subView === 'new';
     const canRename = isNew || d.book !== LIB_BOOK || d.isCustom;
+    const allCats = getAllCategories(state.store);
+    const catSelect = d.book === LIB_BOOK && (isNew || d.isCustom)
+      ? '<div class="upp-field"><label class="upp-label"><span>所属分类</span></label><select class="upp-select" data-draft-field="cat">' +
+          allCats.map(c => '<option value="' + esc(c) + '"' + (d.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
+        '</select></div>'
+      : '';
+
     return '<div class="upp-form">' +
       '<div class="upp-group-head">' +
         '<span class="upp-group-title">' + (isNew ? '新建条目' : '修改条目') + '</span>' +
         (d.book !== LIB_BOOK ? '<span class="upp-row-sub">' + esc(d.book) + '</span>' : '') +
       '</div>' +
+      catSelect +
       '<input type="text" class="upp-input" data-draft-field="title" value="' + esc(d.title) + '"' + (canRename ? '' : ' disabled') + ' placeholder="标题" />' +
       '<textarea class="upp-textarea is-tall" data-draft-field="content" placeholder="写这条人设的具体描述">' + esc(d.content) + '</textarea>' +
       (d.error ? '<div class="upp-form-error">' + esc(d.error) + '</div>' : '') +
@@ -1442,28 +1825,14 @@
     '</div>';
   }
 
-  function renderBody(preserveFocusSelector) {
-    if (state.loading) {
-      elBody.innerHTML = '<div class="upp-empty">加载中…</div>';
-      return;
-    }
+  function renderBody() {
+    if (state.loading) { elBody.innerHTML = '<div class="upp-empty">加载中…</div>'; return; }
     const prevScroll = elBody.scrollTop;
-    let caret = null;
-    if (preserveFocusSelector) {
-      const a = shadow.activeElement;
-      if (a && a.matches?.(preserveFocusSelector)) caret = a.selectionStart;
-    }
-
     if (state.subView) elBody.innerHTML = renderSubView();
     else if (state.tab === 'wb') elBody.innerHTML = renderWbTab();
     else if (state.tab === 'presets') elBody.innerHTML = renderPresetsTab();
     else elBody.innerHTML = renderLibTab();
-
     elBody.scrollTop = prevScroll;
-    if (preserveFocusSelector && caret !== null) {
-      const inp = shadow.querySelector(preserveFocusSelector);
-      if (inp) { inp.focus(); try { inp.setSelectionRange(caret, caret); } catch (_) {} }
-    }
   }
 
   function renderAll() {
@@ -1471,7 +1840,8 @@
     else elCharTag.hidden = true;
     renderTabs();
     renderToolbar();
-    renderBody(null);
+    renderBody();
+    renderConflicts();
     renderInspector();
     renderFooter();
   }
@@ -1488,17 +1858,20 @@
     state.hostBooks = books;
     state.globalBooks = globals;
 
+    // Prefer chat saved state if present, otherwise lastItems or defaultPreset
+    const savedChat = parseSavedChatPicker(readChatPickerVar());
     const nextSel = new Set();
-    if (state.store.targetMode === 'chat') {
-      const saved = parseSavedChatPicker(readChatPickerVar());
-      if (saved.hasSaved) {
-        for (const it of saved.items) nextSel.add(itemKey(it.book, it.title));
-      } else if (state.store.defaultPresetId) {
-        const def = state.store.presets.find(p => p.id === state.store.defaultPresetId);
-        if (def) for (const it of def.items) nextSel.add(itemKey(it.book, it.title));
+    if (savedChat.hasSaved) {
+      for (const it of savedChat.items) nextSel.add(itemKey(it.book, it.title));
+      if (savedChat.profile && hasProfileData(savedChat.profile)) state.store.profile = savedChat.profile;
+    } else if (state.store.lastItems.length) {
+      for (const it of state.store.lastItems) nextSel.add(itemKey(it.book, it.title));
+    } else if (state.store.defaultPresetId) {
+      const def = state.store.presets.find(p => p.id === state.store.defaultPresetId);
+      if (def) {
+        for (const it of def.items) nextSel.add(itemKey(it.book, it.title));
+        if (def.profile) state.store.profile = normalizeProfile(def.profile);
       }
-    } else {
-      for (const it of state.store.lastPersonaItems || []) nextSel.add(itemKey(it.book, it.title));
     }
     state.selected = nextSel;
 
@@ -1518,7 +1891,8 @@
     state.subView = '';
     state.inspected = null;
     state.libSearch = '';
-    state.wbSearch = '';
+    state.wbBookSearch = '';
+    state.wbEntrySearch = '';
     elBackdrop.hidden = false;
     syncMenuExpanded();
     void refreshState();
@@ -1532,67 +1906,72 @@
     syncMenuExpanded();
   }
 
-  async function handleSaveClick() {
-    if (state.saving || state.loading) return;
-    state.saving = true;
-    renderFooter();
-    try {
-      await ensureSelectedWbsLoaded();
-      const out = assembleOutput(state.selected, state.store, buildWbContentMap());
-
-      if (state.store.targetMode === 'persona') {
-        const current = readCurrentPersona();
-        if (!current) {
-          notify('未找到当前启用的用户人设', 'warning');
-          return;
-        }
-        state.confirmPersona = {
-          name: current.name || '当前人设',
-          existingDesc: String(current.description || ''),
-          generatedText: out.text,
-          count: out.count,
-          wi: out.wi,
-          replaceAll: false,
-        };
-        state.subView = 'confirm_persona';
-        renderAll();
-        return;
-      }
-
-      if (!hasActiveChat()) {
-        notify('请先打开一个聊天，或切到「填入用户人设」', 'warning');
-        return;
-      }
-      await ensureOpeningBookSilent();
-      await writeChatPickerVar({ v: 1, char: state.charName, wi: out.wi });
-      closeModal();
-      notify(out.count > 0 ? '已保存到当前聊天（' + out.count + ' 条）' : '已清空当前聊天人设', 'success');
-    } catch (err) {
-      notify('保存失败：' + (err?.message || String(err)), 'error');
-    } finally {
-      state.saving = false;
-      renderFooter();
-    }
+  async function openApplyView() {
+    await ensureSelectedWbsLoaded();
+    const cur = readCurrentPersona();
+    state.applyCfg = {
+      target: 'persona_update',
+      replaceAll: false,
+      newPersonaName: state.store.profile.name ? state.store.profile.name + '·人设' : '',
+      currentPersonaName: cur?.name || '',
+      existingDesc: String(cur?.description || ''),
+      error: '',
+    };
+    state.subView = 'apply';
+    renderAll();
   }
 
-  async function handleConfirmWritePersona() {
+  async function executeApply() {
     if (state.saving) return;
+    const ac = state.applyCfg;
+    ac.error = '';
     state.saving = true;
-    renderBody(null);
+    renderBody();
     try {
-      const cp = state.confirmPersona;
-      const nextDesc = mergeIntoPersonaDescription(cp.existingDesc, cp.generatedText, cp.replaceAll);
-      state.store.personaBackup = { name: cp.name, description: cp.existingDesc, savedAt: Date.now() };
-      state.store.lastPersonaItems = cp.wi.map(({ book, title }) => ({ book, title }));
-      await replaceCurrentPersonaDesc(nextDesc);
+      await ensureSelectedWbsLoaded();
+      const out = assembleOutput(state.selected, state.store, buildWbContentMap(), state.store.outputFormat);
+      state.store.lastItems = out.wi.map(({ book, title }) => ({ book, title }));
+
+      if (ac.target === 'persona_update') {
+        if (!ac.currentPersonaName) throw new Error('未检测到当前启用的用户人设');
+        const nextDesc = mergeIntoPersonaDescription(ac.existingDesc, out.text, ac.replaceAll);
+        state.store.personaBackup = { name: ac.currentPersonaName, description: ac.existingDesc, savedAt: Date.now() };
+        await replaceCurrentPersonaDesc(nextDesc);
+        saveStore(state.store);
+        closeModal();
+        notify('已更新用户人设「' + ac.currentPersonaName + '」', 'success');
+        return;
+      }
+
+      if (ac.target === 'persona_new') {
+        const newName = String(ac.newPersonaName || '').trim();
+        if (!newName) { ac.error = '请填写新用户人设名称'; state.saving = false; renderBody(); return; }
+        if (listPersonaNames().includes(newName)) { ac.error = '已存在同名用户人设'; state.saving = false; renderBody(); return; }
+        await createNewPersonaWithDesc(newName, out.text);
+        saveStore(state.store);
+        closeModal();
+        notify('已新建用户人设「' + newName + '」', 'success');
+        return;
+      }
+
+      if (!hasActiveChat()) { ac.error = '请先打开一个聊天'; state.saving = false; renderBody(); return; }
+      await ensureOpeningBookSilent();
+      await writeChatPickerVar({
+        v: 1,
+        char: state.charName,
+        profile: state.store.profile,
+        profileText: out.profileText,
+        wi: out.wi,
+      });
       saveStore(state.store);
       closeModal();
-      notify('已写入用户人设「' + cp.name + '」', 'success');
+      notify('已保存到当前聊天（' + out.count + ' 项）', 'success');
     } catch (err) {
-      notify('写入失败：' + (err?.message || String(err)), 'error');
+      ac.error = err?.message || String(err);
+      renderBody();
     } finally {
       state.saving = false;
-      renderBody(null);
+      renderBody();
     }
   }
 
@@ -1601,17 +1980,20 @@
     if (d.busy) return;
     const title = String(d.title || '').trim();
     const content = String(d.content || '').trim();
-    if (!title) { d.error = '请填写标题'; renderBody(null); return; }
-    if (!content) { d.error = '请填写正文'; renderBody(null); return; }
+    if (!title) { d.error = '请填写标题'; renderBody(); return; }
+    if (!content) { d.error = '请填写正文'; renderBody(); return; }
 
     if (d.book === LIB_BOOK) {
+      const targetCat = d.cat || state.store.customCategories[0] || '我的自定义';
       if (state.subView === 'new') {
-        if (findLibraryEntry(state.store, title)) { d.error = '已有同名条目'; renderBody(null); return; }
-        state.store.customEntries.push({ id: 'c_' + Date.now().toString(36), title, content, isRule: false });
+        if (findLibraryEntry(state.store, title)) { d.error = '已有同名条目'; renderBody(); return; }
+        state.store.customEntries.push({ id: 'c_' + Date.now().toString(36), cat: targetCat, title, content, isRule: targetCat === '互动规则' });
         state.selected.add(itemKey(LIB_BOOK, title));
+        state.activeCat = targetCat;
       } else if (d.isCustom) {
         const item = state.store.customEntries.find(e => e.title === d.oldTitle);
         if (item) {
+          item.cat = targetCat;
           item.title = title;
           item.content = content;
           if (title !== d.oldTitle && state.selected.has(itemKey(LIB_BOOK, d.oldTitle))) {
@@ -1632,7 +2014,7 @@
 
     d.busy = true;
     d.error = '';
-    renderBody(null);
+    renderBody();
     try {
       if (state.subView === 'new') {
         await createEntryInWorldbook(d.book, buildWorldbookEntry(title, content));
@@ -1652,7 +2034,7 @@
     } catch (err) {
       d.busy = false;
       d.error = '写入失败：' + (err?.message || String(err));
-      renderBody(null);
+      renderBody();
     }
   }
 
@@ -1666,14 +2048,17 @@
     const el = ev.target;
     if (el?.dataset?.wbSelect) {
       const name = el.value;
+      if (!name) return;
       state.activeWb = name;
-      state.wbSearch = '';
+      state.wbEntrySearch = '';
       state.showAllChars = false;
       state.inspected = null;
       state.store.recentBooks = [name, ...state.store.recentBooks.filter(x => x !== name)].slice(0, 12);
       saveStore(state.store);
       renderAll();
       void ensureWbLoaded(name).then(() => renderAll());
+    } else if (el?.dataset?.draftField) {
+      state.draft[el.dataset.draftField] = el.value;
     }
   });
 
@@ -1681,12 +2066,45 @@
     const el = ev.target;
     if (el?.dataset?.libSearch) {
       state.libSearch = el.value;
-      renderBody(null);
-    } else if (el?.dataset?.wbSearch) {
-      state.wbSearch = el.value;
-      renderBody(null);
+      renderBody();
+    } else if (el?.dataset?.wbBookSearch) {
+      state.wbBookSearch = el.value;
+      const ordered = getOrderedHostBooks();
+      const filtered = filterWorldbookNames(ordered, state.wbBookSearch);
+      const prevWb = state.activeWb;
+      state.activeWb = filtered.includes(prevWb) ? prevWb : (filtered[0] || '');
+      // Re-render only select options + body without losing focus on book search input
+      const selEl = shadow.querySelector('[data-wb-select]');
+      if (selEl) {
+        selEl.innerHTML = filtered.length
+          ? filtered.map(name => '<option value="' + esc(name) + '"' + (state.activeWb === name ? ' selected' : '') + '>' + esc(name) + '</option>').join('')
+          : '<option value="">无匹配世界书</option>';
+      }
+      renderBody();
+      if (state.activeWb && !Array.isArray(state.wbCache[state.activeWb])) {
+        void ensureWbLoaded(state.activeWb).then(() => renderBody());
+      }
+    } else if (el?.dataset?.wbEntrySearch) {
+      state.wbEntrySearch = el.value;
+      renderBody();
+    } else if (el?.dataset?.profField) {
+      state.store.profile[el.dataset.profField] = el.value;
+      saveStore(state.store);
+      renderTabs();
+      renderFooter();
+      // Live unit preview update
+      if (el.dataset.profField === 'age' || el.dataset.profField === 'height') {
+        const previewSpan = el.closest('.upp-field')?.querySelector('.upp-label span:last-child');
+        if (previewSpan) {
+          previewSpan.textContent = el.dataset.profField === 'age' ? formatAge(el.value) : formatHeight(el.value);
+        }
+      }
     } else if (el?.dataset?.presetInput) {
       state.presetNameInput = el.value;
+    } else if (el?.dataset?.newCatInput) {
+      state.newCatName = el.value;
+    } else if (el?.dataset?.newPersonaName) {
+      state.applyCfg.newPersonaName = el.value;
     } else if (el?.dataset?.importText) {
       state.importText = el.value;
     } else if (el?.dataset?.draftField) {
@@ -1701,44 +2119,67 @@
 
     const act = btn.dataset.act;
     if (act === 'close') { closeModal(); return; }
-    if (act === 'save') { void handleSaveClick(); return; }
-    if (act === 'confirm-write-persona') { void handleConfirmWritePersona(); return; }
-    if (act === 'clear') { state.selected = new Set(); renderAll(); return; }
     if (act === 'close-sub') { state.subView = ''; renderAll(); return; }
-    if (act === 'show-all-chars') { state.showAllChars = true; renderBody(null); return; }
+    if (act === 'clear') { state.selected = new Set(); renderAll(); return; }
+    if (act === 'clear-profile') { state.store.profile = createEmptyProfile(); saveStore(state.store); renderAll(); return; }
+    if (act === 'show-all-chars') { state.showAllChars = true; renderBody(); return; }
+    if (act === 'open-apply') { void openApplyView(); return; }
+    if (act === 'execute-apply') { void executeApply(); return; }
 
-    if (btn.dataset.personaMerge) {
-      state.confirmPersona.replaceAll = btn.dataset.personaMerge === 'replace';
-      renderBody(null);
+    if (act === 'resolve-conflicts') {
+      state.selected = resolveConflictsKeepLatest(state.selected);
+      renderAll();
+      notify('已自动解决冲突，保留最新勾选项', 'success');
       return;
     }
 
-    if (act === 'restore-persona-backup') {
-      const bk = state.store.personaBackup;
-      if (!bk) return;
-      void replaceCurrentPersonaDesc(bk.description).then(() => {
-        notify('已恢复写入前的原有描述', 'success');
-      }).catch(err => notify('恢复失败：' + (err?.message || String(err)), 'error'));
-      return;
-    }
-
-    if (act === 'preview') {
-      void ensureSelectedWbsLoaded().then(() => {
-        state.subView = state.subView === 'preview' ? '' : 'preview';
-        renderAll();
+    if (act === 'quick-copy' || act === 'copy-apply-preview') {
+      void ensureSelectedWbsLoaded().then(async () => {
+        const out = assembleOutput(state.selected, state.store, buildWbContentMap(), state.store.outputFormat);
+        if (!out.text) { notify('当前没有可复制的内容', 'warning'); return; }
+        const ok = await copyToClipboard(out.text);
+        notify(ok ? '已复制人设文本（' + out.text.length + ' 字）' : '复制失败，请在预览框手动复制', ok ? 'success' : 'warning');
       });
       return;
     }
 
+    if (act === 'open-new-cat') { state.newCatName = ''; state.subView = 'new_cat'; renderAll(); return; }
+    if (act === 'confirm-new-cat') {
+      const name = String(state.newCatName || '').trim();
+      if (!name) { notify('请输入分类名称', 'warning'); return; }
+      if (!getAllCategories(state.store).includes(name)) {
+        state.store.customCategories.push(name);
+        saveStore(state.store);
+      }
+      state.activeCat = name;
+      state.subView = '';
+      renderAll();
+      return;
+    }
+
+    if (btn.dataset.delCat) {
+      const cat = btn.dataset.delCat;
+      state.store.customCategories = state.store.customCategories.filter(c => c !== cat);
+      for (const e of state.store.customEntries) {
+        if (e.cat === cat) e.cat = state.store.customCategories[0] || '我的自定义';
+      }
+      if (!state.store.customCategories.length) state.store.customCategories = ['我的自定义'];
+      saveStore(state.store);
+      state.activeCat = '__profile__';
+      renderAll();
+      return;
+    }
+
     if (act === 'open-new-lib') {
-      state.draft = { book: LIB_BOOK, oldTitle: '', title: '', content: '', isCustom: true, error: '', busy: false };
+      const defaultCat = getAllCategories(state.store).includes(state.activeCat) ? state.activeCat : (state.store.customCategories[0] || '我的自定义');
+      state.draft = { book: LIB_BOOK, cat: defaultCat, oldTitle: '', title: '', content: '', isCustom: true, error: '', busy: false };
       state.subView = 'new';
       renderAll();
       return;
     }
     if (act === 'open-new-wb') {
       if (!state.activeWb) return;
-      state.draft = { book: state.activeWb, oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false };
+      state.draft = { book: state.activeWb, cat: '', oldTitle: '', title: '', content: '', isCustom: false, error: '', busy: false };
       state.subView = 'new';
       renderAll();
       return;
@@ -1755,33 +2196,11 @@
       return;
     }
 
-    if (btn.dataset.inspectClose) { state.inspected = null; renderInspector(); renderBody(null); return; }
-    if (btn.dataset.inspectToggle && state.inspected) {
-      const k = itemKey(state.inspected.book, state.inspected.title);
-      if (state.selected.has(k)) state.selected.delete(k);
-      else state.selected.add(k);
-      renderTabs();
-      renderToolbar();
-      renderBody(null);
-      renderInspector();
-      renderFooter();
-      return;
-    }
-    if (btn.dataset.inspectEdit && state.inspected) {
-      const { book, title } = state.inspected;
-      if (book === LIB_BOOK) {
-        const entry = findLibraryEntry(state.store, title);
-        if (entry) {
-          state.draft = { book: LIB_BOOK, oldTitle: title, title: entry.title, content: entry.content, isCustom: entry.isCustom, error: '', busy: false };
-          state.subView = 'edit';
-          renderAll();
-        }
-      } else {
-        const content = buildWbContentMap()[book]?.[title] || '';
-        state.draft = { book, oldTitle: title, title, content, isCustom: false, error: '', busy: false };
-        state.subView = 'edit';
-        renderAll();
-      }
+    if (act === 'restore-persona-backup') {
+      const bk = state.store.personaBackup;
+      if (!bk) return;
+      void replaceCurrentPersonaDesc(bk.description).then(() => notify('已恢复写入前的原有描述', 'success'))
+        .catch(err => notify('恢复失败：' + (err?.message || String(err)), 'error'));
       return;
     }
 
@@ -1789,7 +2208,13 @@
       const label = String(state.presetNameInput || '').trim();
       if (!label) { notify('先输个方案名', 'warning'); return; }
       const items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
-      state.store.presets.unshift({ id: 'p_' + Date.now().toString(36), label, items });
+      state.store.presets.unshift({
+        id: 'p_' + Date.now().toString(36),
+        label,
+        items,
+        profile: normalizeProfile(state.store.profile),
+        outputFormat: state.store.outputFormat,
+      });
       state.presetNameInput = '';
       saveStore(state.store);
       notify('已存为方案：' + label, 'success');
@@ -1798,19 +2223,22 @@
     }
 
     if (act === 'export-store') {
-      const txt = JSON.stringify({ presets: state.store.presets, customEntries: state.store.customEntries, defaultPresetId: state.store.defaultPresetId }, null, 2);
-      const copyFn = getApi('builtin')?.value?.copyText;
-      if (typeof copyFn === 'function') { try { copyFn(txt); notify('已复制方案 JSON', 'success'); return; } catch (_) {} }
-      Env.pwin.navigator?.clipboard?.writeText?.(txt).then(() => notify('已复制方案 JSON', 'success'));
+      const txt = JSON.stringify({
+        presets: state.store.presets,
+        customCategories: state.store.customCategories,
+        customEntries: state.store.customEntries,
+        profile: state.store.profile,
+        defaultPresetId: state.store.defaultPresetId,
+      }, null, 2);
+      void copyToClipboard(txt).then(ok => notify(ok ? '已复制同步 JSON' : '复制失败', ok ? 'success' : 'warning'));
       return;
     }
-    if (act === 'toggle-import') { state.importOpen = !state.importOpen; renderBody(null); return; }
+    if (act === 'toggle-import') { state.importOpen = !state.importOpen; renderBody(); return; }
     if (act === 'confirm-import') {
       try {
         const data = JSON.parse(state.importText || '');
-        if (Array.isArray(data.presets)) state.store.presets = normalizeStore({ presets: data.presets }).presets;
-        if (Array.isArray(data.customEntries)) state.store.customEntries = normalizeStore({ customEntries: data.customEntries }).customEntries;
-        if (typeof data.defaultPresetId === 'string') state.store.defaultPresetId = data.defaultPresetId;
+        const merged = normalizeStore({ ...state.store, ...data });
+        state.store = merged;
         saveStore(state.store);
         state.importOpen = false;
         state.importText = '';
@@ -1822,10 +2250,39 @@
       return;
     }
 
-    if (btn.dataset.mode) {
-      state.store.targetMode = btn.dataset.mode === 'chat' ? 'chat' : 'persona';
+    if (btn.dataset.fmt) {
+      state.store.outputFormat = btn.dataset.fmt;
       saveStore(state.store);
-      void refreshState();
+      renderBody();
+      return;
+    }
+    if (btn.dataset.applyTarget) {
+      state.applyCfg.target = btn.dataset.applyTarget;
+      state.applyCfg.error = '';
+      renderBody();
+      return;
+    }
+    if (btn.dataset.mergeMode) {
+      state.applyCfg.replaceAll = btn.dataset.mergeMode === 'replace';
+      renderBody();
+      return;
+    }
+
+    if (btn.dataset.profQuick) {
+      const f = btn.dataset.profQuick;
+      const v = btn.dataset.profVal;
+      state.store.profile[f] = state.store.profile[f] === v ? '' : v;
+      saveStore(state.store);
+      renderAll();
+      return;
+    }
+
+    if (btn.dataset.cat) {
+      state.activeCat = btn.dataset.cat;
+      state.libSearch = '';
+      elBody.scrollTop = 0;
+      renderToolbar();
+      renderBody();
       return;
     }
 
@@ -1849,7 +2306,10 @@
       const p = state.store.presets.find(x => x.id === btn.dataset.presetApply);
       if (p) {
         state.selected = new Set(p.items.map(it => itemKey(it.book, it.title)));
-        notify('已套用「' + p.label + '」，点底部保存生效', 'info');
+        if (p.profile) state.store.profile = normalizeProfile(p.profile);
+        if (p.outputFormat) state.store.outputFormat = p.outputFormat;
+        saveStore(state.store);
+        notify('已套用「' + p.label + '」', 'info');
         renderAll();
       }
       return;
@@ -1858,6 +2318,8 @@
       const p = state.store.presets.find(x => x.id === btn.dataset.presetOverwrite);
       if (p) {
         p.items = [...state.selected].map(parseKey).filter(x => x.book && x.title);
+        p.profile = normalizeProfile(state.store.profile);
+        p.outputFormat = state.store.outputFormat;
         saveStore(state.store);
         notify('已更新「' + p.label + '」', 'success');
         renderAll();
@@ -1880,17 +2342,56 @@
       return;
     }
 
-    // Clicking any chip immediately toggles selection AND opens the bottom content inspector!
-    if (btn.dataset.book && btn.dataset.title) {
-      const book = btn.dataset.book;
-      const title = btn.dataset.title;
+    if (btn.dataset.inspectClose) { state.inspected = null; renderInspector(); renderBody(); return; }
+    if (btn.dataset.inspectToggle && state.inspected) {
+      const k = itemKey(state.inspected.book, state.inspected.title);
+      if (state.selected.has(k)) state.selected.delete(k);
+      else state.selected.add(k);
+      renderTabs();
+      renderToolbar();
+      renderBody();
+      renderConflicts();
+      renderInspector();
+      renderFooter();
+      return;
+    }
+    if (btn.dataset.inspectEdit && state.inspected) {
+      const { book, title } = state.inspected;
+      if (book === LIB_BOOK) {
+        const entry = findLibraryEntry(state.store, title);
+        if (entry) {
+          state.draft = { book: LIB_BOOK, cat: entry.cat, oldTitle: title, title: entry.title, content: entry.content, isCustom: entry.isCustom, error: '', busy: false };
+          state.subView = 'edit';
+          renderAll();
+        }
+      } else {
+        const content = buildWbContentMap()[book]?.[title] || '';
+        state.draft = { book, cat: '', oldTitle: title, title, content, isCustom: false, error: '', busy: false };
+        state.subView = 'edit';
+        renderAll();
+      }
+      return;
+    }
+
+    // Separate READ click vs CHECK toggle!
+    if (btn.dataset.readBook && btn.dataset.readTitle) {
+      state.inspected = { book: btn.dataset.readBook, title: btn.dataset.readTitle };
+      renderBody();
+      renderInspector();
+      return;
+    }
+
+    if (btn.dataset.toggleBook && btn.dataset.toggleTitle) {
+      const book = btn.dataset.toggleBook;
+      const title = btn.dataset.toggleTitle;
       const k = itemKey(book, title);
       if (state.selected.has(k)) state.selected.delete(k);
       else state.selected.add(k);
       state.inspected = { book, title };
       renderTabs();
       renderToolbar();
-      renderBody(null);
+      renderBody();
+      renderConflicts();
       renderInspector();
       renderFooter();
     }
@@ -1900,7 +2401,7 @@
     if (!state.open || ev.key !== 'Escape') return;
     ev.stopPropagation();
     if (state.subView) { state.subView = ''; renderAll(); }
-    else if (state.inspected) { state.inspected = null; renderInspector(); renderBody(null); }
+    else if (state.inspected) { state.inspected = null; renderInspector(); renderBody(); }
     else closeModal();
   });
 
