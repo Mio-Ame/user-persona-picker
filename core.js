@@ -1,7 +1,7 @@
-// Pure core logic for 快照管家 (Native SillyTavern Extension v7.7.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.8.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.7.0';
+export const APP_VERSION = '7.8.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
@@ -28,6 +28,13 @@ export function createEmptyStore() {
       autoApplyBindings: true,
       showFloatingBall: true,
       presetGroupsDefaultCollapsed: true,
+      defaultSnapshotScope: {
+        persona: true,
+        worldbooks: true,
+        preset: true,
+        regex: true,
+        api: true,
+      },
       themeMode: 'paper',
       fabSide: 'right',
       fabY: 0.68,
@@ -83,6 +90,14 @@ export function sanitizeStore(raw) {
   base.settings.autoApplyBindings = st.autoApplyBindings !== false;
   base.settings.showFloatingBall = st.showFloatingBall !== false;
   base.settings.presetGroupsDefaultCollapsed = st.presetGroupsDefaultCollapsed !== false;
+  const ds = st.defaultSnapshotScope && typeof st.defaultSnapshotScope === 'object' ? st.defaultSnapshotScope : {};
+  base.settings.defaultSnapshotScope = {
+    persona: ds.persona !== false,
+    worldbooks: ds.worldbooks !== false,
+    preset: ds.preset !== false,
+    regex: ds.regex !== false,
+    api: ds.api !== false,
+  };
   base.settings.themeMode = THEME_MODES.includes(st.themeMode) ? st.themeMode : 'paper';
   base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
   const yNum = Number(st.fabY);
@@ -138,6 +153,7 @@ export function sanitizeStore(raw) {
         const prRaw = s.preset && typeof s.preset === 'object' ? s.preset : null;
         const rgRaw = s.regex && typeof s.regex === 'object' ? s.regex : null;
         const psRaw = s.persona && typeof s.persona === 'object' ? s.persona : null;
+        const apiRaw = s.api && typeof s.api === 'object' ? s.api : null;
         return {
           id: String(s.id || uid('snap')),
           name: String(s.name || '未命名快照').slice(0, 60),
@@ -149,6 +165,7 @@ export function sanitizeStore(raw) {
             worldbooks: sc.worldbooks !== false && !!cleanWb,
             preset: sc.preset !== false && !!prRaw,
             regex: sc.regex !== false && !!rgRaw,
+            api: sc.api !== false && !!apiRaw,
           },
           persona: psRaw
             ? {
@@ -175,6 +192,15 @@ export function sanitizeStore(raw) {
                 global: sanitizeBoolMap(rgRaw.global),
                 character: sanitizeBoolMap(rgRaw.character),
                 preset: sanitizeBoolMap(rgRaw.preset),
+              }
+            : null,
+          api: apiRaw
+            ? {
+                profileId: String(apiRaw.profileId || '').trim().slice(0, 120),
+                profileName: String(apiRaw.profileName || '').trim().slice(0, 80),
+                source: String(apiRaw.source || '').trim().slice(0, 60),
+                model: String(apiRaw.model || '').trim().slice(0, 120),
+                customUrl: String(apiRaw.customUrl || '').trim().slice(0, 240),
               }
             : null,
         };
@@ -1003,6 +1029,7 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
     missingPersona: null,
     missingWorldbooks: [],
     missingPreset: '',
+    missingApiProfile: null,
     presetDrift: { removedPromptCount: 0, newPromptCount: 0 },
   };
   if (!snap || typeof snap !== 'object') return result;
@@ -1010,6 +1037,7 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
   const livePersonas = Array.isArray(liveEnv.personas) ? liveEnv.personas : [];
   const liveBooks = new Set(Array.isArray(liveEnv.worldbooks) ? liveEnv.worldbooks : []);
   const livePresets = new Set(Array.isArray(liveEnv.presets) ? liveEnv.presets : []);
+  const liveProfiles = Array.isArray(liveEnv.apiProfiles) ? liveEnv.apiProfiles : [];
 
   if (snap.scope?.persona && snap.persona && (snap.persona.avatarId || snap.persona.name)) {
     const found = livePersonas.find(p => p && p.avatar_id === snap.persona.avatarId)
@@ -1049,8 +1077,57 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
     }
   }
 
-  result.hasBlockingIssues = !!(result.missingPersona || result.missingWorldbooks.length || result.missingPreset);
+  if (snap.scope?.api && snap.api && (snap.api.profileId || snap.api.profileName)) {
+    const foundProfile = liveProfiles.find(pr => pr && pr.id === snap.api.profileId)
+      || liveProfiles.find(pr => pr && pr.name === snap.api.profileName);
+    if (!foundProfile) {
+      result.missingApiProfile = {
+        profileId: String(snap.api.profileId || ''),
+        profileName: String(snap.api.profileName || snap.api.profileId || '未知连接配置'),
+      };
+    }
+  }
+
+  result.hasBlockingIssues = !!(
+    result.missingPersona
+    || result.missingWorldbooks.length
+    || result.missingPreset
+    || result.missingApiProfile
+  );
   return result;
+}
+
+// Suggest clean, human-readable snapshot names from active character / persona / preset context
+export function suggestSnapshotNames(ctx = {}) {
+  const charName = String(ctx.charName || '').trim();
+  const personaName = String(ctx.personaName || '').trim();
+  const presetName = String(ctx.presetName || '').trim();
+  const shortPreset = presetName.length > 18 ? presetName.slice(0, 18) : presetName;
+  const existing = new Set((Array.isArray(ctx.existingNames) ? ctx.existingNames : []).map(x => String(x || '').trim()));
+
+  const rawCandidates = [];
+  if (charName && personaName) rawCandidates.push(`${charName} · ${personaName}`);
+  if (charName) rawCandidates.push(charName);
+  if (charName && shortPreset) rawCandidates.push(`${charName} · ${shortPreset}`);
+  if (personaName && shortPreset) rawCandidates.push(`${personaName} · ${shortPreset}`);
+  if (personaName) rawCandidates.push(personaName);
+  if (shortPreset) rawCandidates.push(shortPreset);
+
+  const unique = Array.from(new Set(rawCandidates.map(s => s.trim().slice(0, 60)).filter(Boolean)));
+  const dedupName = base => {
+    if (!existing.has(base)) return base;
+    for (let i = 2; i <= 99; i++) {
+      const next = `${base} #${i}`.slice(0, 60);
+      if (!existing.has(next)) return next;
+    }
+    return base;
+  };
+
+  const primary = unique.length ? dedupName(unique[0]) : dedupName(`快照 ${formatTimeShort(Date.now())}`);
+  return {
+    primary,
+    suggestions: unique.slice(0, 4).map(dedupName),
+  };
 }
 
 // =========================

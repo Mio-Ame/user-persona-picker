@@ -54,6 +54,7 @@ import {
   pickActivePromptOrder,
   resolveBindingForContext,
   sanitizeStore,
+  suggestSnapshotNames,
   uid,
 } from './core.js';
 
@@ -897,6 +898,157 @@ const Host = {
     wanted.forEach(k => { if (!matched.has(k)) skipped++; });
     return { changed, skipped };
   },
+
+  // --- API / Connection Profiles (zero secrets stored!) ---
+  listConnectionProfiles() {
+    try {
+      const ctx = getContext();
+      const cm = ctx?.extensionSettings?.connectionManager || extension_settings?.connectionManager;
+      const disabled = Array.isArray(ctx?.extensionSettings?.disabledExtensions)
+        && ctx.extensionSettings.disabledExtensions.includes('connection-manager');
+      if (disabled || !Array.isArray(cm?.profiles)) return [];
+      return cm.profiles
+        .filter(p => p && p.id && p.name)
+        .map(p => ({
+          id: String(p.id),
+          name: String(p.name),
+          api: String(p.api || ''),
+          model: String(p.model || ''),
+        }));
+    } catch (_) {
+      return [];
+    }
+  },
+  getCurrentApiConfig() {
+    try {
+      const ctx = getContext();
+      const cm = ctx?.extensionSettings?.connectionManager || extension_settings?.connectionManager;
+      const disabled = Array.isArray(ctx?.extensionSettings?.disabledExtensions)
+        && ctx.extensionSettings.disabledExtensions.includes('connection-manager');
+      const selectedId = !disabled && cm?.selectedProfile ? String(cm.selectedProfile) : '';
+      const profiles = Array.isArray(cm?.profiles) ? cm.profiles : [];
+      const activeProfile = selectedId ? profiles.find(p => p && String(p.id) === selectedId) : null;
+
+      const oai = ctx?.chatCompletionSettings || {};
+      const source = String(oai.chat_completion_source || activeProfile?.api || '').trim();
+      const fieldBySource = {
+        claude: 'claude_model',
+        openai: 'openai_model',
+        makersuite: 'google_model',
+        vertexai: 'vertexai_model',
+        openrouter: 'openrouter_model',
+        mistralai: 'mistralai_model',
+        custom: 'custom_model',
+        cohere: 'cohere_model',
+        groq: 'groq_model',
+        siliconflow: 'siliconflow_model',
+        minimax: 'minimax_model',
+        deepseek: 'deepseek_model',
+        xai: 'xai_model',
+        moonshot: 'moonshot_model',
+        fireworks: 'fireworks_model',
+        zai: 'zai_model',
+      };
+      let model = '';
+      try {
+        if (typeof ctx?.getChatCompletionModel === 'function') model = String(ctx.getChatCompletionModel(oai) || '').trim();
+      } catch (_) {}
+      if (!model) {
+        const mf = fieldBySource[source.toLowerCase()];
+        model = String((mf && oai[mf]) || activeProfile?.model || oai.model || '').trim();
+      }
+      const customUrl = source.toLowerCase() === 'custom'
+        ? String(oai.custom_url || '').trim()
+        : String(oai.reverse_proxy || '').trim();
+
+      if (!activeProfile && !source && !model) return null;
+      return {
+        profileId: activeProfile ? String(activeProfile.id) : '',
+        profileName: activeProfile ? String(activeProfile.name) : '',
+        source,
+        model,
+        customUrl: customUrl.slice(0, 240),
+      };
+    } catch (_) {
+      return null;
+    }
+  },
+  async applyApiConfig(apiObj) {
+    if (!apiObj || typeof apiObj !== 'object') return { applied: false, skipped: 0, switchedProfile: false };
+    const $ = window.jQuery;
+    const ctx = getContext();
+
+    // Case A: Built-in Connection Profile
+    if (apiObj.profileId || apiObj.profileName) {
+      const profiles = this.listConnectionProfiles();
+      const target = profiles.find(p => p.id === apiObj.profileId)
+        || profiles.find(p => p.name === apiObj.profileName);
+      if (!target) return { applied: false, skipped: 1, switchedProfile: false };
+
+      const cm = ctx?.extensionSettings?.connectionManager || extension_settings?.connectionManager;
+      if (cm && String(cm.selectedProfile || '') === target.id) {
+        return { applied: true, skipped: 0, switchedProfile: false };
+      }
+
+      if ($ && $('#connection_profiles').length) {
+        const hasOpt = $('#connection_profiles option').filter((_, el) => String($(el).val()) === target.id).length > 0;
+        if (hasOpt) {
+          $('#connection_profiles').val(target.id).trigger('change');
+          return { applied: true, skipped: 0, switchedProfile: true };
+        }
+      }
+      if (typeof ctx?.executeSlashCommandsWithOptions === 'function') {
+        await ctx.executeSlashCommandsWithOptions(`/profile ${target.name}`, { handleParserErrors: false });
+        return { applied: true, skipped: 0, switchedProfile: true };
+      }
+      return { applied: false, skipped: 1, switchedProfile: false };
+    }
+
+    // Case B: Raw Chat Completion source + model
+    const oai = ctx?.chatCompletionSettings;
+    if (!oai) return { applied: false, skipped: 1, switchedProfile: false };
+    let changed = false;
+    if (apiObj.source && oai.chat_completion_source !== apiObj.source) {
+      oai.chat_completion_source = apiObj.source;
+      if ($ && $('#chat_completion_source').length) {
+        $('#chat_completion_source').val(apiObj.source).trigger('change');
+      }
+      changed = true;
+    }
+    if (apiObj.model) {
+      const srcKey = String(apiObj.source || oai.chat_completion_source || '').toLowerCase();
+      const fieldBySource = {
+        claude: 'claude_model',
+        openai: 'openai_model',
+        makersuite: 'google_model',
+        vertexai: 'vertexai_model',
+        openrouter: 'openrouter_model',
+        mistralai: 'mistralai_model',
+        custom: 'custom_model',
+        cohere: 'cohere_model',
+        groq: 'groq_model',
+        siliconflow: 'siliconflow_model',
+        minimax: 'minimax_model',
+        deepseek: 'deepseek_model',
+        xai: 'xai_model',
+        moonshot: 'moonshot_model',
+        fireworks: 'fireworks_model',
+        zai: 'zai_model',
+      };
+      const field = fieldBySource[srcKey];
+      if (field && oai[field] !== apiObj.model) {
+        oai[field] = apiObj.model;
+        if ($ && $(`#model_${srcKey}_select`).length) {
+          $(`#model_${srcKey}_select`).val(apiObj.model).trigger('change');
+        } else if (srcKey === 'custom' && $ && $('#custom_model_id').length) {
+          $('#custom_model_id').val(apiObj.model).trigger('input');
+        }
+        changed = true;
+      }
+    }
+    if (changed) saveSettingsDebounced();
+    return { applied: true, skipped: 0, switchedProfile: false };
+  },
 };
 
 // =========================
@@ -956,6 +1108,7 @@ async function captureLiveSnapshot(opts, store) {
     worldbooks: !!opts.scope.worldbooks,
     preset: !!opts.scope.preset,
     regex: !!opts.scope.regex,
+    api: !!opts.scope.api,
   };
 
   const snap = {
@@ -969,6 +1122,7 @@ async function captureLiveSnapshot(opts, store) {
     worldbooks: null,
     preset: null,
     regex: null,
+    api: null,
   };
 
   if (scope.persona) {
@@ -1041,6 +1195,12 @@ async function captureLiveSnapshot(opts, store) {
     };
   }
 
+  if (scope.api) {
+    const apiCfg = Host.getCurrentApiConfig();
+    if (apiCfg) snap.api = apiCfg;
+    else snap.scope.api = false;
+  }
+
   return snap;
 }
 
@@ -1099,6 +1259,15 @@ async function applySnapshotLive(snap, store, silentPrefix) {
         if (!allBooks.has(bk)) { totalSkipped++; continue; }
         const res = await Host.batchToggleWorldbookEntries(bk, entriesMap[bk]);
         totalSkipped += res.skipped;
+      }
+    }
+
+    if (snap.scope.api && snap.api) {
+      const apiRes = await Host.applyApiConfig(snap.api);
+      totalSkipped += apiRes.skipped || 0;
+      if (apiRes.switchedProfile) {
+        // Wait briefly so Connection Profile settles before snapshot's preset overrides cleanly
+        await new Promise(r => window.setTimeout(r, 150));
       }
     }
 
@@ -1881,6 +2050,9 @@ function initExtension() {
 
     snapGroup: '',
     snapSearch: '',
+    snapBatchMode: false,
+    snapSelectedIds: new Set(),
+    snapBatchConfirm: false,
 
     personas: [],
     currentPersona: null,
@@ -1894,6 +2066,8 @@ function initExtension() {
     bookEntriesCache: {},
     wbEntrySearch: '',
     wbOnlyOn: false,
+    expandedWbUids: new Set(),
+    wbHygieneCursor: 0,
 
     presets: [],
     loadedPresetName: '',
@@ -1902,6 +2076,7 @@ function initExtension() {
     presetOnlyOn: false,
     presetFoldState: {},
     expandedPresetIds: new Set(),
+    apiProfiles: [],
 
     regexScope: 'global',
     regexList: [],
@@ -1999,6 +2174,7 @@ function initExtension() {
     state.presets = Host.listPresets();
     state.loadedPresetName = Host.getLoadedPresetName();
     state.livePresetNorm = Host.getLiveNormalizedPreset();
+    state.apiProfiles = Host.listConnectionProfiles();
     backfillSnapshotPresetNames();
     state.regexList = await Host.getRegexes(state.regexScope);
 
@@ -2068,6 +2244,7 @@ function initExtension() {
           <span>自动切换</span>
           <button type="button" class="upp-switch" id="upp-auto-bind-sw" role="switch" aria-checked="${autoOn}"></button>
         </label>
+        <button class="upp-btn ${state.snapBatchMode ? 'active' : ''}" id="upp-snap-batch-btn">${state.snapBatchMode ? '退出批量' : '批量管理'}</button>
         <button class="upp-btn" id="upp-snap-preset-sync-btn" title="同步新增预设条目开关或将旧预设版本快照一键升级迁移到新版本">预设同步</button>
         <button class="upp-btn" id="upp-backup-btn">${ICONS.backup}<span>备份</span></button>
       </div>
@@ -2093,7 +2270,28 @@ function initExtension() {
     const boundSnap = bound ? snaps.find(s => s.id === bound.snapshotId) : null;
 
     let html = '';
-    if (boundSnap) {
+    if (state.snapBatchMode) {
+      const shownIds = filtered.map(s => s.id);
+      const allSelected = shownIds.length > 0 && shownIds.every(id => state.snapSelectedIds.has(id));
+      const selCount = state.snapSelectedIds.size;
+      html += `
+        <div class="upp-bind-strip" style="${state.snapBatchConfirm ? 'background:var(--danger-soft);border-color:rgba(165,60,60,0.35);' : ''}">
+          ${state.snapBatchConfirm ? `
+            <span>确认永久删除选中的 <strong>${selCount}</strong> 份快照？（不可恢复）</span>
+            <div class="upp-row-nowrap">
+              <button type="button" class="upp-btn danger" id="upp-batch-del-confirm">确认删除</button>
+              <button type="button" class="upp-btn" id="upp-batch-del-cancel">取消</button>
+            </div>
+          ` : `
+            <span>批量删除模式 · 已选 <strong>${selCount}</strong> / ${filtered.length}</span>
+            <div class="upp-row-nowrap">
+              <button type="button" class="upp-btn" id="upp-batch-select-all">${allSelected ? '取消全选' : '全选当前'}</button>
+              <button type="button" class="upp-btn danger" id="upp-batch-del-btn" ${selCount ? '' : 'disabled'}>删除已选 (${selCount})</button>
+            </div>
+          `}
+        </div>
+      `;
+    } else if (boundSnap) {
       const srcText = bound.source === 'chat' ? '本聊天' : '本角色';
       html += `
         <div class="upp-bind-strip">
@@ -2133,16 +2331,22 @@ function initExtension() {
       if (s.scope.preset && s.preset) {
         scopeBadges.push(`<span class="upp-badge">预设: ${escapeHtml(s.preset.name || '当前')}</span>`);
       }
+      if (s.scope.api && s.api) {
+        const apiLabel = s.api.profileName || s.api.model || s.api.source || 'API';
+        scopeBadges.push(`<span class="upp-badge">API: ${escapeHtml(apiLabel)}</span>`);
+      }
       if (s.scope.regex && s.regex) {
         scopeBadges.push(`<span class="upp-badge">正则</span>`);
       }
       const isChatBound = state.chatId && state.store.bindings.chats[state.chatId] === s.id;
       const isCharBound = state.charInfo.id && state.store.bindings.characters[state.charInfo.id] === s.id;
+      const isChecked = state.snapSelectedIds.has(s.id);
 
       return `
-        <div class="upp-card">
+        <div class="upp-card" style="${state.snapBatchMode && isChecked ? 'border-color:var(--accent);background:var(--surface-strong);' : ''}">
           <div class="upp-card-head">
             <div class="upp-row-nowrap">
+              ${state.snapBatchMode ? `<input type="checkbox" data-snap-batch-check="${s.id}" ${isChecked ? 'checked' : ''} style="accent-color:var(--accent);margin:0;cursor:pointer;" />` : ''}
               <span class="upp-card-title">${escapeHtml(s.name)}</span>
               ${s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : ''}
               ${isChatBound ? `<span class="upp-badge ok">本聊天</span>` : ''}
@@ -2152,15 +2356,17 @@ function initExtension() {
           </div>
           <div class="upp-card-meta">${scopeBadges.join('')}</div>
           ${s.note ? `<div class="upp-card-meta">${escapeHtml(s.note)}</div>` : ''}
-          <div class="upp-row">
-            <button class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
-            <button class="upp-btn" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
-            <button class="upp-btn" data-snap-edit="${s.id}">${ICONS.edit}<span>编辑</span></button>
-            <button class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
-            <button class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
-            <div class="upp-spacer"></div>
-            <button class="upp-btn icon-only danger" data-snap-del="${s.id}" title="删除快照">${ICONS.trash}</button>
-          </div>
+          ${state.snapBatchMode ? '' : `
+            <div class="upp-row">
+              <button class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
+              <button class="upp-btn" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
+              <button class="upp-btn" data-snap-edit="${s.id}">${ICONS.edit}<span>编辑</span></button>
+              <button class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
+              <button class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
+              <div class="upp-spacer"></div>
+              <button class="upp-btn icon-only danger" data-snap-del="${s.id}" title="删除快照">${ICONS.trash}</button>
+            </div>
+          `}
         </div>
       `;
     }).join('');
@@ -2352,7 +2558,7 @@ function initExtension() {
           ${ICONS.chevron}
         </button>
         <button class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
-        <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="全局绑定开关" ${activeBook ? '' : 'disabled'}>全局</button>
+        <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="开启后，这本世界书会在所有角色和聊天中生效（等同于酒馆顶部的全局世界书勾选）" ${activeBook ? '' : 'disabled'}>${isGlobal ? '已全局启用' : '全局启用'}</button>
         ${hasOrg ? `<button class="upp-btn" id="upp-open-wbo-btn" title="直达世界书整理面板">整理分组</button>` : ''}
         <div class="upp-spacer"></div>
         <button class="upp-btn" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
@@ -2389,7 +2595,13 @@ function initExtension() {
       if (hygiene.duplicateTags.length > 0) {
         notes.push(`重复包裹标签：${hygiene.duplicateTags.map(d => '<' + d.tag + '>').join('、')}`);
       }
-      html += `<div class="upp-card-meta" style="padding: 2px 4px;"><span class="upp-badge warn">${ICONS.warn} ${escapeHtml(notes.join(' · '))}</span></div>`;
+      html += `
+        <div class="upp-card-meta" style="padding: 2px 4px;">
+          <button type="button" class="upp-badge warn" id="upp-wb-jump-hygiene-btn" style="cursor:pointer;" title="点击直接定位并展开对应条目">
+            ${ICONS.warn} <span>${escapeHtml(notes.join(' · '))} · 点击定位</span>
+          </button>
+        </div>
+      `;
     }
 
     if (!filtered.length) {
@@ -2399,25 +2611,52 @@ function initExtension() {
     }
 
     html += `<div class="upp-entry-list">` + filtered.map(e => {
-      const h = hygiene.byUid[String(e.uid)];
-      const warnTag = h && (h.unclosed.length || h.duplicateTags.length)
-        ? `<span class="upp-badge warn" title="${escapeHtml([
-            h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
-            h.duplicateTags.length ? '重复包裹: ' + h.duplicateTags.join(', ') : '',
-          ].filter(Boolean).join('；'))}">${ICONS.warn}</span>`
+      const uidKey = String(e.uid);
+      const h = hygiene.byUid[uidKey];
+      const warnList = h ? [
+        h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
+        h.duplicateTags.length ? '重复包裹: ' + h.duplicateTags.join(', ') : '',
+      ].filter(Boolean) : [];
+      const warnTag = warnList.length
+        ? `<span class="upp-badge warn" title="${escapeHtml(warnList.join('；'))}">${ICONS.warn}</span>`
         : '';
       const snippet = String(e.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      const isExpanded = state.expandedWbUids.has(uidKey);
       return `
-        <div class="upp-entry-row ${e.enabled ? 'is-on' : ''}" data-wb-row="${e.uid}">
-          <button class="upp-entry-main" data-wb-open="${e.uid}">
-            <span class="upp-dot ${e.strategyType}" title="${e.strategyType === 'constant' ? '蓝灯常驻' : e.strategyType === 'selective' ? '绿灯触发' : '向量'}"></span>
-            <div class="upp-entry-text">
-              <div class="upp-entry-name">${escapeHtml(e.name)}</div>
-              <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+        <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-wb-wrap="${escapeHtml(uidKey)}">
+          <div class="upp-entry-row ${e.enabled ? 'is-on' : ''}" data-wb-row="${escapeHtml(uidKey)}">
+            <button class="upp-entry-main" data-wb-open="${escapeHtml(uidKey)}">
+              <span class="upp-entry-chev">${ICONS.chevron}</span>
+              <span class="upp-dot ${e.strategyType}" title="${e.strategyType === 'constant' ? '蓝灯常驻' : e.strategyType === 'selective' ? '绿灯触发' : '向量'}"></span>
+              <div class="upp-entry-text">
+                <div class="upp-entry-name">${escapeHtml(e.name)}</div>
+                <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+              </div>
+              ${warnTag}
+            </button>
+            <button type="button" class="upp-switch" role="switch" aria-checked="${!!e.enabled}" data-wb-toggle="${escapeHtml(uidKey)}"></button>
+          </div>
+          ${isExpanded ? `
+            <div class="upp-inline-panel" data-wb-panel="${escapeHtml(uidKey)}">
+              <div class="upp-inline-meta">
+                <span>UID #${escapeHtml(uidKey)} · 顺序 ${e.order} · ${String(e.content || '').length} 字</span>
+                ${warnList.length ? `<span class="upp-badge warn">${ICONS.warn} ${escapeHtml(warnList.join('；'))}</span>` : ''}
+              </div>
+              <div class="upp-row">
+                <input type="text" class="upp-text-input" style="flex:1;min-width:140px;" data-wb-inline-name="${escapeHtml(uidKey)}" value="${escapeHtml(e.name || '')}" placeholder="条目名称" />
+                <select class="upp-select" data-wb-inline-strategy="${escapeHtml(uidKey)}" style="max-width:140px;">
+                  <option value="constant" ${e.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
+                  <option value="selective" ${e.strategyType === 'selective' ? 'selected' : ''}>绿灯触发</option>
+                </select>
+              </div>
+              <textarea class="upp-inline-textarea" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-wb-inline-copy="${escapeHtml(uidKey)}">${ICONS.copy}<span>复制</span></button>
+                <button type="button" class="upp-btn" data-wb-inline-close="${escapeHtml(uidKey)}">收起</button>
+                <button type="button" class="upp-btn primary" data-wb-inline-save="${escapeHtml(uidKey)}">保存</button>
+              </div>
             </div>
-            ${warnTag}
-          </button>
-          <button type="button" class="upp-switch" role="switch" aria-checked="${!!e.enabled}" data-wb-toggle="${e.uid}"></button>
+          ` : ''}
         </div>
       `;
     }).join('') + `</div>`;
@@ -2745,17 +2984,34 @@ function initExtension() {
               ${rows.map(u => {
                 const live = byUid.get(u);
                 const on = !!map[u];
+                const expKey = `wb::${bk}::${u}`;
+                const isExpanded = !!(d.expandedIds && d.expandedIds.has(expKey));
                 const snippet = live ? String(live.content || '').replace(/\s+/g, ' ').trim().slice(0, 72) : '该条目已从世界书删除';
                 return `
-                  <div class="upp-entry-row ${on ? 'is-on' : 'is-off'}">
-                    <button class="upp-entry-main" data-view-snap-wb="${escapeHtml(bk)}" data-view-snap-uid="${escapeHtml(u)}">
-                      <span class="upp-dot ${on ? 'snap-on' : 'snap-off'}"></span>
-                      <div class="upp-entry-text">
-                        <div class="upp-entry-name">${escapeHtml(live ? live.name : `已删除条目 #${u}`)}</div>
-                        <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+                  <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}">
+                    <div class="upp-entry-row ${on ? 'is-on' : 'is-off'}">
+                      <button class="upp-entry-main" data-view-snap-wb="${escapeHtml(bk)}" data-view-snap-uid="${escapeHtml(u)}">
+                        <span class="upp-entry-chev">${ICONS.chevron}</span>
+                        <span class="upp-dot ${on ? 'snap-on' : 'snap-off'}"></span>
+                        <div class="upp-entry-text">
+                          <div class="upp-entry-name">${escapeHtml(live ? live.name : `已删除条目 #${u}`)}</div>
+                          <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
+                        </div>
+                      </button>
+                      <button type="button" class="upp-switch" role="switch" aria-checked="${on}" data-sv-wb-toggle="${escapeHtml(bk)}" data-sv-wb-uid="${escapeHtml(u)}"></button>
+                    </div>
+                    ${isExpanded ? `
+                      <div class="upp-inline-panel">
+                        <div class="upp-inline-meta">
+                          <span>UID #${escapeHtml(u)}${live ? ` · 顺序 ${live.order} · ${String(live.content || '').length} 字` : ''}</span>
+                        </div>
+                        <pre class="upp-inline-pre">${escapeHtml(live ? (live.content || '（空正文）') : '该条目已从世界书删除，无法读取正文。')}</pre>
+                        <div class="upp-inline-foot">
+                          ${live ? `<button type="button" class="upp-btn" data-sv-wb-copy="${escapeHtml(bk)}" data-sv-wb-copy-uid="${escapeHtml(u)}">${ICONS.copy}<span>复制</span></button>` : ''}
+                          <button type="button" class="upp-btn" data-sv-wb-close="${escapeHtml(expKey)}">收起</button>
+                        </div>
                       </div>
-                    </button>
-                    <button type="button" class="upp-switch" role="switch" aria-checked="${on}" data-sv-wb-toggle="${escapeHtml(bk)}" data-sv-wb-uid="${escapeHtml(u)}"></button>
+                    ` : ''}
                   </div>
                 `;
               }).join('')}
@@ -2777,6 +3033,35 @@ function initExtension() {
       }
       bodyEl.innerHTML = `
         <div class="upp-persona-live-box" style="max-height:none;cursor:default;">${escapeHtml(s.persona.description || '空描述')}</div>
+      `;
+      return;
+    }
+
+    if (sub === 'api' && s.scope.api && s.api) {
+      const profiles = state.apiProfiles || Host.listConnectionProfiles();
+      if (metaEl) {
+        metaEl.innerHTML = `
+          ${s.api.profileName ? `<span class="upp-badge accent">连接配置：${escapeHtml(s.api.profileName)}</span>` : ''}
+          ${s.api.source ? `<span class="upp-badge">来源：${escapeHtml(s.api.source)}</span>` : ''}
+          ${s.api.model ? `<span class="upp-badge">模型：${escapeHtml(s.api.model)}</span>` : ''}
+        `;
+      }
+      bodyEl.innerHTML = `
+        <div class="upp-card">
+          <div class="upp-card-head"><span class="upp-card-title">当前快照记录的 API 连接</span></div>
+          <div class="upp-card-meta">仅保存连接配置名、来源与模型标识，绝不保存任何 API 密钥。</div>
+          ${profiles.length ? `
+            <div class="upp-field">
+              <label>切换此快照使用的连接配置（点右上角保存修改生效）</label>
+              <select class="upp-select" id="upp-sv-api-profile-sel" style="max-width:none;width:100%;">
+                <option value="">不使用连接配置（沿用原始来源与模型）</option>
+                ${profiles.map(pr => `<option value="${escapeHtml(pr.id)}" ${s.api.profileId === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` (${escapeHtml(pr.model)})` : ''}</option>`).join('')}
+              </select>
+            </div>
+          ` : ''}
+          <div class="upp-card-meta">来源：${escapeHtml(s.api.source || '未记录')} · 模型：${escapeHtml(s.api.model || '未记录')}</div>
+          ${s.api.customUrl ? `<div class="upp-card-meta">接口地址：${escapeHtml(s.api.customUrl)}</div>` : ''}
+        </div>
       `;
       return;
     }
@@ -3085,6 +3370,7 @@ function initExtension() {
       if (s.scope.preset && s.preset) availTabs.push({ id: 'preset', label: '预设' });
       if (s.scope.worldbooks && s.worldbooks) availTabs.push({ id: 'worldbooks', label: '世界书' });
       if (s.scope.persona && s.persona) availTabs.push({ id: 'persona', label: 'User' });
+      if (s.scope.api && s.api) availTabs.push({ id: 'api', label: 'API' });
       if (s.scope.regex && s.regex) availTabs.push({ id: 'regex', label: '正则' });
       if (!availTabs.some(t => t.id === d.subTab)) d.subTab = availTabs[0]?.id || 'preset';
 
@@ -3140,10 +3426,11 @@ function initExtension() {
 
     if (d.type === 'editSnapshotMeta') {
       const existingGroups = Array.from(new Set(state.store.snapshots.map(x => x.group).filter(Boolean)));
+      const sc = d.scope || { persona: true, worldbooks: true, preset: true, regex: true, api: false };
       elDrawerMask.innerHTML = `
-        <div class="upp-drawer" style="width:min(460px,100%);">
+        <div class="upp-drawer" style="width:min(480px,100%);">
           <div class="upp-drawer-head">
-            <span>编辑快照信息</span>
+            <span>编辑快照信息与包含模块</span>
             <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
@@ -3161,12 +3448,22 @@ function initExtension() {
             </div>
             <div class="upp-field">
               <label>说明备注</label>
-              <textarea class="upp-inline-textarea" id="upp-em-note" style="min-height:90px;" placeholder="可选简短说明（最多 120 字）">${escapeHtml(d.note || '')}</textarea>
+              <textarea class="upp-inline-textarea" id="upp-em-note" style="min-height:80px;" placeholder="可选简短说明（最多 120 字）">${escapeHtml(d.note || '')}</textarea>
+            </div>
+            <div class="upp-field">
+              <label>本快照包含的模块（新勾上的模块会自动采录当前状态）</label>
+              <div class="upp-check-grid">
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-persona" ${sc.persona ? 'checked' : ''} /><span>User 人设</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-wb" ${sc.worldbooks ? 'checked' : ''} /><span>世界书</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-preset" ${sc.preset ? 'checked' : ''} /><span>预设与分组</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-api" ${sc.api ? 'checked' : ''} /><span>API / 连接配置</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-regex" ${sc.regex ? 'checked' : ''} /><span>正则开关</span></label>
+              </div>
             </div>
           </div>
           <div class="upp-drawer-foot">
             <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-em-save-btn">保存信息</button>
+            <button class="upp-btn primary" id="upp-em-save-btn">保存修改</button>
           </div>
         </div>
       `;
@@ -3180,6 +3477,7 @@ function initExtension() {
       const hasRepairChoice = !!(
         d.personaRemap
         || d.presetRemap
+        || d.apiProfileRemap
         || Object.values(d.bookRemap || {}).some(v => v && v !== '__keep__')
       );
       const hasOrg = !!getOrganizerSettings();
@@ -3251,6 +3549,20 @@ function initExtension() {
                   <select class="upp-select" id="upp-ma-preset-sel" style="max-width:none;width:100%;">
                     <option value="">暂不替换（应用时跳过预设）</option>
                     ${state.presets.map(pr => `<option value="${escapeHtml(pr)}" ${d.presetRemap === pr ? 'selected' : ''}>${escapeHtml(pr)}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            ` : ''}
+            ${health.missingApiProfile ? `
+              <div class="upp-card">
+                <div class="upp-card-head">
+                  <span class="upp-card-title">缺失 API 连接配置：${escapeHtml(health.missingApiProfile.profileName)}</span>
+                </div>
+                <div class="upp-field">
+                  <label>替换为现有连接配置（可选）</label>
+                  <select class="upp-select" id="upp-ma-api-sel" style="max-width:none;width:100%;">
+                    <option value="">暂不替换（应用时跳过 API）</option>
+                    ${(state.apiProfiles || []).map(pr => `<option value="${escapeHtml(pr.id)}" ${d.apiProfileRemap === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` (${escapeHtml(pr.model)})` : ''}</option>`).join('')}
                   </select>
                 </div>
               </div>
@@ -3371,8 +3683,10 @@ function initExtension() {
 
     if (d.type === 'saveSnapshot') {
       const existingGroups = Array.from(new Set(state.store.snapshots.map(s => s.group).filter(Boolean)));
-      const pinned = new Set(state.store.settings.pinnedWorldbooks);
       const selectedSet = new Set(d.selectedBooks || []);
+      const curApi = Host.getCurrentApiConfig();
+      const apiHint = curApi ? (curApi.profileName || curApi.model || curApi.source || '当前连接') : '未检测到连接';
+      const nameSuggestions = Array.isArray(d.nameSuggestions) ? d.nameSuggestions : [];
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
@@ -3381,24 +3695,34 @@ function initExtension() {
           </div>
           <div class="upp-drawer-body">
             <div class="upp-field">
-              <label>快照名称</label>
-              <input class="upp-text-input" id="upp-ss-name" placeholder="例如：日常甜妹 / 现代线" value="${escapeHtml(d.name || '')}" />
+              <label>快照名称（已自动生成，可直接保存或点下方快捷词替换）</label>
+              <div class="upp-row-nowrap">
+                <input class="upp-text-input" id="upp-ss-name" placeholder="例如：角色名 · 日常线" value="${escapeHtml(d.name || '')}" />
+                <button type="button" class="upp-btn" id="upp-ss-name-clear">清空</button>
+              </div>
+              ${nameSuggestions.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${nameSuggestions.map(nm => `<button type="button" class="upp-pill" data-ss-fill-name="${escapeHtml(nm)}">${escapeHtml(nm)}</button>`).join('')}</div>` : ''}
             </div>
             <div class="upp-field">
               <label>分组</label>
-              <input class="upp-text-input" id="upp-ss-group" placeholder="可选，例如：日常 / 现代 / 某角色" value="${escapeHtml(d.group || '')}" />
-              ${existingGroups.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${existingGroups.map(g => `<button type="button" class="upp-pill" data-ss-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}</div>` : ''}
+              <input class="upp-text-input" id="upp-ss-group" placeholder="可选，例如：日常 / 现代 / 角色名" value="${escapeHtml(d.group || '')}" />
+              ${(existingGroups.length || state.charInfo.name) ? `
+                <div class="upp-pill-strip" style="margin-top:4px;">
+                  ${state.charInfo.name && !existingGroups.includes(state.charInfo.name) ? `<button type="button" class="upp-pill" data-ss-fill-group="${escapeHtml(state.charInfo.name)}">角色：${escapeHtml(state.charInfo.name)}</button>` : ''}
+                  ${existingGroups.map(g => `<button type="button" class="upp-pill" data-ss-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+                </div>
+              ` : ''}
             </div>
             <div class="upp-field">
               <label>备注</label>
-              <input class="upp-text-input" id="upp-ss-note" placeholder="可选简短说明" value="${escapeHtml(d.note || '')}" />
+              <input class="upp-text-input" id="upp-ss-note" placeholder="可选简短说明（悬浮球里可直接看到）" value="${escapeHtml(d.note || '')}" />
             </div>
             <div class="upp-field">
-              <label>保存范围</label>
+              <label>自定义包含内容（勾选状态会自动记住，下次保存直接沿用）</label>
               <div class="upp-check-grid">
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-persona" ${d.scope.persona ? 'checked' : ''} /><span>User 人设</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-wb" ${d.scope.worldbooks ? 'checked' : ''} /><span>世界书与条目开关</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-preset" ${d.scope.preset ? 'checked' : ''} /><span>预设、分组与提示词</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-sc-api" ${d.scope.api ? 'checked' : ''} /><span>API：${escapeHtml(apiHint)}</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-sc-regex" ${d.scope.regex ? 'checked' : ''} /><span>正则开关</span></label>
               </div>
             </div>
@@ -3457,6 +3781,10 @@ function initExtension() {
         scopes.push(`世界书（${bkCount} 本及全局绑定）`);
       }
       if (s.scope.preset) scopes.push(`预设（当前：${state.loadedPresetName || '无'}）`);
+      if (s.scope.api) {
+        const curApi = Host.getCurrentApiConfig();
+        scopes.push(`API（当前：${curApi ? (curApi.profileName || curApi.model || curApi.source) : '无'}）`);
+      }
       if (s.scope.regex) scopes.push('正则开关');
 
       elDrawerMask.innerHTML = `
@@ -4010,12 +4338,26 @@ function initExtension() {
   }
 
   function openSaveSnapshotDrawer() {
+    const defSc = state.store.settings.defaultSnapshotScope || {};
+    const named = suggestSnapshotNames({
+      charName: state.charInfo.name,
+      personaName: state.currentPersona?.name,
+      presetName: state.loadedPresetName,
+      existingNames: state.store.snapshots.map(s => s.name),
+    });
     state.drawer = {
       type: 'saveSnapshot',
-      name: '',
-      group: state.snapGroup || '',
+      name: named.primary,
+      nameSuggestions: named.suggestions,
+      group: state.snapGroup || state.charInfo.name || '',
       note: '',
-      scope: { persona: true, worldbooks: true, preset: true, regex: true },
+      scope: {
+        persona: defSc.persona !== false,
+        worldbooks: defSc.worldbooks !== false,
+        preset: defSc.preset !== false,
+        regex: defSc.regex !== false,
+        api: defSc.api !== false,
+      },
       selectedBooks: getDefaultSnapshotBooks(state.store),
     };
     renderDrawer();
@@ -4079,14 +4421,16 @@ function initExtension() {
     const personas = Host.listPersonas();
     const worldbooks = Host.listWorldbooks();
     const presets = Host.listPresets();
+    const apiProfiles = Host.listConnectionProfiles();
     const presetNorm = (snap.scope?.preset && snap.preset?.name && presets.includes(snap.preset.name))
       ? Host.getPresetByNameNormalized(snap.preset.name)
       : null;
-    const health = inspectSnapshotHealth(snap, { personas, worldbooks, presets, presetNorm });
+    const health = inspectSnapshotHealth(snap, { personas, worldbooks, presets, presetNorm, apiProfiles });
     if (health.hasBlockingIssues) {
       state.personas = personas;
       state.worldbooks = worldbooks;
       state.presets = presets;
+      state.apiProfiles = apiProfiles;
       if (fromFab && !state.open) {
         state.store = loadStore();
         applyThemeAll();
@@ -4101,6 +4445,7 @@ function initExtension() {
         health,
         personaRemap: '',
         presetRemap: '',
+        apiProfileRemap: '',
         bookRemap: {},
       };
       renderDrawer();
@@ -4236,6 +4581,12 @@ function initExtension() {
       toast(state.store.settings.autoApplyBindings ? '已开启切换聊天自动切回快照' : '已暂停自动切换快照');
       return;
     }
+    if (target.closest('#upp-snap-batch-btn')) {
+      state.snapBatchMode = !state.snapBatchMode;
+      state.snapSelectedIds.clear();
+      state.snapBatchConfirm = false;
+      renderSnapshotsToolbar(); renderSnapshotsBody(); return;
+    }
     if (target.closest('#upp-snap-preset-sync-btn')) { openPresetSyncDrawer(); return; }
     if (target.closest('#upp-backup-btn')) { state.drawer = { type: 'backup' }; renderDrawer(); return; }
     const gBtn = target.closest('[data-snap-group]');
@@ -4284,10 +4635,13 @@ function initExtension() {
     }
     if (target.closest('#upp-global-book-btn') && state.activeBook) {
       const next = new Set(state.globalWorldbooks);
-      if (next.has(state.activeBook)) next.delete(state.activeBook); else next.add(state.activeBook);
+      const turningOn = !next.has(state.activeBook);
+      if (turningOn) next.add(state.activeBook); else next.delete(state.activeBook);
       await Host.setGlobalWorldbooks(Array.from(next));
       state.globalWorldbooks = Host.getGlobalWorldbooks();
-      renderWorldbookToolbar(); return;
+      renderWorldbookToolbar();
+      toast(turningOn ? `已将「${state.activeBook}」设为全局启用（所有聊天共用）` : `已取消「${state.activeBook}」的全局启用`);
+      return;
     }
     if (target.closest('#upp-new-wb-entry-btn') && state.activeBook) {
       state.drawer = { type: 'entryEditor', mode: 'createWb', heading: `新建条目 · ${state.activeBook}`, bookName: state.activeBook, allowNameEdit: true, showStrategy: true, strategyType: 'constant', name: '', content: '' };
@@ -4394,6 +4748,50 @@ function initExtension() {
     const t = ev.target;
     if (t.closest('[data-open-save-snap]')) { openSaveSnapshotDrawer(); return; }
 
+    // Batch snapshot delete controls
+    const batchCheck = t.closest('[data-snap-batch-check]');
+    if (batchCheck) {
+      const sid = batchCheck.getAttribute('data-snap-batch-check');
+      if (sid) {
+        if (batchCheck.checked) state.snapSelectedIds.add(sid);
+        else state.snapSelectedIds.delete(sid);
+        state.snapBatchConfirm = false;
+        renderSnapshotsBody();
+      }
+      return;
+    }
+    if (t.closest('#upp-batch-select-all')) {
+      const q = normalizeText(state.snapSearch);
+      const visibleIds = state.store.snapshots
+        .filter(s => (!state.snapGroup || s.group === state.snapGroup) && (!q || normalizeText(s.name + ' ' + s.group + ' ' + s.note).includes(q)))
+        .map(s => s.id);
+      const allOn = visibleIds.length > 0 && visibleIds.every(id => state.snapSelectedIds.has(id));
+      visibleIds.forEach(id => { if (allOn) state.snapSelectedIds.delete(id); else state.snapSelectedIds.add(id); });
+      state.snapBatchConfirm = false;
+      renderSnapshotsBody(); return;
+    }
+    if (t.closest('#upp-batch-del-btn')) {
+      if (state.snapSelectedIds.size) { state.snapBatchConfirm = true; renderSnapshotsBody(); }
+      return;
+    }
+    if (t.closest('#upp-batch-del-cancel')) {
+      state.snapBatchConfirm = false; renderSnapshotsBody(); return;
+    }
+    if (t.closest('#upp-batch-del-confirm')) {
+      const delSet = new Set(state.snapSelectedIds);
+      const delCount = delSet.size;
+      state.store.snapshots = state.store.snapshots.filter(x => !delSet.has(x.id));
+      Object.keys(state.store.bindings.chats).forEach(k => { if (delSet.has(state.store.bindings.chats[k])) delete state.store.bindings.chats[k]; });
+      Object.keys(state.store.bindings.characters).forEach(k => { if (delSet.has(state.store.bindings.characters[k])) delete state.store.bindings.characters[k]; });
+      state.snapSelectedIds.clear();
+      state.snapBatchConfirm = false;
+      state.snapBatchMode = false;
+      persistStore(state.store);
+      render();
+      toast(`已批量删除 ${delCount} 份快照`, 'success');
+      return;
+    }
+
     const applyBtn = t.closest('[data-snap-apply]');
     if (applyBtn) {
       const snap = state.store.snapshots.find(x => x.id === applyBtn.getAttribute('data-snap-apply'));
@@ -4416,6 +4814,13 @@ function initExtension() {
           name: snap.name || '',
           group: snap.group || '',
           note: snap.note || '',
+          scope: {
+            persona: !!snap.scope.persona,
+            worldbooks: !!snap.scope.worldbooks,
+            preset: !!snap.scope.preset,
+            regex: !!snap.scope.regex,
+            api: !!snap.scope.api,
+          },
         };
         renderDrawer();
       }
@@ -4526,12 +4931,81 @@ function initExtension() {
       }
       return;
     }
+    if (t.closest('#upp-wb-jump-hygiene-btn') && state.activeBook) {
+      const entries = state.bookEntriesCache[state.activeBook] || [];
+      const hygiene = inspectTagHygiene(entries);
+      const problemEntries = entries.filter(e => {
+        const h = hygiene.byUid[String(e.uid)];
+        return h && (h.unclosed.length > 0 || h.duplicateTags.length > 0);
+      });
+      if (!problemEntries.length) return;
+      const idx = state.wbHygieneCursor % problemEntries.length;
+      state.wbHygieneCursor = (idx + 1) % problemEntries.length;
+      const target = problemEntries[idx];
+      const uidKey = String(target.uid);
+      if (state.wbEntrySearch) {
+        state.wbEntrySearch = '';
+        renderWorldbookToolbar();
+      }
+      state.expandedWbUids.add(uidKey);
+      renderWorldbookBody();
+      const rowEl = elBody.querySelector(`[data-wb-wrap="${CSS.escape(uidKey)}"]`);
+      if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const h = hygiene.byUid[uidKey];
+      const detail = [
+        h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
+        h.duplicateTags.length ? '重复包裹: ' + h.duplicateTags.join(', ') : '',
+      ].filter(Boolean).join('；');
+      toast(`已定位到「${target.name}」（${detail}）`, 'warning');
+      return;
+    }
     const wbOpen = t.closest('[data-wb-open]');
     if (wbOpen && state.activeBook) {
-      const entry = (state.bookEntriesCache[state.activeBook] || []).find(e => String(e.uid) === String(wbOpen.getAttribute('data-wb-open')));
-      if (entry) {
-        state.drawer = { type: 'entryEditor', mode: 'editWb', heading: state.activeBook, bookName: state.activeBook, uid: entry.uid, allowNameEdit: true, showStrategy: true, strategyType: entry.strategyType, name: entry.name, content: entry.content, meta: `UID #${entry.uid} · 顺序 ${entry.order}` };
-        renderDrawer();
+      const uidKey = wbOpen.getAttribute('data-wb-open');
+      if (uidKey) {
+        const scrollTop = elBody.scrollTop;
+        if (state.expandedWbUids.has(uidKey)) state.expandedWbUids.delete(uidKey);
+        else state.expandedWbUids.add(uidKey);
+        renderWorldbookBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const wbInlineClose = t.closest('[data-wb-inline-close]');
+    if (wbInlineClose) {
+      const uidKey = wbInlineClose.getAttribute('data-wb-inline-close');
+      if (uidKey) {
+        const scrollTop = elBody.scrollTop;
+        state.expandedWbUids.delete(uidKey);
+        renderWorldbookBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const wbInlineCopy = t.closest('[data-wb-inline-copy]');
+    if (wbInlineCopy) {
+      const panel = wbInlineCopy.closest('.upp-inline-panel');
+      const content = panel?.querySelector('[data-wb-inline-content]')?.value ?? '';
+      try { await navigator.clipboard.writeText(content); toast('已复制世界书条目正文', 'success'); }
+      catch (_) { toast('当前环境不支持自动复制', 'warning'); }
+      return;
+    }
+    const wbInlineSave = t.closest('[data-wb-inline-save]');
+    if (wbInlineSave && state.activeBook) {
+      const uidKey = wbInlineSave.getAttribute('data-wb-inline-save');
+      const panel = wbInlineSave.closest('.upp-inline-panel');
+      const name = (panel?.querySelector('[data-wb-inline-name]')?.value || '').trim();
+      const strategyType = panel?.querySelector('[data-wb-inline-strategy]')?.value;
+      const content = panel?.querySelector('[data-wb-inline-content]')?.value ?? '';
+      try {
+        await Host.updateWorldbookEntry(state.activeBook, uidKey, name || '未命名条目', content, strategyType);
+        await ensureBookEntries(state.activeBook, true);
+        const scrollTop = elBody.scrollTop;
+        renderWorldbookBody();
+        elBody.scrollTop = scrollTop;
+        toast('已保存世界书条目', 'success');
+      } catch (err) {
+        toast('保存失败：' + (err?.message || err), 'error');
       }
       return;
     }
@@ -4763,9 +5237,31 @@ function initExtension() {
       if (ev.target.id === 'upp-ps-sync-groups') { d.syncNewGroups = !!ev.target.checked; return; }
       return;
     }
+    if (d.type === 'viewSnapshot' && ev.target.id === 'upp-sv-api-profile-sel' && d.draft?.api) {
+      const pid = ev.target.value || '';
+      const prof = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === pid);
+      d.draft.api.profileId = prof ? prof.id : '';
+      d.draft.api.profileName = prof ? prof.name : '';
+      if (prof?.api) d.draft.api.source = prof.api;
+      if (prof?.model) d.draft.api.model = prof.model;
+      d.dirty = true;
+      d.pendingAction = null;
+      renderDrawer();
+      return;
+    }
+    if (d.type === 'editSnapshotMeta') {
+      if (!d.scope) d.scope = {};
+      if (ev.target.id === 'upp-em-sc-persona') d.scope.persona = !!ev.target.checked;
+      else if (ev.target.id === 'upp-em-sc-wb') d.scope.worldbooks = !!ev.target.checked;
+      else if (ev.target.id === 'upp-em-sc-preset') d.scope.preset = !!ev.target.checked;
+      else if (ev.target.id === 'upp-em-sc-api') d.scope.api = !!ev.target.checked;
+      else if (ev.target.id === 'upp-em-sc-regex') d.scope.regex = !!ev.target.checked;
+      return;
+    }
     if (d.type === 'missingAudit') {
       if (ev.target.id === 'upp-ma-persona-sel') { d.personaRemap = ev.target.value; renderDrawer(); }
       else if (ev.target.id === 'upp-ma-preset-sel') { d.presetRemap = ev.target.value; renderDrawer(); }
+      else if (ev.target.id === 'upp-ma-api-sel') { d.apiProfileRemap = ev.target.value; renderDrawer(); }
       else if (ev.target.hasAttribute('data-ma-book-sel')) {
         const bk = ev.target.getAttribute('data-ma-book-sel');
         if (!d.bookRemap) d.bookRemap = {};
@@ -4775,14 +5271,17 @@ function initExtension() {
       return;
     }
     if (d.type === 'saveSnapshot') {
-      if (ev.target.id === 'upp-sc-persona') d.scope.persona = ev.target.checked;
+      let scopeTouched = false;
+      if (ev.target.id === 'upp-sc-persona') { d.scope.persona = ev.target.checked; scopeTouched = true; }
       else if (ev.target.id === 'upp-sc-wb') {
         d.scope.worldbooks = ev.target.checked;
+        scopeTouched = true;
         const wrap = shadow.getElementById('upp-ss-books-wrap');
         if (wrap) wrap.hidden = !d.scope.worldbooks;
       }
-      else if (ev.target.id === 'upp-sc-preset') d.scope.preset = ev.target.checked;
-      else if (ev.target.id === 'upp-sc-regex') d.scope.regex = ev.target.checked;
+      else if (ev.target.id === 'upp-sc-preset') { d.scope.preset = ev.target.checked; scopeTouched = true; }
+      else if (ev.target.id === 'upp-sc-api') { d.scope.api = ev.target.checked; scopeTouched = true; }
+      else if (ev.target.id === 'upp-sc-regex') { d.scope.regex = ev.target.checked; scopeTouched = true; }
       else if (ev.target.hasAttribute('data-ss-book')) {
         const bk = ev.target.getAttribute('data-ss-book');
         const set = new Set(d.selectedBooks || []);
@@ -4790,6 +5289,10 @@ function initExtension() {
         d.selectedBooks = Array.from(set);
         const lbl = shadow.querySelector('#upp-ss-books-wrap > label');
         if (lbl) lbl.textContent = `记录条目开关的世界书（已选 ${set.size} 本）`;
+      }
+      if (scopeTouched) {
+        state.store.settings.defaultSnapshotScope = { ...d.scope };
+        persistStore(state.store);
       }
       return;
     }
@@ -4906,6 +5409,13 @@ function initExtension() {
           name: cur.name || '',
           group: cur.group || '',
           note: cur.note || '',
+          scope: {
+            persona: !!cur.scope.persona,
+            worldbooks: !!cur.scope.worldbooks,
+            preset: !!cur.scope.preset,
+            regex: !!cur.scope.regex,
+            api: !!cur.scope.api,
+          },
           returnTo: d,
         };
         renderDrawer();
@@ -5063,18 +5573,38 @@ function initExtension() {
       if (wbItem) {
         const bk = wbItem.getAttribute('data-view-snap-wb');
         const u = wbItem.getAttribute('data-view-snap-uid');
+        if (bk && u) {
+          const expKey = `wb::${bk}::${u}`;
+          if (!d.expandedIds) d.expandedIds = new Set();
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          if (d.expandedIds.has(expKey)) d.expandedIds.delete(expKey);
+          else d.expandedIds.add(expKey);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svWbClose = t.closest('[data-sv-wb-close]');
+      if (svWbClose) {
+        const expKey = svWbClose.getAttribute('data-sv-wb-close');
+        if (expKey && d.expandedIds) {
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          d.expandedIds.delete(expKey);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svWbCopy = t.closest('[data-sv-wb-copy]');
+      if (svWbCopy) {
+        const bk = svWbCopy.getAttribute('data-sv-wb-copy');
+        const u = svWbCopy.getAttribute('data-sv-wb-copy-uid');
         const live = (d.wbDetails[bk] || []).find(e => String(e.uid) === String(u));
         if (live) {
-          state.drawer = {
-            type: 'entryEditor',
-            fullView: true,
-            heading: `${bk} · ${live.name}`,
-            content: live.content || '',
-            readOnly: true,
-            meta: `UID #${live.uid} · 顺序 ${live.order}`,
-            returnTo: d,
-          };
-          renderDrawer();
+          try { await navigator.clipboard.writeText(live.content || ''); toast('已复制世界书条目正文', 'success'); }
+          catch (_) { toast('当前环境不支持自动复制', 'warning'); }
         }
         return;
       }
@@ -5116,29 +5646,54 @@ function initExtension() {
         if (!nextName) { toast('请填写快照名称', 'warning'); return; }
         const nextGroup = (shadow.getElementById('upp-em-group')?.value || '').trim().slice(0, 30);
         const nextNote = (shadow.getElementById('upp-em-note')?.value || '').trim().slice(0, 120);
+        const wantedScope = d.scope || {};
+        if (!wantedScope.persona && !wantedScope.worldbooks && !wantedScope.preset && !wantedScope.regex && !wantedScope.api) {
+          toast('请至少保留一项包含模块', 'warning'); return;
+        }
         const target = state.store.snapshots.find(s => s.id === d.snapshotId);
         if (target) {
+          // Capture live data for any module newly turned ON that wasn't recorded before
+          const needCapture = {
+            persona: !!wantedScope.persona && !target.persona,
+            worldbooks: !!wantedScope.worldbooks && !target.worldbooks,
+            preset: !!wantedScope.preset && !target.preset,
+            regex: !!wantedScope.regex && !target.regex,
+            api: !!wantedScope.api && !target.api,
+          };
+          const fresh = (needCapture.persona || needCapture.worldbooks || needCapture.preset || needCapture.regex || needCapture.api)
+            ? await captureLiveSnapshot({ name: nextName, group: nextGroup, note: nextNote, scope: needCapture }, state.store)
+            : null;
           target.name = nextName;
           target.group = nextGroup;
           target.note = nextNote;
+          ['persona', 'worldbooks', 'preset', 'regex', 'api'].forEach(k => {
+            if (wantedScope[k]) {
+              if (!target[k] && fresh && fresh[k]) target[k] = fresh[k];
+              target.scope[k] = !!target[k];
+            } else {
+              target.scope[k] = false;
+              target[k] = null;
+            }
+          });
           target.updatedAt = Date.now();
         }
-        if (d.returnTo && d.returnTo.type === 'viewSnapshot') {
-          if (d.returnTo.snapshot) {
-            d.returnTo.snapshot.name = nextName;
-            d.returnTo.snapshot.group = nextGroup;
-            d.returnTo.snapshot.note = nextNote;
-          }
+        if (d.returnTo && d.returnTo.type === 'viewSnapshot' && target) {
+          d.returnTo.snapshot = target;
           if (d.returnTo.draft) {
-            d.returnTo.draft.name = nextName;
-            d.returnTo.draft.group = nextGroup;
-            d.returnTo.draft.note = nextNote;
+            d.returnTo.draft.name = target.name;
+            d.returnTo.draft.group = target.group;
+            d.returnTo.draft.note = target.note;
+            d.returnTo.draft.scope = structuredClone(target.scope);
+            ['persona', 'worldbooks', 'preset', 'regex', 'api'].forEach(k => {
+              if (!target.scope[k]) d.returnTo.draft[k] = null;
+              else if (!d.returnTo.draft[k] && target[k]) d.returnTo.draft[k] = structuredClone(target[k]);
+            });
           }
         }
         persistStore(state.store);
         state.drawer = d.returnTo || null;
         render();
-        toast('已更新快照信息', 'success');
+        toast('已更新快照信息与包含模块', 'success');
         return;
       }
       return;
@@ -5187,6 +5742,16 @@ function initExtension() {
         if (d.presetRemap && snap.preset) {
           snap.preset.name = d.presetRemap;
           repaired = true;
+        }
+        if (d.apiProfileRemap && snap.api) {
+          const pr = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === d.apiProfileRemap);
+          if (pr) {
+            snap.api.profileId = pr.id;
+            snap.api.profileName = pr.name;
+            if (pr.api) snap.api.source = pr.api;
+            if (pr.model) snap.api.model = pr.model;
+            repaired = true;
+          }
         }
         if (d.bookRemap && snap.worldbooks) {
           Object.keys(d.bookRemap).forEach(oldBk => {
@@ -5254,6 +5819,8 @@ function initExtension() {
     const pickBk = t.closest('[data-pick-book]');
     if (pickBk) {
       state.activeBook = pickBk.getAttribute('data-pick-book') || '';
+      state.expandedWbUids.clear();
+      state.wbHygieneCursor = 0;
       state.drawer = null;
       await ensureBookEntries(state.activeBook, true);
       render(); return;
@@ -5355,6 +5922,17 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'saveSnapshot' && t.closest('#upp-ss-name-clear')) {
+      const inp = shadow.getElementById('upp-ss-name');
+      if (inp) { inp.value = ''; if (window.innerWidth > 640) inp.focus(); }
+      return;
+    }
+    const fillName = t.closest('[data-ss-fill-name]');
+    if (fillName && d.type === 'saveSnapshot') {
+      const inp = shadow.getElementById('upp-ss-name');
+      if (inp) inp.value = fillName.getAttribute('data-ss-fill-name') || '';
+      return;
+    }
     const fillGrp = t.closest('[data-ss-fill-group]');
     if (fillGrp) { const inp = shadow.getElementById('upp-ss-group'); if (inp) inp.value = fillGrp.getAttribute('data-ss-fill-group') || ''; return; }
     if (t.closest('#upp-ss-confirm-btn') && d.type === 'saveSnapshot') {
@@ -5362,9 +5940,10 @@ function initExtension() {
       if (!name) { toast('请填写快照名称', 'warning'); return; }
       const group = (shadow.getElementById('upp-ss-group')?.value || '').trim();
       const note = (shadow.getElementById('upp-ss-note')?.value || '').trim();
-      if (!d.scope.persona && !d.scope.worldbooks && !d.scope.preset && !d.scope.regex) {
+      if (!d.scope.persona && !d.scope.worldbooks && !d.scope.preset && !d.scope.regex && !d.scope.api) {
         toast('请至少勾选一项保存范围', 'warning'); return;
       }
+      state.store.settings.defaultSnapshotScope = { ...d.scope };
       const snap = await captureLiveSnapshot({ name, group, note, scope: d.scope, selectedBooks: d.selectedBooks }, state.store);
       state.store.snapshots.unshift(snap);
       persistStore(state.store);
