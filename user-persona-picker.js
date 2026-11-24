@@ -1,7 +1,7 @@
 ;(function () {
   'use strict';
 
-  const APP_VERSION = '3.0.0';
+  const APP_VERSION = '3.1.0';
   const APP_ID = 'user-persona-picker-host';
   const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
   const DISPOSE_EVENT = 'user-persona-picker-dispose';
@@ -15,9 +15,9 @@
   const OPENING_BODY_EJS = [
     '<%_',
     'const _getPick = function () {',
-    "  let raw = null;",
+    '  let raw = null;',
     "  try { if (typeof getLocalVar === 'function') raw = getLocalVar('user_picker'); } catch (e) {}",
-    "  if (raw == null) {",
+    '  if (raw == null) {',
     "    try { if (typeof getvar === 'function') raw = getvar('user_picker', { scope: 'local' }); } catch (e) {}",
     '  }',
     "  if (typeof raw === 'string') {",
@@ -31,11 +31,11 @@
     'for (let _i = 0; _i < _list.length; _i++) {',
     '  const _it = _list[_i] || {};',
     '  if (!_it.book || !_it.title) continue;',
-    "  if (_it.title === '红线') continue;",
+    "  if (_it.slot === 'depth1' || _it.title === '红线') continue;",
     '  const _c = await getwi(_it.book, _it.title);',
     '  if (!_c) continue;',
     "  if (_c.indexOf('[未找到') >= 0 || _c.indexOf('〔未找到') >= 0) continue;",
-    '  if (/^(写作约束|演绎准则)/.test(_it.title)) _rules.push(_c); else _body.push(_c);',
+    "  if (_it.slot === 'rule' || /^(写作约束|演绎准则)/.test(_it.title)) _rules.push(_c); else _body.push(_c);",
     '}',
     '_%><% if (_body.length) { %><USER人设>',
     '以下是 {{user}} 的基础设定，只属于 {{user}}，禁止混淆 {{user}} 与 {{char}}。',
@@ -61,11 +61,15 @@
     "  return (raw && typeof raw === 'object') ? raw : {};",
     '})();',
     'const _l2 = Array.isArray(_pk2.wi) ? _pk2.wi : [];',
-    'let _hit = null;',
-    "for (let _j = 0; _j < _l2.length; _j++) { if (_l2[_j] && _l2[_j].title === '红线') { _hit = _l2[_j]; break; } }",
-    "const _red = _hit ? await getwi(_hit.book || '', '红线') : '';",
-    "const _redSafe = (_red && _red.indexOf('[未找到') < 0 && _red.indexOf('〔未找到') < 0) ? _red : '';",
-    '_%><%- _redSafe %>',
+    'const _d1 = [];',
+    'for (let _j = 0; _j < _l2.length; _j++) {',
+    '  const _it = _l2[_j] || {};',
+    '  if (!_it.book || !_it.title) continue;',
+    "  if (_it.slot !== 'depth1' && _it.title !== '红线') continue;",
+    '  const _c = await getwi(_it.book, _it.title);',
+    "  if (_c && _c.indexOf('[未找到') < 0 && _c.indexOf('〔未找到') < 0) _d1.push(_c);",
+    '}',
+    "_%><%- _d1.join('\n\n') %>",
   ].join('\n');
 
   // =========================
@@ -98,10 +102,10 @@
     return normalizeName(name).replace(/\d+$/, '').trim();
   }
 
-  function parseIfTitle(title) {
-    const m = String(title || '').match(/^【([^】]+)】(.*)$/);
+  function parseBracketTitle(title) {
+    const m = String(title || '').match(/^(?:【([^】]+)】|\[([^\]]+)\])(.*)$/);
     if (!m) return null;
-    return { tag: m[1].trim(), shortTitle: m[2].trim(), fullTitle: String(title) };
+    return { tag: (m[1] || m[2] || '').trim(), shortTitle: (m[3] || '').trim(), fullTitle: String(title) };
   }
 
   function matchesCharacterTag(tag, currentChar) {
@@ -117,13 +121,49 @@
     return false;
   }
 
+  // Tolerant matching: works for 【角色】路线, [角色]路线, 角色-路线, 角色·路线, or any title containing character name
   function classifyIfTitle(title, currentChar) {
-    const parsed = parseIfTitle(title);
-    if (!parsed) return 'other';
-    if (parsed.tag === '模板') return 'template';
-    if (parsed.tag === '通用') return 'common';
-    if (matchesCharacterTag(parsed.tag, currentChar)) return 'current';
-    return 'other_char';
+    const raw = String(title || '');
+    const bracket = parseBracketTitle(raw);
+    if (bracket) {
+      if (bracket.tag === '模板') return 'template';
+      if (bracket.tag === '通用') return 'common';
+      if (matchesCharacterTag(bracket.tag, currentChar)) return 'current';
+      return 'other_char';
+    }
+    const cleanChar = sanitizeCharName(currentChar);
+    if (cleanChar) {
+      const normTitle = normalizeName(raw);
+      const charBase = stripTrailingDigits(cleanChar);
+      if (normTitle.includes(cleanChar) || (charBase.length >= 2 && normTitle.includes(charBase))) {
+        return 'current';
+      }
+    }
+    if (/^通用[·\-\s_:：/]/.test(raw)) return 'common';
+    return 'other';
+  }
+
+  // Detect whether a book naturally uses "前缀·名称" convention (>= 3 items sharing a · prefix)
+  function detectRecommendedBookMode(entryNames) {
+    const names = Array.isArray(entryNames) ? entryNames : [];
+    const prefixCounts = new Map();
+    let bracketCount = 0;
+    for (const n of names) {
+      if (parseBracketTitle(n)) bracketCount++;
+      const m = String(n || '').match(/^([^·]{1,12})·(.+)$/);
+      if (m) {
+        const p = m[1].trim();
+        prefixCounts.set(p, (prefixCounts.get(p) || 0) + 1);
+      }
+    }
+    if (names.length >= 3 && bracketCount / names.length >= 0.5) return { mode: 'if', layout: 'chips' };
+    let groupedHits = 0;
+    for (const c of prefixCounts.values()) {
+      if (c >= 2) groupedHits += c;
+    }
+    if (groupedHits >= 4) return { mode: 'prefix', layout: 'chips' };
+    // Default for normal users: flat (no forced grouping!), card list for coarse books (<= 16 entries)
+    return { mode: 'flat', layout: names.length > 16 ? 'chips' : 'list' };
   }
 
   function inferGroupFromTitle(title, bookCfg, catOverrides) {
@@ -131,7 +171,9 @@
     const mapped = catOverrides?.[bookName]?.[title];
     if (mapped) return mapped;
 
-    const m = String(title || '').match(/^([^·:：/]+)[·:：/](.+)$/);
+    if (bookCfg.mode !== 'prefix') return '';
+
+    const m = String(title || '').match(/^([^·]{1,12})·(.+)$/);
     if (m) {
       const prefix = m[1].trim();
       const catOrder = Array.isArray(bookCfg.catOrder) ? bookCfg.catOrder : [];
@@ -146,18 +188,28 @@
   function chipLabel(bookCfg, cat, title, ifSection) {
     if (bookCfg && bookCfg.mode === 'if') {
       if (ifSection === 'current' || ifSection === 'common') {
-        const parsed = parseIfTitle(title);
+        const parsed = parseBracketTitle(title);
         if (parsed && parsed.shortTitle) return parsed.shortTitle;
       }
       return title;
     }
+    if (!cat || bookCfg?.mode !== 'prefix') return title;
     if (cat === '关系阶段' && title.startsWith('阶段·')) return title.slice(3);
-    const sepRe = new RegExp('^' + cat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[·:：/]');
-    if (cat && sepRe.test(title)) {
-      const stripped = title.replace(sepRe, '').trim();
+    if (title.startsWith(cat + '·')) {
+      const stripped = title.slice(cat.length + 1).trim();
       if (stripped) return stripped;
     }
     return title;
+  }
+
+  function summarizeContent(content, maxLen) {
+    const limit = maxLen || 68;
+    const flat = String(content || '')
+      .replace(/\r?\n+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (!flat) return '';
+    return flat.length > limit ? flat.slice(0, limit) + '…' : flat;
   }
 
   function parseRgb(colorStr) {
@@ -192,6 +244,7 @@
       exclusive: [],
       softSingle: [],
       catOverrides: {},
+      slotOverrides: {},
       folded: {},
       presets: [],
     };
@@ -211,10 +264,15 @@
         const name = typeof b === 'string' ? b.trim() : (typeof b?.name === 'string' ? b.name.trim() : '');
         if (!name || seenBooks.has(name)) continue;
         seenBooks.add(name);
+        // Compat: legacy v3.0 'grouped' maps to 'prefix'
+        const rawMode = b?.mode;
+        const mode = rawMode === 'if' ? 'if' : (rawMode === 'prefix' || rawMode === 'grouped' ? 'prefix' : 'flat');
+        const layout = b?.layout === 'list' ? 'list' : 'chips';
         base.books.push({
           name,
           label: typeof b?.label === 'string' && b.label.trim() ? b.label.trim() : name,
-          mode: b?.mode === 'if' ? 'if' : 'grouped',
+          mode,
+          layout,
           preserveCatsOnReplace: Array.isArray(b?.preserveCatsOnReplace) ? b.preserveCatsOnReplace.filter(x => typeof x === 'string') : [],
           catOrder: Array.isArray(b?.catOrder) ? b.catOrder.filter(x => typeof x === 'string') : [],
         });
@@ -248,6 +306,18 @@
         for (const [title, cat] of Object.entries(map)) {
           if (typeof title === 'string' && typeof cat === 'string' && cat.trim()) {
             base.catOverrides[bookName][title] = cat.trim();
+          }
+        }
+      }
+    }
+
+    if (raw.slotOverrides && typeof raw.slotOverrides === 'object') {
+      for (const [bookName, map] of Object.entries(raw.slotOverrides)) {
+        if (!map || typeof map !== 'object') continue;
+        base.slotOverrides[bookName] = {};
+        for (const [title, slot] of Object.entries(map)) {
+          if (typeof title === 'string' && (slot === 'rule' || slot === 'depth1')) {
+            base.slotOverrides[bookName][title] = slot;
           }
         }
       }
@@ -369,36 +439,47 @@
           });
         }
 
-        const orderedCats = [];
-        const usedCats = new Set();
-        for (const c of bookCfg.catOrder || []) {
-          if (buckets.has(c) && !usedCats.has(c)) {
-            orderedCats.push(c);
-            usedCats.add(c);
+        // In flat mode with zero custom groups, keep one clean unheaded group ('')
+        if (bookCfg.mode === 'flat' && buckets.size === 1 && buckets.has('')) {
+          groupsByBook[bookName] = [{ book: bookName, cat: '', items: buckets.get('') }];
+        } else {
+          const orderedCats = [];
+          const usedCats = new Set();
+          for (const c of bookCfg.catOrder || []) {
+            if (buckets.has(c) && !usedCats.has(c)) { orderedCats.push(c); usedCats.add(c); }
           }
-        }
-        for (const c of buckets.keys()) {
-          if (!usedCats.has(c) && c !== '常规' && c !== '其他') {
-            orderedCats.push(c);
-            usedCats.add(c);
+          for (const c of buckets.keys()) {
+            if (!usedCats.has(c) && c !== '' && c !== '常规' && c !== '其他') {
+              orderedCats.push(c);
+              usedCats.add(c);
+            }
           }
-        }
-        for (const tail of ['常规', '其他']) {
-          if (buckets.has(tail) && !usedCats.has(tail)) {
-            orderedCats.push(tail);
-            usedCats.add(tail);
+          for (const tail of ['', '常规', '其他']) {
+            if (buckets.has(tail) && !usedCats.has(tail)) {
+              orderedCats.push(tail);
+              usedCats.add(tail);
+            }
           }
+          groupsByBook[bookName] = orderedCats.map(cat => ({
+            book: bookName,
+            cat: cat || '未分组',
+            items: buckets.get(cat),
+          }));
         }
-
-        groupsByBook[bookName] = orderedCats.map(cat => ({
-          book: bookName,
-          cat,
-          items: buckets.get(cat),
-        }));
       }
     }
 
     return { liveSets, entryContentMap, groupsByBook, ifTitlesByBook, missingBooks };
+  }
+
+  function filterItemsByQuery(items, query, bookName, contentMap) {
+    const q = normalizeName(query).toLocaleLowerCase();
+    if (!q) return items;
+    return items.filter(it => {
+      if (normalizeName(it.title).toLocaleLowerCase().includes(q)) return true;
+      const body = contentMap?.[bookName]?.[it.title] || '';
+      return body && normalizeName(body).toLocaleLowerCase().includes(q);
+    });
   }
 
   function buildExclusiveMap(config) {
@@ -480,7 +561,6 @@
         }
       }
     }
-    // mode === 'replace_all' starts from empty Set
 
     for (const it of preset.items || []) {
       const liveSet = liveSets?.[it.book];
@@ -512,6 +592,12 @@
     return warn;
   }
 
+  function resolveEntrySlot(book, title, config) {
+    const custom = config?.slotOverrides?.[book]?.[title];
+    if (custom === 'depth1' || custom === 'rule') return custom;
+    return '';
+  }
+
   function serializeSelection(selectedSet, charName, config, model) {
     const ordered = [];
     const emitted = new Set();
@@ -520,7 +606,8 @@
       const k = itemKey(book, title);
       if (!selectedSet.has(k) || emitted.has(k)) return;
       emitted.add(k);
-      ordered.push({ book, title });
+      const slot = resolveEntrySlot(book, title, config);
+      ordered.push(slot ? { book, title, slot } : { book, title });
     }
 
     for (const bookCfg of config.books || []) {
@@ -540,7 +627,8 @@
       const { book, title } = parseKey(k);
       if (book && title) {
         emitted.add(k);
-        ordered.push({ book, title });
+        const slot = resolveEntrySlot(book, title, config);
+        ordered.push(slot ? { book, title, slot } : { book, title });
       }
     }
 
@@ -555,13 +643,13 @@
     const payload = serializeSelection(selectedSet, charName, config, model);
     const body = [];
     const rules = [];
-    let redline = '';
+    const depth1 = [];
     for (const it of payload.wi) {
       const text = model?.entryContentMap?.[it.book]?.[it.title] || '';
       if (!text.trim()) continue;
-      if (it.title === '红线') {
-        redline = text;
-      } else if (/^(写作约束|演绎准则)/.test(it.title)) {
+      if (it.slot === 'depth1' || it.title === '红线') {
+        depth1.push(text);
+      } else if (it.slot === 'rule' || /^(写作约束|演绎准则)/.test(it.title)) {
         rules.push(text);
       } else {
         body.push(text);
@@ -570,7 +658,7 @@
     const sections = [];
     if (body.length) sections.push('<USER人设>\n' + body.join('\n\n') + '\n</USER人设>');
     if (rules.length) sections.push('<USER写作规则>\n' + rules.join('\n\n') + '\n</USER写作规则>');
-    if (redline) sections.push('【深度 1 · 红线】\n' + redline);
+    if (depth1.length) sections.push('【深度 1 · 强提醒】\n' + depth1.join('\n\n'));
     const combined = sections.join('\n\n');
     return { text: combined, chars: combined.length, count: payload.wi.length };
   }
@@ -611,12 +699,12 @@
     const rawRel = String(relationText ?? '').trim();
     const rawSec = String(secretText ?? '').trim();
 
-    if (!rawShort) return { ok: false, error: '请填写路线短名' };
+    if (!rawShort) return { ok: false, error: '请填写路线名称' };
     if (!rawRel) return { ok: false, error: '请填写身份与关系/前提' };
 
     const prefixTag = sanitizeCharName(charName) || '通用';
-    const cleanShort = rawShort.replace(/^【[^】]+】\s*/, '').trim();
-    if (!cleanShort) return { ok: false, error: '请填写路线短名' };
+    const cleanShort = rawShort.replace(/^(?:【[^】]+】|\[[^\]]+\])\s*/, '').trim();
+    if (!cleanShort) return { ok: false, error: '请填写路线名称' };
 
     const fullTitle = '【' + prefixTag + '】' + cleanShort;
     if (existingNames && existingNames.has(fullTitle)) {
@@ -628,15 +716,13 @@
     const secLines = toLines(rawSec);
 
     const lines = [fullTitle + ':'];
-    if (relLines.length === 1) {
-      lines.push('  身份与关系: ' + relLines[0]);
-    } else {
+    if (relLines.length === 1) lines.push('  身份与关系: ' + relLines[0]);
+    else {
       lines.push('  身份与关系:');
       for (const line of relLines) lines.push('    ' + line);
     }
-    if (secLines.length === 1) {
-      lines.push('  秘密与补充: ' + secLines[0]);
-    } else if (secLines.length > 1) {
+    if (secLines.length === 1) lines.push('  秘密与补充: ' + secLines[0]);
+    else if (secLines.length > 1) {
       lines.push('  秘密与补充:');
       for (const line of secLines) lines.push('    ' + line);
     }
@@ -731,6 +817,10 @@
       config.catOverrides[bookName][newTitle] = config.catOverrides[bookName][oldTitle];
       delete config.catOverrides[bookName][oldTitle];
     }
+    if (config.slotOverrides?.[bookName]?.[oldTitle]) {
+      config.slotOverrides[bookName][newTitle] = config.slotOverrides[bookName][oldTitle];
+      delete config.slotOverrides[bookName][oldTitle];
+    }
     if (Array.isArray(config.folded?.[bookName])) {
       config.folded[bookName] = config.folded[bookName].map(t => (t === oldTitle ? newTitle : t));
     }
@@ -751,21 +841,25 @@
     normalizeName,
     sanitizeCharName,
     stripTrailingDigits,
-    parseIfTitle,
+    parseBracketTitle,
     matchesCharacterTag,
     classifyIfTitle,
+    detectRecommendedBookMode,
     inferGroupFromTitle,
     chipLabel,
+    summarizeContent,
     parseRgb,
     inferThemeFromTextColor,
     createEmptyConfig,
     normalizeConfig,
     parseSavedPicker,
     buildRuntimeModel,
+    filterItemsByQuery,
     initSelection,
     toggleItem,
     applyPreset,
     getSoftWarnKeys,
+    resolveEntrySlot,
     serializeSelection,
     buildPreviewText,
     buildWorldbookEntry,
@@ -882,6 +976,17 @@
     return '';
   }
 
+  function readCurrentPersona() {
+    const fn = getFn('getPersona');
+    if (fn) {
+      try {
+        const p = fn('current');
+        if (p && typeof p.description === 'string') return p;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   function hasActiveChat() {
     const ctx = getStContext();
     if (!ctx) return true;
@@ -940,29 +1045,27 @@
     }
   }
 
-  async function loadBoundWorldbooks(config, allHostNames) {
+  async function loadSingleWorldbook(bookName) {
     const getWbFn = getFn('getWorldbook');
+    if (!getWbFn) return null;
+    try {
+      const entries = await Promise.resolve(getWbFn(bookName));
+      return Array.isArray(entries) ? entries : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function loadBoundWorldbooks(config, allHostNames) {
     const result = Object.create(null);
     const hostSet = allHostNames.length > 0 ? new Set(allHostNames) : null;
-
-    if (!getWbFn) {
-      for (const b of config.books) result[b.name] = null;
-      return result;
-    }
-
     await Promise.all(config.books.map(async b => {
       if (hostSet && !hostSet.has(b.name)) {
         result[b.name] = null;
         return;
       }
-      try {
-        const entries = await Promise.resolve(getWbFn(b.name));
-        result[b.name] = Array.isArray(entries) ? entries : null;
-      } catch (_) {
-        result[b.name] = null;
-      }
+      result[b.name] = await loadSingleWorldbook(b.name);
     }));
-
     return result;
   }
 
@@ -976,12 +1079,7 @@
     const fn = getFn('updateWorldbookWith');
     if (!fn) throw new Error('未找到世界书更新接口');
     return await Promise.resolve(fn(bookName, entries => {
-      return entries.map(e => {
-        if (e && e.name === oldTitle) {
-          return { ...e, name: newTitle, content: newContent };
-        }
-        return e;
-      });
+      return entries.map(e => (e && e.name === oldTitle ? { ...e, name: newTitle, content: newContent } : e));
     }, { render: 'debounced' }));
   }
 
@@ -998,6 +1096,29 @@
     if (!globals.includes(bookName)) {
       await Promise.resolve(rebindFn([...globals, bookName]));
     }
+  }
+
+  async function createStarterWorldbook(importPersona) {
+    const createWbFn = getFn('createWorldbook');
+    if (!createWbFn) throw new Error('缺少创建世界书接口');
+    const allNames = await listHostWorldbooks();
+    let bookName = '我的人设库';
+    let idx = 2;
+    while (allNames.includes(bookName)) {
+      bookName = '我的人设库' + idx;
+      idx++;
+    }
+    const entries = [];
+    if (importPersona) {
+      const p = readCurrentPersona();
+      const desc = String(p?.description || '').trim();
+      const title = String(p?.name || '').trim() || '基础人设';
+      entries.push({ ...buildWorldbookEntry(title, desc || '在这里填写你的基础设定。'), uid: 0 });
+    } else {
+      entries.push({ ...buildWorldbookEntry('基础人设', '在这里填写你的姓名、外貌、性格等基础设定。'), uid: 0 });
+    }
+    await Promise.resolve(createWbFn(bookName, entries));
+    return bookName;
   }
 
   // =========================
@@ -1220,506 +1341,255 @@
       padding: 14px 16px 10px;
       flex-shrink: 0;
     }
-    .upp-head-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-    .upp-head-actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-    .upp-title {
-      font-size: 16px;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      color: var(--upp-tx);
-      white-space: nowrap;
-    }
+    .upp-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .upp-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .upp-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--upp-tx); white-space: nowrap; }
     .upp-char-tag {
-      font-size: 12px;
-      font-weight: 500;
-      line-height: 1;
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: var(--upp-badge-bg);
-      color: var(--upp-badge-tx);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 170px;
+      font-size: 12px; font-weight: 500; line-height: 1; padding: 5px 10px; border-radius: 999px;
+      background: var(--upp-badge-bg); color: var(--upp-badge-tx);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;
     }
     .upp-char-tag[hidden] { display: none; }
 
     .upp-icon-btn {
-      width: 30px;
-      height: 30px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg);
-      color: var(--upp-tx2);
-      font-size: 15px;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
+      width: 30px; height: 30px; border-radius: 999px;
+      border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-tx2);
+      font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
       transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
     }
     .upp-icon-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
     .upp-icon-btn:active { transform: scale(0.92); }
-    .upp-icon-btn.is-active {
-      background: var(--upp-accent-bg);
-      border-color: var(--upp-accent-border);
-      color: var(--upp-accent-tx);
-    }
+    .upp-icon-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
 
-    .upp-tabs-wrap {
-      padding: 2px 16px 10px;
-      flex-shrink: 0;
-    }
+    .upp-tabs-wrap { padding: 2px 16px 10px; flex-shrink: 0; }
     .upp-tabs-wrap[hidden] { display: none; }
     .upp-tabs {
-      display: flex;
-      gap: 3px;
-      padding: 3px;
-      border-radius: 13px;
-      background: var(--upp-track-bg);
-      overflow-x: auto;
-      scrollbar-width: none;
+      display: flex; gap: 3px; padding: 3px; border-radius: 13px; background: var(--upp-track-bg);
+      overflow-x: auto; scrollbar-width: none;
     }
     .upp-tabs::-webkit-scrollbar { display: none; }
     .upp-tab {
-      flex: 1 0 auto;
-      height: 32px;
-      border-radius: 10px;
-      border: none;
-      background: transparent;
-      color: var(--upp-tx2);
-      font-size: 13px;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
-      cursor: pointer;
-      padding: 0 10px;
-      white-space: nowrap;
+      flex: 1 0 auto; height: 32px; border-radius: 10px; border: none; background: transparent;
+      color: var(--upp-tx2); font-size: 13px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      cursor: pointer; padding: 0 10px; white-space: nowrap;
       transition: background 0.16s var(--upp-ease), color 0.16s ease, box-shadow 0.16s var(--upp-ease);
     }
     .upp-tab:hover { color: var(--upp-tx); }
-    .upp-tab.is-active {
-      background: var(--upp-seg-active-bg);
-      color: var(--upp-tx);
-      font-weight: 600;
-      box-shadow: var(--upp-seg-active-shadow);
-    }
+    .upp-tab.is-active { background: var(--upp-seg-active-bg); color: var(--upp-tx); font-weight: 600; box-shadow: var(--upp-seg-active-shadow); }
     .upp-tab-count {
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1;
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: var(--upp-badge-bg);
-      color: var(--upp-badge-tx);
+      font-size: 11px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px;
+      background: var(--upp-badge-bg); color: var(--upp-badge-tx);
     }
 
     .upp-presets {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding: 0 16px 11px;
-      overflow-x: auto;
-      scrollbar-width: none;
-      flex-shrink: 0;
-      border-bottom: 1px solid var(--upp-divider);
+      display: flex; align-items: center; gap: 7px; padding: 0 16px 11px;
+      overflow-x: auto; scrollbar-width: none; flex-shrink: 0; border-bottom: 1px solid var(--upp-divider);
     }
     .upp-presets[hidden] { display: none; }
     .upp-presets::-webkit-scrollbar { display: none; }
     .upp-preset-btn {
-      height: 30px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-chip-border);
-      background: var(--upp-chip-bg);
-      color: var(--upp-chip-tx);
-      font-size: 12px;
-      font-weight: 500;
-      line-height: 1;
-      white-space: nowrap;
-      cursor: pointer;
-      flex-shrink: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
+      height: 30px; padding: 0 12px; border-radius: 999px;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-chip-tx);
+      font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
       transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.12s ease;
     }
-    .upp-preset-btn:hover {
-      background: var(--upp-chip-hover);
-      border-color: var(--upp-accent-border);
-      color: var(--upp-accent-tx);
-    }
+    .upp-preset-btn:hover { background: var(--upp-chip-hover); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
     .upp-preset-btn:active { transform: scale(0.96); }
-    .upp-preset-btn.is-action {
-      background: var(--upp-btn-bg);
-      border-color: var(--upp-btn-border);
-      color: var(--upp-tx2);
-    }
-    .upp-preset-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 999px;
-      background: var(--upp-accent);
-      opacity: 0.78;
-    }
+    .upp-preset-btn.is-action { background: var(--upp-btn-bg); border-color: var(--upp-btn-border); color: var(--upp-tx2); }
+    .upp-preset-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--upp-accent); opacity: 0.78; }
     .upp-preset-btn[data-mode="additive"] .upp-preset-dot { background: #d46a8c; }
     .upp-preset-btn[data-mode="replace_all"] .upp-preset-dot { background: #4ca37b; }
 
-    .upp-alerts {
-      padding: 10px 16px 0;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      flex-shrink: 0;
-    }
+    .upp-alerts { padding: 10px 16px 0; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
     .upp-alerts:empty { display: none; }
-
-    .upp-stale-box, .upp-miss-box, .upp-ok-box {
-      border-radius: 12px;
-      padding: 8px 11px;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .upp-stale-box {
-      border: 1px solid var(--upp-danger-border);
-      background: var(--upp-danger-bg);
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-    .upp-stale-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      font-weight: 500;
-      color: var(--upp-danger-tx);
-    }
+    .upp-stale-box, .upp-miss-box, .upp-ok-box { border-radius: 12px; padding: 8px 11px; font-size: 12px; line-height: 1.45; }
+    .upp-stale-box { border: 1px solid var(--upp-danger-border); background: var(--upp-danger-bg); display: flex; flex-direction: column; gap: 7px; }
+    .upp-stale-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 500; color: var(--upp-danger-tx); }
     .upp-stale-list { display: flex; flex-wrap: wrap; gap: 6px; }
     .upp-stale-chip {
-      height: 26px;
-      padding: 0 9px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-danger-border);
-      background: var(--upp-chip-bg);
-      color: var(--upp-danger-tx);
-      font-size: 12px;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      cursor: pointer;
+      height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--upp-danger-border);
+      background: var(--upp-chip-bg); color: var(--upp-danger-tx); font-size: 12px;
+      display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
     }
     .upp-miss-box {
-      border: 1px solid var(--upp-warn-border);
-      background: var(--upp-warn-bg);
-      color: var(--upp-warn-tx);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+      border: 1px solid var(--upp-warn-border); background: var(--upp-warn-bg); color: var(--upp-warn-tx);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
-    .upp-ok-box {
-      border: 1px solid var(--upp-ok-border);
-      background: var(--upp-ok-bg);
-      color: var(--upp-ok-tx);
-    }
+    .upp-ok-box { border: 1px solid var(--upp-ok-border); background: var(--upp-ok-bg); color: var(--upp-ok-tx); }
 
     .upp-body {
-      flex: 1 1 auto;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      overscroll-behavior: contain;
-      padding: 12px 16px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      scrollbar-width: thin;
-      scrollbar-color: var(--upp-scroll) transparent;
+      flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+      padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 10px;
+      scrollbar-width: thin; scrollbar-color: var(--upp-scroll) transparent;
     }
     .upp-body::-webkit-scrollbar { width: 5px; height: 5px; }
     .upp-body::-webkit-scrollbar-track { background: transparent; }
     .upp-body::-webkit-scrollbar-thumb { background: var(--upp-scroll); border-radius: 999px; }
     .upp-body::-webkit-scrollbar-thumb:hover { background: var(--upp-scroll-hover); }
 
+    .upp-search-wrap { position: relative; }
+    .upp-search-input {
+      width: 100%; height: 34px; border-radius: 11px;
+      border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
+      padding: 0 32px 0 12px; font: inherit; font-size: 13px; outline: none;
+    }
+    .upp-search-input::placeholder { color: var(--upp-tx3); }
+    .upp-search-input:focus { border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg); }
+    .upp-search-clear {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border-radius: 999px; border: none;
+      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 13px;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+
     .upp-group {
-      background: var(--upp-card-bg);
-      border: 1px solid var(--upp-card-border);
-      box-shadow: var(--upp-card-shadow);
-      border-radius: 15px;
-      padding: 11px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 9px;
+      background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
+      box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 11px 12px;
+      display: flex; flex-direction: column; gap: 9px;
     }
-    .upp-group-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-height: 24px;
-    }
-    .upp-group-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--upp-tx);
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
+    .upp-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
+    .upp-group-title { font-size: 13px; font-weight: 600; color: var(--upp-tx); display: inline-flex; align-items: center; gap: 6px; }
     .upp-group-badge {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--upp-badge-tx);
-      background: var(--upp-badge-bg);
-      border-radius: 999px;
-      padding: 1px 7px;
-      line-height: 1.4;
+      font-size: 11px; font-weight: 600; color: var(--upp-badge-tx); background: var(--upp-badge-bg);
+      border-radius: 999px; padding: 1px 7px; line-height: 1.4;
     }
     .upp-mini-btn {
-      height: 26px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg);
-      color: var(--upp-tx2);
-      font-size: 12px;
-      font-weight: 500;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      white-space: nowrap;
+      height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
+      background: var(--upp-btn-bg); color: var(--upp-tx2); font-size: 12px; font-weight: 500; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;
       transition: background 0.14s ease, color 0.14s ease;
     }
     .upp-mini-btn:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
-    .upp-mini-btn.is-active {
-      background: var(--upp-accent-bg);
-      border-color: var(--upp-accent-border);
-      color: var(--upp-accent-tx);
-    }
+    .upp-mini-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
     .upp-mini-btn.is-danger { color: var(--upp-danger-tx); }
 
     .upp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
     .upp-chip {
-      min-height: 34px;
-      padding: 6px 12px;
-      border-radius: 10px;
-      border: 1px solid var(--upp-chip-border);
-      background: var(--upp-chip-bg);
-      color: var(--upp-chip-tx);
-      font-size: 13px;
-      font-weight: 450;
-      line-height: 1.25;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      text-align: left;
-      word-break: break-word;
+      min-height: 34px; padding: 6px 12px; border-radius: 10px;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg); color: var(--upp-chip-tx);
+      font-size: 13px; font-weight: 450; line-height: 1.25; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: left; word-break: break-word;
       transition: background 0.14s var(--upp-ease), border-color 0.14s ease, color 0.14s ease, transform 0.10s ease;
     }
     .upp-chip:hover { background: var(--upp-chip-hover); }
     .upp-chip:active { transform: scale(0.97); }
-    .upp-chip.is-selected {
-      background: var(--upp-accent-bg);
-      border-color: var(--upp-accent-border);
-      color: var(--upp-accent-tx);
-      font-weight: 500;
-    }
-    .upp-chip.is-selected::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: var(--upp-accent);
-      flex-shrink: 0;
-    }
-    .upp-chip.is-selected.is-soft-warn {
-      background: var(--upp-warn-bg);
-      border-color: var(--upp-warn-border);
-      color: var(--upp-warn-tx);
-    }
+    .upp-chip.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); font-weight: 500; }
+    .upp-chip.is-selected::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--upp-accent); flex-shrink: 0; }
+    .upp-chip.is-selected.is-soft-warn { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); color: var(--upp-warn-tx); }
     .upp-chip.is-selected.is-soft-warn::before { background: var(--upp-warn-dot); }
-    .upp-chip.is-edit-mode {
-      border-style: dashed;
-    }
+    .upp-chip.is-edit-mode { border-style: dashed; }
 
-    .upp-subbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 0 2px 2px;
+    /* Summary Card List Layout (ideal for normal users with coarse persona entries) */
+    .upp-card-list { display: flex; flex-direction: column; gap: 7px; }
+    .upp-entry-card {
+      display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
+      border-radius: 12px; padding: 9px 10px;
+      transition: background 0.14s ease, border-color 0.14s ease;
     }
-    .upp-subbar-text { font-size: 12px; font-weight: 500; color: var(--upp-tx2); }
-    .upp-subbar-actions { display: flex; align-items: center; gap: 6px; }
+    .upp-entry-card.is-selected { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); }
+    .upp-entry-card.is-selected.is-soft-warn { background: var(--upp-warn-bg); border-color: var(--upp-warn-border); }
+    .upp-entry-main {
+      flex: 1 1 auto; min-width: 0; background: none; border: none; padding: 0; text-align: left;
+      cursor: pointer; display: flex; align-items: flex-start; gap: 9px; color: inherit; font: inherit;
+    }
+    .upp-entry-dot {
+      width: 16px; height: 16px; border-radius: 999px; margin-top: 2px; flex-shrink: 0;
+      border: 1.5px solid var(--upp-chip-border); background: transparent;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .upp-entry-card.is-selected .upp-entry-dot {
+      border-color: var(--upp-accent); background: var(--upp-accent);
+    }
+    .upp-entry-card.is-selected .upp-entry-dot::after {
+      content: ""; width: 6px; height: 6px; border-radius: 999px; background: #ffffff;
+    }
+    .upp-entry-text { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+    .upp-entry-name { font-size: 13px; font-weight: 500; color: var(--upp-tx); line-height: 1.3; word-break: break-word; }
+    .upp-entry-card.is-selected .upp-entry-name { color: var(--upp-accent-tx); font-weight: 600; }
+    .upp-entry-snippet {
+      font-size: 12px; color: var(--upp-tx3); line-height: 1.35;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .upp-entry-edit {
+      width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--upp-btn-border);
+      background: var(--upp-btn-bg); color: var(--upp-tx2); flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .upp-entry-edit:hover { background: var(--upp-btn-hover); color: var(--upp-tx); }
 
+    .upp-subbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px 2px; }
+    .upp-subbar-text { font-size: 12px; font-weight: 500; color: var(--upp-tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .upp-subbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .upp-bar-btn {
-      height: 30px;
-      padding: 0 11px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-btn-border);
-      background: var(--upp-chip-bg);
-      color: var(--upp-tx);
-      font-size: 12px;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      white-space: nowrap;
+      height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--upp-btn-border);
+      background: var(--upp-chip-bg); color: var(--upp-tx); font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;
       transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
     }
     .upp-bar-btn:hover { background: var(--upp-chip-hover); }
-    .upp-bar-btn.is-active {
-      background: var(--upp-accent-bg);
-      border-color: var(--upp-accent-border);
-      color: var(--upp-accent-tx);
-    }
+    .upp-bar-btn.is-active { background: var(--upp-accent-bg); border-color: var(--upp-accent-border); color: var(--upp-accent-tx); }
 
     .upp-form {
-      background: var(--upp-card-bg);
-      border: 1px solid var(--upp-card-border);
-      box-shadow: var(--upp-card-shadow);
-      border-radius: 15px;
-      padding: 13px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      background: var(--upp-card-bg); border: 1px solid var(--upp-card-border);
+      box-shadow: var(--upp-card-shadow); border-radius: 15px; padding: 13px;
+      display: flex; flex-direction: column; gap: 10px;
     }
     .upp-field { display: flex; flex-direction: column; gap: 5px; }
-    .upp-label {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--upp-tx2);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-    }
+    .upp-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .upp-label { font-size: 12px; font-weight: 500; color: var(--upp-tx2); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
     .upp-prefix-preview { font-size: 12px; font-weight: 600; color: var(--upp-accent-tx); }
     .upp-input, .upp-textarea, .upp-select {
-      width: 100%;
-      border: 1px solid var(--upp-input-border);
-      background: var(--upp-input-bg);
-      color: var(--upp-tx);
-      border-radius: 10px;
-      padding: 8px 11px;
-      font: inherit;
-      font-size: 13px;
-      outline: none;
+      width: 100%; border: 1px solid var(--upp-input-border); background: var(--upp-input-bg); color: var(--upp-tx);
+      border-radius: 10px; padding: 8px 11px; font: inherit; font-size: 13px; outline: none;
       transition: border-color 0.14s ease, box-shadow 0.14s ease;
     }
     .upp-input::placeholder, .upp-textarea::placeholder { color: var(--upp-tx3); }
-    .upp-input:focus, .upp-textarea:focus, .upp-select:focus {
-      border-color: var(--upp-accent-border);
-      box-shadow: 0 0 0 3px var(--upp-accent-bg);
-    }
+    .upp-input:focus, .upp-textarea:focus, .upp-select:focus { border-color: var(--upp-accent-border); box-shadow: 0 0 0 3px var(--upp-accent-bg); }
     .upp-textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
-    .upp-textarea.is-tall { min-height: 170px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .upp-textarea.is-tall { min-height: 165px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     .upp-form-error { font-size: 12px; color: var(--upp-danger-tx); }
     .upp-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
     .upp-row-list { display: flex; flex-direction: column; gap: 7px; }
     .upp-row-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 8px 10px;
-      border-radius: 11px;
-      border: 1px solid var(--upp-chip-border);
-      background: var(--upp-chip-bg);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 10px; border-radius: 11px; border: 1px solid var(--upp-chip-border); background: var(--upp-chip-bg);
     }
-    .upp-row-main {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-    .upp-row-title {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--upp-tx);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .upp-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+    .upp-row-title { font-size: 13px; font-weight: 500; color: var(--upp-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .upp-row-sub { font-size: 11px; color: var(--upp-tx3); }
-    .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .upp-row-btns { display: flex; align-items: center; gap: 5px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 
     .upp-preview-pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 12px;
-      line-height: 1.55;
-      color: var(--upp-tx);
-      background: var(--upp-input-bg);
-      border: 1px solid var(--upp-input-border);
-      border-radius: 12px;
-      padding: 12px;
-      max-height: 52dvh;
-      overflow-y: auto;
+      margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55;
+      color: var(--upp-tx); background: var(--upp-input-bg); border: 1px solid var(--upp-input-border);
+      border-radius: 12px; padding: 12px; max-height: 52dvh; overflow-y: auto;
     }
 
     .upp-empty { font-size: 12px; color: var(--upp-tx3); padding: 2px 0; }
 
     .upp-foot {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 11px 16px;
-      border-top: 1px solid var(--upp-divider);
-      background: var(--upp-foot-bg);
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 16px; border-top: 1px solid var(--upp-divider); background: var(--upp-foot-bg); flex-shrink: 0;
     }
     .upp-foot-right { display: flex; align-items: center; gap: 12px; }
     .upp-total { font-size: 12px; font-weight: 500; color: var(--upp-tx2); white-space: nowrap; }
     .upp-btn {
-      height: 36px;
-      min-width: 74px;
-      padding: 0 15px;
-      border-radius: 999px;
-      border: 1px solid var(--upp-btn-border);
-      background: var(--upp-btn-bg);
-      color: var(--upp-btn-tx);
-      font-size: 13px;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      white-space: nowrap;
+      height: 36px; min-width: 74px; padding: 0 15px; border-radius: 999px;
+      border: 1px solid var(--upp-btn-border); background: var(--upp-btn-bg); color: var(--upp-btn-tx);
+      font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; white-space: nowrap;
       transition: background 0.14s ease, transform 0.10s ease, box-shadow 0.14s ease;
     }
     .upp-btn:hover { background: var(--upp-btn-hover); }
     .upp-btn:active { transform: scale(0.97); }
     .upp-btn:disabled { opacity: 0.52; cursor: not-allowed; }
     .upp-btn-primary {
-      background: var(--upp-primary-bg);
-      border-color: transparent;
-      color: #ffffff;
-      font-weight: 600;
+      background: var(--upp-primary-bg); border-color: transparent; color: #ffffff; font-weight: 600;
       box-shadow: var(--upp-primary-shadow);
     }
     .upp-btn-primary:hover { background: var(--upp-primary-hover); }
@@ -1727,18 +1597,15 @@
     @media (max-width: 640px) {
       .upp-backdrop { padding: 0; align-items: flex-end; }
       .upp-modal {
-        max-width: 100%;
-        max-height: 88dvh;
-        border-radius: 24px 24px 0 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
+        max-width: 100%; max-height: 88dvh; border-radius: 24px 24px 0 0;
+        border-left: none; border-right: none; border-bottom: none;
         animation: upp-sheet-up 0.24s var(--upp-ease);
       }
       .upp-grab { display: block; }
       .upp-head { padding: 10px 16px 8px; }
       .upp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
       .upp-chip { min-height: 36px; padding: 7px 13px; }
+      .upp-field-row { grid-template-columns: 1fr; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1811,6 +1678,7 @@
     view: 'picker', // 'picker' | 'preview' | 'settings' | 'presets' | 'edit_entry'
     editMode: false,
     activeBook: '',
+    searchQuery: '',
     charName: '',
     config: loadStoredConfig(),
     allHostBooks: [],
@@ -1821,8 +1689,8 @@
     expandedGroups: new Set(),
     showAllChars: false,
     showNewForm: false,
-    newDraft: { shortName: '', relation: '', secret: '', title: '', content: '', error: '', busy: false },
-    editEntryDraft: { book: '', oldTitle: '', title: '', content: '', error: '', busy: false },
+    newDraft: { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false },
+    editEntryDraft: { book: '', oldTitle: '', title: '', group: '', slot: '', content: '', error: '', busy: false },
     presetForm: { open: false, label: '', mode: 'replace_all', targetBook: '', error: '' },
     importDraft: { open: false, text: '', error: '' },
     exDraft: { label: '', itemsText: '', error: '' },
@@ -1830,8 +1698,7 @@
 
   function currentBookCfg() {
     if (!state.config.books.length) return null;
-    const hit = state.config.books.find(b => b.name === state.activeBook);
-    return hit || state.config.books[0];
+    return state.config.books.find(b => b.name === state.activeBook) || state.config.books[0];
   }
 
   function countSelectedInBook(bookName) {
@@ -1840,6 +1707,12 @@
       if (parseKey(k).book === bookName) n++;
     }
     return n;
+  }
+
+  function countEntriesInBook(bookCfg) {
+    if (!bookCfg || !state.model) return 0;
+    if (bookCfg.mode === 'if') return (state.model.ifTitlesByBook?.[bookCfg.name] || []).length;
+    return (state.model.groupsByBook?.[bookCfg.name] || []).reduce((sum, g) => sum + g.items.length, 0);
   }
 
   function renderHeader() {
@@ -1928,43 +1801,35 @@
     }
 
     if (state.editMode) {
-      parts.push('<div class="upp-ok-box">编辑模式已开启：点任意标签即可修改正文，再点顶部笔图标退出</div>');
+      parts.push('<div class="upp-ok-box">编辑模式：点任意条目即可原地改标题、分组或正文</div>');
     }
 
     elAlerts.innerHTML = parts.join('');
   }
 
-  function renderGroupChips(bookCfg, cat, items, softWarnSet, ifSection) {
+  function renderEntriesItems(bookCfg, cat, visibleItems, softWarnSet, ifSection) {
     const bookName = bookCfg.name;
-    const groupId = bookName + '::' + cat;
-    const expanded = state.expandedGroups.has(groupId);
-    const mainItems = [];
-    const moreSelected = [];
-    const moreHidden = [];
-
-    for (const it of items) {
-      const k = itemKey(bookName, it.title);
-      const isSel = state.selected.has(k);
-      if (it.tier === 'more') {
-        if (isSel) moreSelected.push(it);
-        else moreHidden.push(it);
-      } else {
-        mainItems.push(it);
-      }
+    if (bookCfg.layout === 'list') {
+      return '<div class="upp-card-list">' + visibleItems.map(it => {
+        const k = itemKey(bookName, it.title);
+        const isSel = state.selected.has(k);
+        const isWarn = isSel && softWarnSet.has(k);
+        const label = chipLabel(bookCfg, cat, it.title, ifSection);
+        const snippet = summarizeContent(state.model?.entryContentMap?.[bookName]?.[it.title] || '', 72);
+        return '<div class="upp-entry-card' + (isSel ? ' is-selected' : '') + (isWarn ? ' is-soft-warn' : '') + '">' +
+          '<button type="button" class="upp-entry-main" data-book="' + esc(bookName) + '" data-title="' + esc(it.title) + '">' +
+            '<span class="upp-entry-dot" aria-hidden="true"></span>' +
+            '<span class="upp-entry-text">' +
+              '<span class="upp-entry-name">' + esc(label) + '</span>' +
+              (snippet ? '<span class="upp-entry-snippet">' + esc(snippet) + '</span>' : '') +
+            '</span>' +
+          '</button>' +
+          '<button type="button" class="upp-entry-edit" data-edit-book="' + esc(bookName) + '" data-edit-title="' + esc(it.title) + '" title="编辑" aria-label="编辑">' + ICON_EDIT + '</button>' +
+        '</div>';
+      }).join('') + '</div>';
     }
 
-    const visibleItems = expanded ? items : [...moreSelected, ...mainItems];
-
-    let selectedCount = 0;
-    for (const it of items) {
-      if (state.selected.has(itemKey(bookName, it.title))) selectedCount++;
-    }
-
-    const toggleBtn = moreHidden.length > 0
-      ? '<button type="button" class="upp-mini-btn" data-expand="' + esc(groupId) + '">' + (expanded ? '收起' : '更多') + '</button>'
-      : '';
-
-    const chipsHtml = visibleItems.map(it => {
+    return '<div class="upp-chips">' + visibleItems.map(it => {
       const k = itemKey(bookName, it.title);
       const isSel = state.selected.has(k);
       const isWarn = isSel && softWarnSet.has(k);
@@ -1976,7 +1841,48 @@
         '" data-book="' + esc(bookName) +
         '" data-title="' + esc(it.title) +
         '" title="' + esc(it.title) + '">' + esc(label) + '</button>';
-    }).join('');
+    }).join('') + '</div>';
+  }
+
+  function renderGroupBlock(bookCfg, cat, items, softWarnSet, ifSection, isSearching) {
+    const bookName = bookCfg.name;
+    const filtered = isSearching
+      ? filterItemsByQuery(items, state.searchQuery, bookName, state.model?.entryContentMap)
+      : items;
+    if (!filtered.length) return '';
+
+    const groupId = bookName + '::' + cat;
+    const expanded = isSearching || state.expandedGroups.has(groupId);
+    const mainItems = [];
+    const moreSelected = [];
+    const moreHidden = [];
+
+    for (const it of filtered) {
+      const k = itemKey(bookName, it.title);
+      const isSel = state.selected.has(k);
+      if (it.tier === 'more') {
+        if (isSel) moreSelected.push(it);
+        else moreHidden.push(it);
+      } else {
+        mainItems.push(it);
+      }
+    }
+
+    const visibleItems = expanded ? filtered : [...moreSelected, ...mainItems];
+
+    let selectedCount = 0;
+    for (const it of filtered) {
+      if (state.selected.has(itemKey(bookName, it.title))) selectedCount++;
+    }
+
+    const toggleBtn = !isSearching && moreHidden.length > 0
+      ? '<button type="button" class="upp-mini-btn" data-expand="' + esc(groupId) + '">' + (expanded ? '收起' : '更多') + '</button>'
+      : '';
+
+    const bodyHtml = renderEntriesItems(bookCfg, cat, visibleItems, softWarnSet, ifSection);
+    if (!cat && !toggleBtn) {
+      return '<section class="upp-group">' + bodyHtml + '</section>';
+    }
 
     return '<section class="upp-group">' +
       '<div class="upp-group-head">' +
@@ -1985,7 +1891,7 @@
         '</span>' +
         toggleBtn +
       '</div>' +
-      '<div class="upp-chips">' + chipsHtml + '</div>' +
+      bodyHtml +
     '</section>';
   }
 
@@ -1998,7 +1904,7 @@
       '<div class="upp-group-head"><span class="upp-group-title">保存当前勾选为方案</span></div>' +
       '<div class="upp-field">' +
         '<label class="upp-label"><span>方案名称</span><span class="upp-prefix-preview">共 ' + state.selected.size + ' 项</span></label>' +
-        '<input type="text" class="upp-input" data-pf-field="label" value="' + esc(pf.label) + '" placeholder="例如：乖巧甜妹" />' +
+        '<input type="text" class="upp-input" data-pf-field="label" value="' + esc(pf.label) + '" placeholder="例如：日常底包" />' +
       '</div>' +
       '<div class="upp-field">' +
         '<label class="upp-label"><span>应用方式</span></label>' +
@@ -2025,8 +1931,8 @@
       const prefix = '【' + (sanitizeCharName(state.charName) || '通用') + '】';
       return '<div class="upp-form">' +
         '<div class="upp-field">' +
-          '<label class="upp-label"><span>路线短名</span><span class="upp-prefix-preview">' + esc(prefix) + '</span></label>' +
-          '<input type="text" class="upp-input" data-new-field="shortName" value="' + esc(d.shortName) + '" placeholder="例如：离婚重逢线" />' +
+          '<label class="upp-label"><span>路线名称</span><span class="upp-prefix-preview">' + esc(prefix) + '</span></label>' +
+          '<input type="text" class="upp-input" data-new-field="shortName" value="' + esc(d.shortName) + '" placeholder="例如：重逢线" />' +
         '</div>' +
         '<div class="upp-field">' +
           '<label class="upp-label"><span>身份与关系/前提</span></label>' +
@@ -2046,8 +1952,22 @@
 
     return '<div class="upp-form">' +
       '<div class="upp-field">' +
-        '<label class="upp-label"><span>条目标题</span><span class="upp-prefix-preview">可用「分组·名称」自动归组</span></label>' +
-        '<input type="text" class="upp-input" data-new-field="title" value="' + esc(d.title) + '" placeholder="例如：性格·腹黑" />' +
+        '<label class="upp-label"><span>条目标题</span></label>' +
+        '<input type="text" class="upp-input" data-new-field="title" value="' + esc(d.title) + '" placeholder="随意命名即可" />' +
+      '</div>' +
+      '<div class="upp-field-row">' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>插件内分组</span></label>' +
+          '<input type="text" class="upp-input" data-new-field="group" value="' + esc(d.group) + '" placeholder="选填，不改原名" />' +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>注入位置</span></label>' +
+          '<select class="upp-select" data-new-field="slot">' +
+            '<option value=""' + (!d.slot ? ' selected' : '') + '>默认正文</option>' +
+            '<option value="rule"' + (d.slot === 'rule' ? ' selected' : '') + '>写作规则</option>' +
+            '<option value="depth1"' + (d.slot === 'depth1' ? ' selected' : '') + '>深度1强提醒</option>' +
+          '</select>' +
+        '</div>' +
       '</div>' +
       '<div class="upp-field">' +
         '<label class="upp-label"><span>条目正文</span></label>' +
@@ -2071,27 +1991,30 @@
         '<div class="upp-row-item">' +
           '<div class="upp-row-main"><span class="upp-row-title">' + esc(name) + '</span></div>' +
           '<div class="upp-row-btns">' +
-            '<button type="button" class="upp-mini-btn" data-quick-add="' + esc(name) + '" data-quick-mode="grouped">+ 普通书</button>' +
-            '<button type="button" class="upp-mini-btn" data-quick-add="' + esc(name) + '" data-quick-mode="if">+ 角色IF书</button>' +
+            '<button type="button" class="upp-mini-btn" data-quick-add="' + esc(name) + '">+ 绑定</button>' +
           '</div>' +
         '</div>'
       ).join('');
 
     return '<section class="upp-group">' +
       '<div class="upp-group-head"><span class="upp-group-title">第一步：绑定你的 User 世界书</span></div>' +
-      '<div class="upp-empty">从下方选择存放 User 设定的世界书，或点击导入已有配置 JSON。</div>' +
-      '<div class="upp-row-list">' + (bookRows || '<div class="upp-empty">未检测到可用世界书</div>') + '</div>' +
+      '<div class="upp-empty">直接选择你现有的世界书，无需改条目名；没有现成世界书也可以一键新建或导入当前原生人设。</div>' +
+      '<div class="upp-chips">' +
+        '<button type="button" class="upp-bar-btn" data-act="create-starter-persona">从当前 Persona 导入新建</button>' +
+        '<button type="button" class="upp-bar-btn" data-act="create-starter-blank">+ 新建空白人设书</button>' +
+      '</div>' +
+      '<div class="upp-row-list">' + (bookRows || '<div class="upp-empty">暂无其他世界书</div>') + '</div>' +
     '</section>' +
     '<section class="upp-group">' +
       '<div class="upp-group-head">' +
         '<span class="upp-group-title">第二步：总控世界书</span>' +
-        '<button type="button" class="upp-mini-btn" data-act="ensure-opening">' + (hasOpening && openingActive ? '已就绪' : '一键生成并启用') + '</button>' +
+        '<button type="button" class="upp-mini-btn" data-act="ensure-opening">' + (hasOpening && openingActive ? '已启用' : '一键生成并启用') + '</button>' +
       '</div>' +
-      '<div class="upp-empty">总控世界书 ' + esc(openingName) + ' 会按当前聊天勾选动态拉取条目正文，其余数据源书保持关闭即可。</div>' +
+      '<div class="upp-empty">仅 ' + esc(openingName) + ' 保持全局常开，数据源书保持关闭即可。</div>' +
     '</section>' +
     '<section class="upp-group">' +
       '<div class="upp-group-head">' +
-        '<span class="upp-group-title">已有配置？</span>' +
+        '<span class="upp-group-title">已有配置文件？</span>' +
         '<button type="button" class="upp-mini-btn" data-act="toggle-settings">前往导入</button>' +
       '</div>' +
     '</section>';
@@ -2103,17 +2026,29 @@
     if (!bookCfg) return '<div class="upp-empty">请先在设置中绑定世界书</div>';
 
     const softWarnSet = getSoftWarnKeys(state.selected, state.config);
+    const totalCount = countEntriesInBook(bookCfg);
+    const isSearching = Boolean(state.searchQuery.trim());
     const parts = [];
 
-    if (state.presetForm.open) {
-      parts.push(renderSavePresetForm());
+    if (state.presetForm.open) parts.push(renderSavePresetForm());
+
+    if (totalCount > 10 || isSearching) {
+      parts.push(
+        '<div class="upp-search-wrap">' +
+          '<input type="text" class="upp-search-input" data-search-input="1" value="' + esc(state.searchQuery) + '" placeholder="搜索标题或正文" />' +
+          (isSearching ? '<button type="button" class="upp-search-clear" data-act="clear-search" aria-label="清除">×</button>' : '') +
+        '</div>'
+      );
     }
+
+    const layoutBtn = '<button type="button" class="upp-bar-btn" data-act="toggle-layout">' + (bookCfg.layout === 'list' ? '标签视图' : '摘要视图') + '</button>';
 
     if (bookCfg.mode === 'if') {
       parts.push(
         '<div class="upp-subbar">' +
           '<span class="upp-subbar-text">' + esc(state.charName ? '当前角色：' + state.charName : '未打开角色卡') + '</span>' +
           '<div class="upp-subbar-actions">' +
+            layoutBtn +
             '<button type="button" class="upp-bar-btn' + (state.showAllChars ? ' is-active' : '') + '" data-act="toggle-all-chars">全部角色</button>' +
             '<button type="button" class="upp-bar-btn' + (state.showNewForm ? ' is-active' : '') + '" data-act="toggle-new">+ 新建</button>' +
           '</div>' +
@@ -2126,19 +2061,27 @@
       const toItems = arr => arr.map(title => ({ title, tier: 'main' }));
 
       if (p.current.length > 0) {
-        parts.push(renderGroupChips(bookCfg, state.charName || '本角色', toItems(p.current), softWarnSet, 'current'));
-      } else {
+        const block = renderGroupBlock(bookCfg, state.charName || '本角色', toItems(p.current), softWarnSet, 'current', isSearching);
+        if (block) parts.push(block);
+      } else if (!isSearching) {
         parts.push(
           '<section class="upp-group">' +
             '<div class="upp-group-head"><span class="upp-group-title">' + esc(state.charName || '本角色') + '</span></div>' +
-            '<div class="upp-empty">' + (state.charName ? '暂无本角色路线' : '打开角色卡后自动匹配本角色路线') + '</div>' +
+            '<div class="upp-empty">' + (state.charName ? '暂无匹配本角色的路线' : '打开角色卡后自动匹配本角色路线') + '</div>' +
           '</section>'
         );
       }
-      if (p.common.length > 0) parts.push(renderGroupChips(bookCfg, '通用', toItems(p.common), softWarnSet, 'common'));
-      if (p.selectedOther.length > 0 && !state.showAllChars) parts.push(renderGroupChips(bookCfg, '已选其他角色', toItems(p.selectedOther), softWarnSet, 'other'));
-      if (p.unprefixed.length > 0) parts.push(renderGroupChips(bookCfg, '其他', toItems(p.unprefixed), softWarnSet, 'other'));
-      if (state.showAllChars && p.otherChars.length > 0) parts.push(renderGroupChips(bookCfg, '其他角色', toItems(p.otherChars), softWarnSet, 'other'));
+      for (const [label, arr, sec] of [
+        ['通用', p.common, 'common'],
+        ['已选其他角色', state.showAllChars ? [] : p.selectedOther, 'other'],
+        ['其他', p.unprefixed, 'other'],
+        ['其他角色', state.showAllChars ? p.otherChars : [], 'other'],
+      ]) {
+        if (arr.length > 0) {
+          const block = renderGroupBlock(bookCfg, label, toItems(arr), softWarnSet, sec, isSearching);
+          if (block) parts.push(block);
+        }
+      }
       return parts.join('');
     }
 
@@ -2146,6 +2089,7 @@
       '<div class="upp-subbar">' +
         '<span class="upp-subbar-text">' + esc(bookCfg.name) + '</span>' +
         '<div class="upp-subbar-actions">' +
+          layoutBtn +
           '<button type="button" class="upp-bar-btn' + (state.showNewForm ? ' is-active' : '') + '" data-act="toggle-new">+ 新建</button>' +
         '</div>' +
       '</div>'
@@ -2153,12 +2097,13 @@
     if (state.showNewForm) parts.push(renderNewEntryForm(bookCfg));
 
     const groups = state.model?.groupsByBook?.[bookCfg.name] || [];
-    if (!groups.length) {
-      parts.push('<div class="upp-empty">该世界书暂无条目</div>');
-    } else {
-      for (const g of groups) {
-        parts.push(renderGroupChips(bookCfg, g.cat, g.items, softWarnSet, ''));
-      }
+    let rendered = 0;
+    for (const g of groups) {
+      const block = renderGroupBlock(bookCfg, g.cat, g.items, softWarnSet, '', isSearching);
+      if (block) { parts.push(block); rendered++; }
+    }
+    if (rendered === 0) {
+      parts.push('<div class="upp-empty">' + (isSearching ? '没有匹配的条目' : '该世界书暂无条目') + '</div>');
     }
     return parts.join('');
   }
@@ -2173,6 +2118,20 @@
       '<div class="upp-field">' +
         '<label class="upp-label"><span>条目标题</span></label>' +
         '<input type="text" class="upp-input" data-edit-field="title" value="' + esc(d.title) + '" />' +
+      '</div>' +
+      '<div class="upp-field-row">' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>插件内分组</span></label>' +
+          '<input type="text" class="upp-input" data-edit-field="group" value="' + esc(d.group) + '" placeholder="留空按默认规则" />' +
+        '</div>' +
+        '<div class="upp-field">' +
+          '<label class="upp-label"><span>注入位置</span></label>' +
+          '<select class="upp-select" data-edit-field="slot">' +
+            '<option value=""' + (!d.slot ? ' selected' : '') + '>默认正文</option>' +
+            '<option value="rule"' + (d.slot === 'rule' ? ' selected' : '') + '>写作规则</option>' +
+            '<option value="depth1"' + (d.slot === 'depth1' ? ' selected' : '') + '>深度1强提醒</option>' +
+          '</select>' +
+        '</div>' +
       '</div>' +
       '<div class="upp-field">' +
         '<label class="upp-label"><span>正文</span></label>' +
@@ -2230,15 +2189,16 @@
     const hasOpening = state.allHostBooks.includes(openingName);
     const openingActive = state.globalBooks.includes(openingName);
     const boundNames = new Set(state.config.books.map(b => b.name));
+    const modeLabel = m => (m === 'if' ? '角色匹配' : (m === 'prefix' ? '前缀归组' : '平铺'));
 
     const boundRows = state.config.books.map((b, idx) =>
       '<div class="upp-row-item">' +
         '<div class="upp-row-main">' +
           '<span class="upp-row-title">' + esc(b.label) + '</span>' +
-          '<span class="upp-row-sub">' + esc(b.name) + ' · ' + (b.mode === 'if' ? '角色IF线' : '分组标签') + '</span>' +
+          '<span class="upp-row-sub">' + esc(b.name) + ' · ' + modeLabel(b.mode) + ' · ' + (b.layout === 'list' ? '摘要' : '标签') + '</span>' +
         '</div>' +
         '<div class="upp-row-btns">' +
-          '<button type="button" class="upp-mini-btn" data-book-toggle-mode="' + idx + '">' + (b.mode === 'if' ? '改分组' : '改IF') + '</button>' +
+          '<button type="button" class="upp-mini-btn" data-book-cycle-mode="' + idx + '">切模式</button>' +
           '<button type="button" class="upp-mini-btn is-danger" data-book-remove="' + idx + '">移除</button>' +
         '</div>' +
       '</div>'
@@ -2247,7 +2207,7 @@
     const availableRows = state.allHostBooks
       .filter(n => !boundNames.has(n) && n !== openingName)
       .map(n =>
-        '<button type="button" class="upp-chip" data-quick-add="' + esc(n) + '" data-quick-mode="grouped">+ ' + esc(n) + '</button>'
+        '<button type="button" class="upp-chip" data-quick-add="' + esc(n) + '">+ ' + esc(n) + '</button>'
       ).join('');
 
     const exRows = (state.config.exclusive || []).map((g, idx) =>
@@ -2268,7 +2228,7 @@
         '<button type="button" class="upp-mini-btn" data-act="back-picker">返回</button>' +
       '</div>' +
       '<div class="upp-row-list">' + (boundRows || '<div class="upp-empty">尚未绑定世界书</div>') + '</div>' +
-      (availableRows ? '<div class="upp-label"><span>点击添加其他世界书</span></div><div class="upp-chips">' + availableRows + '</div>' : '') +
+      (availableRows ? '<div class="upp-label"><span>点击添加世界书</span></div><div class="upp-chips">' + availableRows + '</div>' : '') +
     '</section>' +
     '<section class="upp-group">' +
       '<div class="upp-group-head">' +
@@ -2281,7 +2241,7 @@
       '<div class="upp-group-head"><span class="upp-group-title">硬互斥组</span></div>' +
       '<div class="upp-row-list">' + (exRows || '<div class="upp-empty">暂无互斥规则</div>') + '</div>' +
       '<div class="upp-field">' +
-        '<input type="text" class="upp-input" data-ex-field="label" value="' + esc(state.exDraft.label) + '" placeholder="组名，如：性经验" />' +
+        '<input type="text" class="upp-input" data-ex-field="label" value="' + esc(state.exDraft.label) + '" placeholder="组名，如：主定位" />' +
         '<input type="text" class="upp-input" data-ex-field="itemsText" value="' + esc(state.exDraft.itemsText) + '" placeholder="互斥条目标题，用逗号分隔" />' +
       '</div>' +
       (state.exDraft.error ? '<div class="upp-form-error">' + esc(state.exDraft.error) + '</div>' : '') +
@@ -2304,22 +2264,36 @@
               '<button type="button" class="upp-mini-btn is-active" data-act="confirm-import">确认导入</button>' +
             '</div>' +
           '</div>'
-        : '<div class="upp-empty">导出后可在手机与电脑间一键同步绑定世界书、方案快照与互斥规则。</div>') +
+        : '<div class="upp-empty">导出后可在手机与电脑间一键同步世界书绑定、自定义分组与方案快照。</div>') +
     '</section>';
   }
 
-  function renderBody() {
+  function renderBody(preserveFocusSearch) {
     if (state.loading) {
       elBody.innerHTML = '<div class="upp-empty">加载中…</div>';
       return;
     }
     const prevScroll = elBody.scrollTop;
+    let searchSelStart = null;
+    if (preserveFocusSearch) {
+      const activeEl = shadow.activeElement;
+      if (activeEl && activeEl.dataset?.searchInput) searchSelStart = activeEl.selectionStart;
+    }
+
     if (state.view === 'edit_entry') elBody.innerHTML = renderEditEntryView();
     else if (state.view === 'preview') elBody.innerHTML = renderPreviewView();
     else if (state.view === 'presets') elBody.innerHTML = renderPresetsManageView();
     else if (state.view === 'settings') elBody.innerHTML = renderSettingsView();
     else elBody.innerHTML = renderPickerBody();
+
     elBody.scrollTop = prevScroll;
+    if (preserveFocusSearch && searchSelStart !== null) {
+      const input = shadow.querySelector('[data-search-input]');
+      if (input) {
+        input.focus();
+        try { input.setSelectionRange(searchSelStart, searchSelStart); } catch (_) {}
+      }
+    }
   }
 
   function renderFooter() {
@@ -2334,7 +2308,7 @@
     renderTabs();
     renderPresetsBar();
     renderAlerts();
-    renderBody();
+    renderBody(false);
     renderFooter();
   }
 
@@ -2372,9 +2346,10 @@
     state.open = true;
     state.view = 'picker';
     state.editMode = false;
+    state.searchQuery = '';
     state.showNewForm = false;
     state.presetForm.open = false;
-    state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', error: '', busy: false };
+    state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false };
     elBackdrop.hidden = false;
     syncMenuExpanded();
     void refreshState();
@@ -2387,6 +2362,39 @@
     state.presetForm.open = false;
     elBackdrop.hidden = true;
     syncMenuExpanded();
+  }
+
+  function openEditEntry(book, title) {
+    state.editEntryDraft = {
+      book,
+      oldTitle: title,
+      title,
+      group: state.config.catOverrides?.[book]?.[title] || '',
+      slot: state.config.slotOverrides?.[book]?.[title] || '',
+      content: state.model?.entryContentMap?.[book]?.[title] || '',
+      error: '',
+      busy: false,
+    };
+    state.view = 'edit_entry';
+    renderAll();
+  }
+
+  async function handleQuickAddBook(name) {
+    if (state.config.books.some(b => b.name === name)) return;
+    const entries = await loadSingleWorldbook(name);
+    const names = Array.isArray(entries) ? entries.map(e => e?.name).filter(Boolean) : [];
+    const rec = detectRecommendedBookMode(names);
+    state.config.books.push({
+      name,
+      label: name.replace(/^User[·:：_-]?/i, '') || name,
+      mode: rec.mode,
+      layout: rec.layout,
+      preserveCatsOnReplace: [],
+      catOrder: [],
+    });
+    saveStoredConfig(state.config);
+    state.activeBook = name;
+    await refreshState();
   }
 
   async function handleSave() {
@@ -2420,7 +2428,7 @@
     const existingSet = state.model?.liveSets?.[bookCfg.name];
     if (existingSet === null) {
       d.error = '未找到世界书：' + bookCfg.name;
-      renderBody();
+      renderBody(false);
       return;
     }
 
@@ -2430,18 +2438,29 @@
 
     if (!built.ok) {
       d.error = built.error;
-      renderBody();
+      renderBody(false);
       return;
     }
 
     d.busy = true;
     d.error = '';
-    renderBody();
+    renderBody(false);
     try {
       await createEntryInBook(bookCfg.name, built.entry);
+      const customGroup = String(d.group || '').trim();
+      if (customGroup) {
+        state.config.catOverrides[bookCfg.name] = state.config.catOverrides[bookCfg.name] || {};
+        state.config.catOverrides[bookCfg.name][built.fullTitle] = customGroup;
+      }
+      if (d.slot === 'rule' || d.slot === 'depth1') {
+        state.config.slotOverrides[bookCfg.name] = state.config.slotOverrides[bookCfg.name] || {};
+        state.config.slotOverrides[bookCfg.name][built.fullTitle] = d.slot;
+      }
+      if (customGroup || d.slot) saveStoredConfig(state.config);
+
       state.selected.add(itemKey(bookCfg.name, built.fullTitle));
       state.showNewForm = false;
-      state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', error: '', busy: false };
+      state.newDraft = { shortName: '', relation: '', secret: '', title: '', content: '', group: '', slot: '', error: '', busy: false };
       notify('已创建并勾选：' + built.fullTitle, 'success');
       const liveEntriesMap = await loadBoundWorldbooks(state.config, state.allHostBooks);
       state.model = buildRuntimeModel(state.config, liveEntriesMap);
@@ -2449,7 +2468,7 @@
     } catch (err) {
       d.busy = false;
       d.error = '写入失败：' + (err?.message || String(err));
-      renderBody();
+      renderBody(false);
     }
   }
 
@@ -2458,20 +2477,16 @@
     if (d.busy) return;
     const newTitle = String(d.title || '').trim();
     const newContent = String(d.content || '');
-    if (!newTitle) {
-      d.error = '标题不能为空';
-      renderBody();
-      return;
-    }
+    if (!newTitle) { d.error = '标题不能为空'; renderBody(false); return; }
     const existingSet = state.model?.liveSets?.[d.book];
     if (newTitle !== d.oldTitle && existingSet && existingSet.has(newTitle)) {
       d.error = '同名条目已存在';
-      renderBody();
+      renderBody(false);
       return;
     }
     d.busy = true;
     d.error = '';
-    renderBody();
+    renderBody(false);
     try {
       await updateEntryInBook(d.book, d.oldTitle, newTitle, newContent);
       if (newTitle !== d.oldTitle) {
@@ -2481,8 +2496,18 @@
           state.selected.add(itemKey(d.book, newTitle));
         }
         renameReferenceInConfig(state.config, d.book, d.oldTitle, newTitle);
-        saveStoredConfig(state.config);
       }
+
+      const customGroup = String(d.group || '').trim();
+      state.config.catOverrides[d.book] = state.config.catOverrides[d.book] || {};
+      if (customGroup) state.config.catOverrides[d.book][newTitle] = customGroup;
+      else delete state.config.catOverrides[d.book][newTitle];
+
+      state.config.slotOverrides[d.book] = state.config.slotOverrides[d.book] || {};
+      if (d.slot === 'rule' || d.slot === 'depth1') state.config.slotOverrides[d.book][newTitle] = d.slot;
+      else delete state.config.slotOverrides[d.book][newTitle];
+
+      saveStoredConfig(state.config);
       const liveEntriesMap = await loadBoundWorldbooks(state.config, state.allHostBooks);
       state.model = buildRuntimeModel(state.config, liveEntriesMap);
       state.view = 'picker';
@@ -2491,7 +2516,7 @@
     } catch (err) {
       d.busy = false;
       d.error = '保存失败：' + (err?.message || String(err));
-      renderBody();
+      renderBody(false);
     }
   }
 
@@ -2533,7 +2558,7 @@
       void refreshState();
     } catch (err) {
       state.importDraft.error = 'JSON 格式无效：' + (err?.message || String(err));
-      renderBody();
+      renderBody(false);
     }
   }
 
@@ -2561,7 +2586,10 @@
 
   listen(shadow, 'input', ev => {
     const el = ev.target;
-    if (el?.dataset?.newField) {
+    if (el?.dataset?.searchInput) {
+      state.searchQuery = el.value;
+      renderBody(true);
+    } else if (el?.dataset?.newField) {
       state.newDraft[el.dataset.newField] = el.value;
       if (state.newDraft.error) { state.newDraft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
     } else if (el?.dataset?.editField) {
@@ -2569,7 +2597,7 @@
       if (state.editEntryDraft.error) { state.editEntryDraft.error = ''; shadow.querySelector('.upp-form-error')?.remove(); }
     } else if (el?.dataset?.pfField) {
       state.presetForm[el.dataset.pfField] = el.value;
-      if (el.dataset.pfField === 'mode') renderBody();
+      if (el.dataset.pfField === 'mode') renderBody(false);
     } else if (el?.dataset?.importField) {
       state.importDraft[el.dataset.importField] = el.value;
     } else if (el?.dataset?.exField) {
@@ -2581,7 +2609,11 @@
     const el = ev.target;
     if (el?.dataset?.pfField) {
       state.presetForm[el.dataset.pfField] = el.value;
-      if (el.dataset.pfField === 'mode') renderBody();
+      if (el.dataset.pfField === 'mode') renderBody(false);
+    } else if (el?.dataset?.newField) {
+      state.newDraft[el.dataset.newField] = el.value;
+    } else if (el?.dataset?.editField) {
+      state.editEntryDraft[el.dataset.editField] = el.value;
     }
   });
 
@@ -2594,29 +2626,31 @@
     if (act === 'save') { void handleSave(); return; }
     if (act === 'clear') { state.selected = new Set(); renderAll(); return; }
     if (act === 'clear-stale') { state.stale = []; renderAlerts(); return; }
+    if (act === 'clear-search') { state.searchQuery = ''; renderBody(true); return; }
     if (act === 'back-picker') { state.view = 'picker'; renderAll(); return; }
 
-    if (act === 'toggle-edit-mode') {
-      state.view = 'picker';
-      state.editMode = !state.editMode;
-      renderAll();
+    if (act === 'toggle-edit-mode') { state.view = 'picker'; state.editMode = !state.editMode; renderAll(); return; }
+    if (act === 'toggle-preview') { state.view = state.view === 'preview' ? 'picker' : 'preview'; renderAll(); return; }
+    if (act === 'toggle-settings') { state.view = state.view === 'settings' ? 'picker' : 'settings'; renderAll(); return; }
+    if (act === 'open-presets') { state.view = 'presets'; renderAll(); return; }
+    if (act === 'toggle-layout') {
+      const b = currentBookCfg();
+      if (b) {
+        b.layout = b.layout === 'list' ? 'chips' : 'list';
+        saveStoredConfig(state.config);
+        renderBody(false);
+      }
       return;
     }
-    if (act === 'toggle-preview') {
-      state.view = state.view === 'preview' ? 'picker' : 'preview';
-      renderAll();
+
+    if (act === 'create-starter-persona' || act === 'create-starter-blank') {
+      void createStarterWorldbook(act === 'create-starter-persona').then(bookName => {
+        notify('已创建世界书：' + bookName, 'success');
+        return handleQuickAddBook(bookName);
+      }).catch(err => notify('创建失败：' + (err?.message || String(err)), 'error'));
       return;
     }
-    if (act === 'toggle-settings') {
-      state.view = state.view === 'settings' ? 'picker' : 'settings';
-      renderAll();
-      return;
-    }
-    if (act === 'open-presets') {
-      state.view = 'presets';
-      renderAll();
-      return;
-    }
+
     if (act === 'open-save-preset') {
       state.presetForm = {
         open: !state.presetForm.open,
@@ -2625,17 +2659,13 @@
         targetBook: currentBookCfg()?.name || '',
         error: '',
       };
-      renderBody();
+      renderBody(false);
       return;
     }
-    if (act === 'cancel-save-preset') {
-      state.presetForm.open = false;
-      renderBody();
-      return;
-    }
+    if (act === 'cancel-save-preset') { state.presetForm.open = false; renderBody(false); return; }
     if (act === 'confirm-save-preset') {
       const label = String(state.presetForm.label || '').trim();
-      if (!label) { state.presetForm.error = '请填写方案名称'; renderBody(); return; }
+      if (!label) { state.presetForm.error = '请填写方案名称'; renderBody(false); return; }
       const payload = serializeSelection(state.selected, state.charName, state.config, state.model);
       const items = state.presetForm.mode === 'replace_book' && state.presetForm.targetBook
         ? payload.wi.filter(it => it.book === state.presetForm.targetBook)
@@ -2645,7 +2675,7 @@
         label,
         mode: state.presetForm.mode,
         targetBook: state.presetForm.mode === 'replace_book' ? state.presetForm.targetBook : '',
-        items,
+        items: items.map(({ book, title }) => ({ book, title })),
       });
       saveStoredConfig(state.config);
       state.presetForm.open = false;
@@ -2654,9 +2684,9 @@
       return;
     }
 
-    if (act === 'toggle-all-chars') { state.showAllChars = !state.showAllChars; renderBody(); return; }
-    if (act === 'toggle-new') { state.showNewForm = !state.showNewForm; state.newDraft.error = ''; renderBody(); return; }
-    if (act === 'cancel-new') { state.showNewForm = false; state.newDraft.error = ''; renderBody(); return; }
+    if (act === 'toggle-all-chars') { state.showAllChars = !state.showAllChars; renderBody(false); return; }
+    if (act === 'toggle-new') { state.showNewForm = !state.showNewForm; state.newDraft.error = ''; renderBody(false); return; }
+    if (act === 'cancel-new') { state.showNewForm = false; state.newDraft.error = ''; renderBody(false); return; }
     if (act === 'submit-new') { void handleSubmitNewEntry(); return; }
     if (act === 'save-edit-entry') { void handleSaveEditEntry(); return; }
 
@@ -2670,41 +2700,32 @@
     }
 
     if (act === 'export-config') { handleExportConfig(); return; }
-    if (act === 'toggle-import') { state.importDraft.open = !state.importDraft.open; state.importDraft.error = ''; renderBody(); return; }
+    if (act === 'toggle-import') { state.importDraft.open = !state.importDraft.open; state.importDraft.error = ''; renderBody(false); return; }
     if (act === 'pick-import-file') { pickImportFile(); return; }
     if (act === 'confirm-import') { applyImportedConfigText(state.importDraft.text); return; }
 
     if (act === 'add-ex') {
       const label = String(state.exDraft.label || '').trim();
       const items = String(state.exDraft.itemsText || '').split(/[,，/\n]+/).map(s => s.trim()).filter(Boolean);
-      if (!label || items.length < 2) {
-        state.exDraft.error = '请填写组名与至少 2 个条目标题';
-        renderBody();
-        return;
-      }
+      if (!label || items.length < 2) { state.exDraft.error = '请填写组名与至少 2 个条目标题'; renderBody(false); return; }
       state.config.exclusive.push({ id: 'ex_' + Date.now().toString(36), label, items });
       saveStoredConfig(state.config);
       state.exDraft = { label: '', itemsText: '', error: '' };
-      renderBody();
+      renderBody(false);
       return;
     }
 
     if (target.dataset.quickAdd) {
-      const name = target.dataset.quickAdd;
-      const mode = target.dataset.quickMode === 'if' ? 'if' : 'grouped';
-      if (!state.config.books.some(b => b.name === name)) {
-        state.config.books.push({ name, label: name.replace(/^User[·:：_-]?/i, '') || name, mode, preserveCatsOnReplace: [], catOrder: [] });
-        saveStoredConfig(state.config);
-        void refreshState();
-      }
+      void handleQuickAddBook(target.dataset.quickAdd);
       return;
     }
 
-    if (target.dataset.bookToggleMode !== undefined) {
-      const idx = Number(target.dataset.bookToggleMode);
+    if (target.dataset.bookCycleMode !== undefined) {
+      const idx = Number(target.dataset.bookCycleMode);
       const b = state.config.books[idx];
       if (b) {
-        b.mode = b.mode === 'if' ? 'grouped' : 'if';
+        const order = ['flat', 'prefix', 'if'];
+        b.mode = order[(order.indexOf(b.mode) + 1) % order.length];
         saveStoredConfig(state.config);
         void refreshState();
       }
@@ -2726,7 +2747,7 @@
       if (Number.isInteger(idx) && idx >= 0) {
         state.config.exclusive.splice(idx, 1);
         saveStoredConfig(state.config);
-        renderBody();
+        renderBody(false);
       }
       return;
     }
@@ -2742,9 +2763,10 @@
       const p = state.config.presets.find(x => x.id === target.dataset.presetOverwrite);
       if (p) {
         const payload = serializeSelection(state.selected, state.charName, state.config, state.model);
-        p.items = p.mode === 'replace_book' && p.targetBook
+        const items = p.mode === 'replace_book' && p.targetBook
           ? payload.wi.filter(it => it.book === p.targetBook)
           : payload.wi;
+        p.items = items.map(({ book, title }) => ({ book, title }));
         saveStoredConfig(state.config);
         notify('已更新方案：' + p.label, 'success');
         renderAll();
@@ -2762,10 +2784,11 @@
 
     if (target.dataset.bookTab) {
       state.activeBook = target.dataset.bookTab;
+      state.searchQuery = '';
       state.showNewForm = false;
       elBody.scrollTop = 0;
       renderTabs();
-      renderBody();
+      renderBody(false);
       return;
     }
 
@@ -2791,7 +2814,12 @@
       const gid = target.dataset.expand;
       if (state.expandedGroups.has(gid)) state.expandedGroups.delete(gid);
       else state.expandedGroups.add(gid);
-      renderBody();
+      renderBody(false);
+      return;
+    }
+
+    if (target.dataset.editBook && target.dataset.editTitle) {
+      openEditEntry(target.dataset.editBook, target.dataset.editTitle);
       return;
     }
 
@@ -2799,21 +2827,12 @@
       const book = target.dataset.book;
       const title = target.dataset.title;
       if (state.editMode) {
-        state.editEntryDraft = {
-          book,
-          oldTitle: title,
-          title,
-          content: state.model?.entryContentMap?.[book]?.[title] || '',
-          error: '',
-          busy: false,
-        };
-        state.view = 'edit_entry';
-        renderAll();
+        openEditEntry(book, title);
         return;
       }
       state.selected = toggleItem(state.selected, book, title, state.config);
       renderTabs();
-      renderBody();
+      renderBody(false);
       renderFooter();
     }
   });
@@ -2821,16 +2840,9 @@
   listen(Env.pdoc, 'keydown', ev => {
     if (!state.open || ev.key !== 'Escape') return;
     ev.stopPropagation();
-    if (state.view !== 'picker') {
-      state.view = 'picker';
-      renderAll();
-    } else if (state.showNewForm || state.presetForm.open) {
-      state.showNewForm = false;
-      state.presetForm.open = false;
-      renderBody();
-    } else {
-      closeModal();
-    }
+    if (state.view !== 'picker') { state.view = 'picker'; renderAll(); }
+    else if (state.showNewForm || state.presetForm.open) { state.showNewForm = false; state.presetForm.open = false; renderBody(false); }
+    else closeModal();
   });
 
   // =========================
@@ -2855,30 +2867,18 @@
     '</span>' +
     '<span>User 人设点选</span>';
 
-  function syncMenuExpanded() {
-    menuEntry.setAttribute('aria-expanded', String(state.open));
-  }
+  function syncMenuExpanded() { menuEntry.setAttribute('aria-expanded', String(state.open)); }
 
-  listen(menuEntry, 'click', ev => {
-    ev.preventDefault();
-    if (state.open) closeModal();
-    else openModal();
-  });
+  listen(menuEntry, 'click', ev => { ev.preventDefault(); if (state.open) closeModal(); else openModal(); });
   listen(menuEntry, 'keydown', ev => {
-    if (ev.key === 'Enter' || ev.key === ' ') {
-      ev.preventDefault();
-      if (state.open) closeModal();
-      else openModal();
-    }
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (state.open) closeModal(); else openModal(); }
   });
 
   function mountExtensionMenu() {
     if (dead) return false;
     const menu = Env.pdoc.getElementById('extensionsMenu');
     if (!menu) return false;
-    Env.pdoc.querySelectorAll('#' + MENU_ENTRY_ID).forEach(el => {
-      if (el !== menuEntry) el.remove();
-    });
+    Env.pdoc.querySelectorAll('#' + MENU_ENTRY_ID).forEach(el => { if (el !== menuEntry) el.remove(); });
     if (menuEntry.parentElement !== menu) menu.append(menuEntry);
     return menuEntry.isConnected;
   }
@@ -2888,10 +2888,7 @@
     const observer = new Env.pwin.MutationObserver(() => {
       if (dead || menuSyncTimer) return;
       if (menuEntry.isConnected && menuEntry.parentElement?.id === 'extensionsMenu') return;
-      menuSyncTimer = later(() => {
-        menuSyncTimer = null;
-        mountExtensionMenu();
-      }, 120);
+      menuSyncTimer = later(() => { menuSyncTimer = null; mountExtensionMenu(); }, 120);
     });
     observer.observe(Env.pdoc.documentElement, { childList: true, subtree: true });
     cleanup.push(() => observer.disconnect());
@@ -2903,19 +2900,14 @@
 
   if (eventOnFn && getBtnEvtFn) {
     try {
-      const btnSub = eventOnFn(getBtnEvtFn(BUTTON_NAME), () => {
-        if (state.open) closeModal();
-        else openModal();
-      });
+      const btnSub = eventOnFn(getBtnEvtFn(BUTTON_NAME), () => { if (state.open) closeModal(); else openModal(); });
       if (btnSub && typeof btnSub.stop === 'function') cleanup.push(() => btnSub.stop());
     } catch (_) {}
   }
 
   if (eventOnFn && tavernEvents?.CHAT_CHANGED) {
     try {
-      const chatSub = eventOnFn(tavernEvents.CHAT_CHANGED, () => {
-        if (state.open) void refreshState();
-      });
+      const chatSub = eventOnFn(tavernEvents.CHAT_CHANGED, () => { if (state.open) void refreshState(); });
       if (chatSub && typeof chatSub.stop === 'function') cleanup.push(() => chatSub.stop());
     } catch (_) {}
   }
@@ -2925,9 +2917,7 @@
     dead = true;
     timers.forEach(id => Env.pwin.clearTimeout(id));
     timers.clear();
-    cleanup.splice(0).forEach(fn => {
-      try { fn(); } catch (_) {}
-    });
+    cleanup.splice(0).forEach(fn => { try { fn(); } catch (_) {} });
     if (menuEntry.isConnected) menuEntry.remove();
     if (host.isConnected) host.remove();
   }
