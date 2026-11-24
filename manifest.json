@@ -1,0 +1,11 @@
+{
+  "display_name": "User 组装与快照",
+  "loading_order": 200,
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Mio-Ame",
+  "version": "7.0.0",
+  "homePage": "https://github.com/Mio-Ame/user-persona-picker",
+  "auto_update": true,
+  "minimum_client_version": "1.12.0"
+}

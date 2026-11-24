@@ -1,0 +1,14 @@
+/* Host-side minimal styling; modal UI is isolated inside Shadow DOM */
+#user-persona-picker-menu-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upp-ext-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
