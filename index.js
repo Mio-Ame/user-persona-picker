@@ -30,6 +30,8 @@ import {
 import {
   APP_VERSION,
   THEME_MODES,
+  analyzePresetMigration,
+  applyPresetMigrationToSnapshots,
   buildCleanCopyText,
   buildPresetRenderNodes,
   buildSnapshotPresetInspectModel,
@@ -966,10 +968,18 @@ async function captureLiveSnapshot(opts, store) {
     const norm = Host.getLiveNormalizedPreset();
     if (norm.prompts.length) {
       const map = {};
-      norm.prompts.forEach(p => { map[p.id] = !!p.enabled; });
+      const promptNames = {};
+      norm.prompts.forEach(p => {
+        map[p.id] = !!p.enabled;
+        if (p.name) promptNames[p.id] = String(p.name).slice(0, 80);
+      });
       const grpMap = {};
-      norm.groups.forEach(g => { grpMap[g.id] = g.enabled !== false; });
-      snap.preset = { name: pName, prompts: map, groups: grpMap };
+      const groupNames = {};
+      norm.groups.forEach(g => {
+        grpMap[g.id] = g.enabled !== false;
+        if (g.name) groupNames[g.id] = String(g.name).slice(0, 60);
+      });
+      snap.preset = { name: pName, prompts: map, groups: grpMap, promptNames, groupNames };
     } else {
       snap.scope.preset = false;
     }
@@ -1814,6 +1824,7 @@ function initExtension() {
     regexSearch: '',
     regexOnlyOn: false,
 
+    lastPresetSyncUndo: null,
     drawer: null,
   };
 
@@ -1904,6 +1915,7 @@ function initExtension() {
     state.presets = Host.listPresets();
     state.loadedPresetName = Host.getLoadedPresetName();
     state.livePresetNorm = Host.getLiveNormalizedPreset();
+    backfillSnapshotPresetNames();
     state.regexList = await Host.getRegexes(state.regexScope);
 
     render();
@@ -1972,6 +1984,7 @@ function initExtension() {
           <span>自动切换</span>
           <button type="button" class="upp-switch" id="upp-auto-bind-sw" role="switch" aria-checked="${autoOn}"></button>
         </label>
+        <button class="upp-btn" id="upp-snap-preset-sync-btn" title="同步新增预设条目开关或将旧预设版本快照一键升级迁移到新版本">预设同步</button>
         <button class="upp-btn" id="upp-backup-btn">${ICONS.backup}<span>备份</span></button>
       </div>
       ${groups.length ? `
@@ -2360,6 +2373,7 @@ function initExtension() {
             <button type="button" class="upp-switch" id="upp-preset-default-fold-sw" role="switch" aria-checked="${defFoldOn}"></button>
           </label>
         ` : ''}
+        <button class="upp-btn" id="upp-preset-sync-btn" title="把当前预设的新增条目或更新后的开关批量同步/迁移到快照">同步到快照</button>
         <button class="upp-btn" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
       </div>
     `;
@@ -2968,7 +2982,10 @@ function initExtension() {
               <div class="upp-card">
                 <div class="upp-card-head">
                   <span class="upp-card-title">缺失预设：${escapeHtml(health.missingPreset)}</span>
-                  <button type="button" class="upp-btn" data-ma-goto="preset">前往预设页</button>
+                  <div class="upp-row-nowrap">
+                    <button type="button" class="upp-btn primary" id="upp-ma-migrate-preset">批量迁移旧预设快照</button>
+                    <button type="button" class="upp-btn" data-ma-goto="preset">前往预设页</button>
+                  </div>
                 </div>
                 <div class="upp-field">
                   <label>替换为现有预设（可选）</label>
@@ -3356,6 +3373,185 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'presetSync') {
+      const snapPresetNames = Array.from(new Set(
+        (state.store.snapshots || [])
+          .filter(s => s.scope?.preset && s.preset?.name)
+          .map(s => s.preset.name)
+      ));
+      const livePresetSet = new Set(state.presets);
+      const matchingSnaps = (state.store.snapshots || []).filter(s => s.scope?.preset && s.preset?.name === d.sourcePreset);
+      const selSet = new Set(d.selectedSnapIds || []);
+      const isUpgrade = d.sourcePreset !== d.targetPreset;
+      const ana = d.analysis || {
+        matchedById: [], matchedByName: [], newPrompts: [], unmatchedOldPrompts: [], matchedGroups: [], newGroups: [],
+      };
+      const allSnapsSelected = matchingSnaps.length > 0 && matchingSnaps.every(s => selSet.has(s.id));
+      const ovPromptCount = Object.keys(d.forceOverridePrompts || {}).length;
+      const ovGroupCount = Object.keys(d.forceOverrideGroups || {}).length;
+      const tgtNorm = d.targetPresetNorm || { prompts: [], groups: [] };
+      const ovQ = normalizeText(d.overrideSearch || '');
+      const existingTargetPrompts = (tgtNorm.prompts || []).filter(p => {
+        if (ana.newPrompts.some(np => np.id === p.id)) return false;
+        if (ovQ && !normalizeText((p.name || '') + ' ' + p.id).includes(ovQ)) return false;
+        return true;
+      });
+      const existingTargetGroups = (tgtNorm.groups || []).filter(g => {
+        if (ovQ && !normalizeText(g.name || '').includes(ovQ)) return false;
+        return true;
+      });
+
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer is-fixed-box">
+          <div class="upp-drawer-head">
+            <div class="upp-row-nowrap" style="min-width:0;">
+              <span>预设升级与批量同步</span>
+              <span class="upp-badge ${isUpgrade ? 'accent' : 'ok'}">${isUpgrade ? '跨版本迁移' : '同预设同步'}</span>
+            </div>
+            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+          </div>
+          <div class="upp-drawer-body">
+            ${state.lastPresetSyncUndo ? `
+              <div class="upp-bind-strip">
+                <span>上次同步：${escapeHtml(state.lastPresetSyncUndo.label)}</span>
+                <button type="button" class="upp-btn" id="upp-ps-undo-btn">撤销上次同步</button>
+              </div>
+            ` : ''}
+            <div class="upp-check-grid">
+              <div class="upp-field">
+                <label>源预设（旧快照当前记录的预设）</label>
+                <select class="upp-select" id="upp-ps-source-sel" style="max-width:none;width:100%;">
+                  ${snapPresetNames.map(n => `<option value="${escapeHtml(n)}" ${n === d.sourcePreset ? 'selected' : ''}>${escapeHtml(n)}${livePresetSet.has(n) ? '' : '（已不在酒馆中）'}</option>`).join('')}
+                </select>
+              </div>
+              <div class="upp-field">
+                <label>目标预设（同步 / 升级到的新预设）</label>
+                <select class="upp-select" id="upp-ps-target-sel" style="max-width:none;width:100%;">
+                  ${state.presets.map(n => `<option value="${escapeHtml(n)}" ${n === d.targetPreset ? 'selected' : ''}>${escapeHtml(n)}${n === state.loadedPresetName ? '（当前激活）' : ''}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <div class="upp-field">
+              <div class="upp-sec-title">
+                <span>要同步的快照（已选 ${selSet.size} / ${matchingSnaps.length}）</span>
+                <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-ps-toggle-all-snaps">${allSnapsSelected ? '取消全选' : '全选'}</button>
+              </div>
+              <div class="upp-pop-list" style="max-height:110px;">
+                ${matchingSnaps.map(s => `
+                  <label class="upp-check-item" style="border:none;background:transparent;padding:3px 6px;">
+                    <input type="checkbox" data-ps-snap="${escapeHtml(s.id)}" ${selSet.has(s.id) ? 'checked' : ''} />
+                    <span style="font-weight:550;">${escapeHtml(s.name)}</span>
+                    ${s.group ? `<span class="upp-badge" style="margin-left:auto;">${escapeHtml(s.group)}</span>` : ''}
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+
+            <div class="upp-card-meta">
+              <span class="upp-badge ok">ID直连继承 ${ana.matchedById.length} 条</span>
+              ${ana.matchedByName.length ? `<span class="upp-badge accent">标题匹配继承 ${ana.matchedByName.length} 条</span>` : ''}
+              <span class="upp-badge ${ana.newPrompts.length ? 'accent' : ''}">新增条目 ${ana.newPrompts.length} 条</span>
+              ${ana.unmatchedOldPrompts.length ? `<span class="upp-badge warn">旧预设独有/已删 ${ana.unmatchedOldPrompts.length} 条</span>` : ''}
+            </div>
+
+            ${ana.newPrompts.length ? `
+              <div class="upp-card">
+                <div class="upp-card-head">
+                  <span class="upp-card-title">新预设新增条目（默认跟随你当前原生预设开关）</span>
+                </div>
+                <div class="upp-entry-list">
+                  ${ana.newPrompts.map(np => {
+                    const dec = d.newPromptDecisions[np.id] || { include: true, enabled: !!np.enabled, inheritFromOldId: '' };
+                    const isPh = np.marker;
+                    const roleShort = isPh ? '占位' : (np.role === 'user' ? 'USR' : np.role === 'assistant' ? 'AST' : 'SYS');
+                    const pairingHtml = ana.unmatchedOldPrompts.length ? `
+                      <select class="upp-select" data-ps-new-inherit="${escapeHtml(np.id)}" style="height:26px;font-size:11px;max-width:165px;padding:0 6px;" title="如果作者同时改了 ID 和标题，可手动指定继承哪个旧条目的开关">
+                        <option value="">按右侧开关写入</option>
+                        ${ana.unmatchedOldPrompts.map(op => `<option value="${escapeHtml(op.id)}" ${dec.inheritFromOldId === op.id ? 'selected' : ''}>继承：${escapeHtml(op.name)}</option>`).join('')}
+                      </select>
+                    ` : '';
+                    return `
+                      <div class="upp-entry-row ${dec.include || dec.inheritFromOldId ? 'is-on' : 'is-off'}" style="padding:6px 8px;">
+                        <input type="checkbox" data-ps-new-inc="${escapeHtml(np.id)}" ${dec.include || dec.inheritFromOldId ? 'checked' : ''} style="accent-color:var(--accent);margin:0;flex-shrink:0;" title="是否同步此新增条目" />
+                        <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
+                        <div class="upp-entry-text">
+                          <div class="upp-entry-name">${escapeHtml(np.name || np.id)}</div>
+                          <div class="upp-entry-preview">${dec.inheritFromOldId ? '将按每份快照原本的旧条目开关各自继承' : `当前原生预设：${np.enabled ? '开启' : '关闭'}`}</div>
+                        </div>
+                        ${pairingHtml}
+                        ${!dec.inheritFromOldId ? `<button type="button" class="upp-switch" role="switch" aria-checked="${!!dec.enabled}" data-ps-new-en="${escapeHtml(np.id)}" title="本次批量写入状态"></button>` : ''}
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            ` : `
+              <div class="upp-card-meta">目标预设中暂无未记录的新增条目；${isUpgrade ? '老条目开关将自动无损继承。' : '如需把某些已有开关统一推给多份快照，请展开下方定向覆盖。'}</div>
+            `}
+
+            <div class="upp-group-box ${d.overrideExpanded ? '' : 'is-collapsed'}">
+              <div class="upp-group-head">
+                <button type="button" class="upp-group-toggle-btn" id="upp-ps-ov-toggle">
+                  <span class="upp-group-chev">${ICONS.chevron}</span>
+                  <span class="upp-group-name">可选：把目标预设的指定已有开关批量覆盖到选中快照</span>
+                  ${ovPromptCount + ovGroupCount ? `<span class="upp-badge accent">已选 ${ovPromptCount + ovGroupCount}</span>` : ''}
+                </button>
+              </div>
+              <div class="upp-group-items">
+                <div class="upp-input-wrap" style="width:100%;">
+                  ${ICONS.search}
+                  <input type="text" id="upp-ps-ov-search" placeholder="筛选要批量覆盖的已有分组或条目…" value="${escapeHtml(d.overrideSearch || '')}" />
+                </div>
+                ${existingTargetGroups.length ? `
+                  <div class="upp-wb-sec-head"><span>分组总开关（勾选后强制同步当前状态）</span></div>
+                  ${existingTargetGroups.map(g => {
+                    const checked = Object.prototype.hasOwnProperty.call(d.forceOverrideGroups, g.id);
+                    return `
+                      <label class="upp-check-item" style="border:none;background:transparent;padding:3px 6px;">
+                        <input type="checkbox" data-ps-ov-grp="${escapeHtml(g.id)}" ${checked ? 'checked' : ''} />
+                        <span>[分组] ${escapeHtml(g.name)}</span>
+                        <span class="upp-badge ${g.enabled ? 'ok' : ''}" style="margin-left:auto;">${g.enabled ? '当前: 开' : '当前: 关'}</span>
+                      </label>
+                    `;
+                  }).join('')}
+                ` : ''}
+                ${existingTargetPrompts.length ? `
+                  <div class="upp-wb-sec-head"><span>已有提示词（仅勾选的条目会被统一覆盖，未勾选保持各快照原状）</span></div>
+                  ${existingTargetPrompts.map(p => {
+                    const checked = Object.prototype.hasOwnProperty.call(d.forceOverridePrompts, p.id);
+                    return `
+                      <label class="upp-check-item" style="border:none;background:transparent;padding:3px 6px;">
+                        <input type="checkbox" data-ps-ov-pr="${escapeHtml(p.id)}" ${checked ? 'checked' : ''} />
+                        <span>${escapeHtml(p.name || p.id)}</span>
+                        <span class="upp-badge ${p.enabled ? 'ok' : ''}" style="margin-left:auto;">${p.enabled ? '当前: 开' : '当前: 关'}</span>
+                      </label>
+                    `;
+                  }).join('')}
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="upp-check-grid">
+              <label class="upp-check-item">
+                <input type="checkbox" id="upp-ps-clean-removed" ${d.cleanRemovedIds ? 'checked' : ''} />
+                <span>清理新预设已删除的旧条目残留</span>
+              </label>
+              <label class="upp-check-item">
+                <input type="checkbox" id="upp-ps-sync-groups" ${d.syncNewGroups ? 'checked' : ''} />
+                <span>同步新预设的新增分组总开关</span>
+              </label>
+            </div>
+          </div>
+          <div class="upp-drawer-foot">
+            <button class="upp-btn" data-drawer-close>取消</button>
+            <button class="upp-btn primary" id="upp-ps-run-btn" ${selSet.size ? '' : 'disabled'}>${isUpgrade ? `迁移并同步 ${selSet.size} 份快照` : `同步到 ${selSet.size} 份快照`}</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (d.type === 'backup') {
       elDrawerMask.innerHTML = `
         <div class="upp-drawer" style="width:min(460px,100%);">
@@ -3388,6 +3584,106 @@ function initExtension() {
     else if (state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
     else if (state.tab === 'regex') { renderRegexToolbar(); renderRegexBody(); }
     renderFooter();
+    renderDrawer();
+  }
+
+  function backfillSnapshotPresetNames() {
+    let changed = false;
+    const cache = new Map();
+    (state.store.snapshots || []).forEach(s => {
+      if (!s || !s.scope?.preset || !s.preset?.name) return;
+      const hasNames = s.preset.promptNames && Object.keys(s.preset.promptNames).length > 0;
+      if (hasNames) return;
+      const pName = s.preset.name;
+      let norm = cache.get(pName);
+      if (norm === undefined) {
+        norm = Host.getPresetByNameNormalized(pName) || null;
+        cache.set(pName, norm);
+      }
+      if (!norm || !norm.prompts.length) return;
+      const pNames = {};
+      norm.prompts.forEach(p => { if (p && p.id && p.name) pNames[p.id] = String(p.name).slice(0, 80); });
+      const gNames = {};
+      (norm.groups || []).forEach(g => { if (g && g.id && g.name) gNames[g.id] = String(g.name).slice(0, 60); });
+      s.preset.promptNames = pNames;
+      s.preset.groupNames = gNames;
+      changed = true;
+    });
+    if (changed) persistStore(state.store);
+  }
+
+  function recomputePresetSyncAnalysis(d) {
+    const sourceSnaps = (state.store.snapshots || []).filter(s => s.scope?.preset && s.preset?.name === d.sourcePreset);
+    const validIds = new Set(sourceSnaps.map(s => s.id));
+    if (!Array.isArray(d.selectedSnapIds) || !d.selectedSnapIds.some(id => validIds.has(id))) {
+      d.selectedSnapIds = sourceSnaps.map(s => s.id);
+    } else {
+      d.selectedSnapIds = d.selectedSnapIds.filter(id => validIds.has(id));
+    }
+    const chosenSnaps = sourceSnaps.filter(s => d.selectedSnapIds.includes(s.id));
+    const srcNorm = d.sourcePreset && state.presets.includes(d.sourcePreset)
+      ? Host.getPresetByNameNormalized(d.sourcePreset)
+      : null;
+    const tgtNorm = d.targetPreset
+      ? Host.getPresetByNameNormalized(d.targetPreset)
+      : null;
+    d.targetPresetNorm = tgtNorm;
+    d.analysis = analyzePresetMigration(chosenSnaps, srcNorm, tgtNorm);
+
+    // Preserve prior decisions where possible; default every new prompt to follow Target Preset's live native switch!
+    const prevDec = d.newPromptDecisions || {};
+    const nextDec = {};
+    (d.analysis.newPrompts || []).forEach(np => {
+      if (prevDec[np.id]) nextDec[np.id] = prevDec[np.id];
+      else nextDec[np.id] = { include: true, enabled: !!np.enabled, inheritFromOldId: '' };
+    });
+    d.newPromptDecisions = nextDec;
+    d.forceOverridePrompts = {};
+    d.forceOverrideGroups = {};
+  }
+
+  function openPresetSyncDrawer(opts = {}) {
+    state.presets = Host.listPresets();
+    state.loadedPresetName = Host.getLoadedPresetName();
+    backfillSnapshotPresetNames();
+
+    const snapPresetNames = Array.from(new Set(
+      (state.store.snapshots || [])
+        .filter(s => s.scope?.preset && s.preset?.name)
+        .map(s => s.preset.name)
+    ));
+    if (!snapPresetNames.length) {
+      toast('还没有保存过包含预设的快照，请先保存至少一份快照', 'warning');
+      return;
+    }
+    if (!state.presets.length) {
+      toast('未检测到酒馆中的可用预设', 'warning');
+      return;
+    }
+    const targetPreset = (opts.targetPreset && state.presets.includes(opts.targetPreset))
+      ? opts.targetPreset
+      : (state.loadedPresetName || state.presets[0]);
+    const sourcePreset = (opts.sourcePreset && snapPresetNames.includes(opts.sourcePreset))
+      ? opts.sourcePreset
+      : (snapPresetNames.includes(targetPreset) ? targetPreset : snapPresetNames[0]);
+
+    const d = {
+      type: 'presetSync',
+      sourcePreset,
+      targetPreset,
+      selectedSnapIds: null,
+      targetPresetNorm: null,
+      analysis: null,
+      newPromptDecisions: {},
+      forceOverridePrompts: {},
+      forceOverrideGroups: {},
+      overrideExpanded: false,
+      overrideSearch: '',
+      cleanRemovedIds: true,
+      syncNewGroups: true,
+    };
+    recomputePresetSyncAnalysis(d);
+    state.drawer = d;
     renderDrawer();
   }
 
@@ -3565,6 +3861,7 @@ function initExtension() {
       toast(state.store.settings.autoApplyBindings ? '已开启切换聊天自动切回快照' : '已暂停自动切换快照');
       return;
     }
+    if (target.closest('#upp-snap-preset-sync-btn')) { openPresetSyncDrawer(); return; }
     if (target.closest('#upp-backup-btn')) { state.drawer = { type: 'backup' }; renderDrawer(); return; }
     const gBtn = target.closest('[data-snap-group]');
     if (gBtn) { state.snapGroup = gBtn.getAttribute('data-snap-group') || ''; renderSnapshotsToolbar(); renderSnapshotsBody(); return; }
@@ -3656,6 +3953,10 @@ function initExtension() {
       syncExtSettingsCheckbox();
       renderPresetToolbar(); renderPresetBody();
       toast(next ? '已设为预设分组默认折叠' : '已改为按预设自身展开状态显示');
+      return;
+    }
+    if (target.closest('#upp-preset-sync-btn')) {
+      openPresetSyncDrawer({ targetPreset: state.loadedPresetName });
       return;
     }
     if (target.closest('#upp-preset-save-disk-btn')) {
@@ -4001,12 +4302,83 @@ function initExtension() {
     if (d.type === 'bookPicker' && ev.target.id === 'upp-book-search-input') {
       d.query = ev.target.value;
       renderBookPickerList(d);
+      return;
+    }
+    if (d.type === 'presetSync' && ev.target.id === 'upp-ps-ov-search') {
+      const pos = ev.target.selectionStart;
+      d.overrideSearch = ev.target.value;
+      renderDrawer();
+      const inp = shadow.getElementById('upp-ps-ov-search');
+      if (inp) { inp.focus(); try { inp.setSelectionRange(pos, pos); } catch (_) {} }
     }
   });
 
   elDrawerMask.addEventListener('change', ev => {
     const d = state.drawer;
     if (!d) return;
+    if (d.type === 'presetSync') {
+      if (ev.target.id === 'upp-ps-source-sel') {
+        d.sourcePreset = ev.target.value;
+        d.selectedSnapIds = null;
+        d.newPromptDecisions = {};
+        recomputePresetSyncAnalysis(d);
+        renderDrawer();
+        return;
+      }
+      if (ev.target.id === 'upp-ps-target-sel') {
+        d.targetPreset = ev.target.value;
+        d.newPromptDecisions = {};
+        recomputePresetSyncAnalysis(d);
+        renderDrawer();
+        return;
+      }
+      if (ev.target.hasAttribute('data-ps-snap')) {
+        const sid = ev.target.getAttribute('data-ps-snap');
+        const set = new Set(d.selectedSnapIds || []);
+        if (ev.target.checked) set.add(sid); else set.delete(sid);
+        d.selectedSnapIds = Array.from(set);
+        recomputePresetSyncAnalysis(d);
+        renderDrawer();
+        return;
+      }
+      if (ev.target.hasAttribute('data-ps-new-inc')) {
+        const pid = ev.target.getAttribute('data-ps-new-inc');
+        const cur = d.newPromptDecisions[pid] || { include: true, enabled: true, inheritFromOldId: '' };
+        cur.include = !!ev.target.checked;
+        if (!cur.include) cur.inheritFromOldId = '';
+        d.newPromptDecisions[pid] = cur;
+        renderDrawer();
+        return;
+      }
+      if (ev.target.hasAttribute('data-ps-new-inherit')) {
+        const pid = ev.target.getAttribute('data-ps-new-inherit');
+        const cur = d.newPromptDecisions[pid] || { include: true, enabled: true, inheritFromOldId: '' };
+        cur.inheritFromOldId = ev.target.value || '';
+        if (cur.inheritFromOldId) cur.include = true;
+        d.newPromptDecisions[pid] = cur;
+        renderDrawer();
+        return;
+      }
+      if (ev.target.hasAttribute('data-ps-ov-grp')) {
+        const gid = ev.target.getAttribute('data-ps-ov-grp');
+        const g = (d.targetPresetNorm?.groups || []).find(x => x.id === gid);
+        if (ev.target.checked && g) d.forceOverrideGroups[gid] = g.enabled !== false;
+        else delete d.forceOverrideGroups[gid];
+        renderDrawer();
+        return;
+      }
+      if (ev.target.hasAttribute('data-ps-ov-pr')) {
+        const pid = ev.target.getAttribute('data-ps-ov-pr');
+        const p = (d.targetPresetNorm?.prompts || []).find(x => x.id === pid);
+        if (ev.target.checked && p) d.forceOverridePrompts[pid] = !!p.enabled;
+        else delete d.forceOverridePrompts[pid];
+        renderDrawer();
+        return;
+      }
+      if (ev.target.id === 'upp-ps-clean-removed') { d.cleanRemovedIds = !!ev.target.checked; return; }
+      if (ev.target.id === 'upp-ps-sync-groups') { d.syncNewGroups = !!ev.target.checked; return; }
+      return;
+    }
     if (d.type === 'missingAudit') {
       if (ev.target.id === 'upp-ma-persona-sel') { d.personaRemap = ev.target.value; renderDrawer(); }
       else if (ev.target.id === 'upp-ma-preset-sel') { d.presetRemap = ev.target.value; renderDrawer(); }
@@ -4381,6 +4753,10 @@ function initExtension() {
     }
 
     if (d.type === 'missingAudit') {
+      if (t.closest('#upp-ma-migrate-preset')) {
+        openPresetSyncDrawer({ sourcePreset: d.health?.missingPreset, targetPreset: state.loadedPresetName });
+        return;
+      }
       const gotoBtn = t.closest('[data-ma-goto]');
       if (gotoBtn) {
         const nextTab = gotoBtn.getAttribute('data-ma-goto');
@@ -4712,6 +5088,79 @@ function initExtension() {
         toast(deleted > 0 ? `已收回 ${absorbed} 个分身并删除 ${deleted} 个旧 User` : `已收回 ${absorbed} 个分身为「${keep.name}」的内部版本`, 'success');
         return;
       }
+    }
+
+    if (d.type === 'presetSync') {
+      if (t.closest('#upp-ps-undo-btn') && state.lastPresetSyncUndo) {
+        const undo = state.lastPresetSyncUndo;
+        const backupById = new Map(undo.snapshotsBackup.map(s => [s.id, s]));
+        state.store.snapshots = state.store.snapshots.map(s => backupById.get(s.id) || s);
+        state.lastPresetSyncUndo = null;
+        persistStore(state.store);
+        state.drawer = null;
+        render();
+        toast(`已撤销上次同步（恢复 ${backupById.size} 份快照）`, 'success');
+        return;
+      }
+      if (t.closest('#upp-ps-toggle-all-snaps')) {
+        const allIds = (state.store.snapshots || [])
+          .filter(s => s.scope?.preset && s.preset?.name === d.sourcePreset)
+          .map(s => s.id);
+        const allOn = allIds.length > 0 && allIds.every(id => (d.selectedSnapIds || []).includes(id));
+        d.selectedSnapIds = allOn ? [] : allIds;
+        recomputePresetSyncAnalysis(d);
+        renderDrawer();
+        return;
+      }
+      const newEnSw = t.closest('[data-ps-new-en]');
+      if (newEnSw) {
+        const pid = newEnSw.getAttribute('data-ps-new-en');
+        const cur = d.newPromptDecisions[pid] || { include: true, enabled: false, inheritFromOldId: '' };
+        cur.enabled = !cur.enabled;
+        cur.include = true;
+        d.newPromptDecisions[pid] = cur;
+        renderDrawer();
+        return;
+      }
+      if (t.closest('#upp-ps-ov-toggle')) {
+        d.overrideExpanded = !d.overrideExpanded;
+        renderDrawer();
+        return;
+      }
+      if (t.closest('#upp-ps-run-btn')) {
+        const selSet = new Set(d.selectedSnapIds || []);
+        if (!selSet.size) return;
+        const targets = state.store.snapshots.filter(s => selSet.has(s.id));
+        state.lastPresetSyncUndo = {
+          label: d.sourcePreset === d.targetPreset
+            ? `${d.targetPreset}（${targets.length} 份快照）`
+            : `${d.sourcePreset} → ${d.targetPreset}（${targets.length} 份快照）`,
+          snapshotsBackup: structuredClone(targets),
+        };
+        const migrated = applyPresetMigrationToSnapshots(targets, {
+          targetPresetName: d.targetPreset,
+          targetPresetNorm: d.targetPresetNorm,
+          analysis: d.analysis,
+          newPromptDecisions: d.newPromptDecisions,
+          forceOverridePrompts: d.forceOverridePrompts,
+          forceOverrideGroups: d.forceOverrideGroups,
+          syncNewGroups: d.syncNewGroups,
+          cleanRemovedIds: d.cleanRemovedIds,
+        });
+        const migratedMap = new Map(migrated.map(s => [s.id, s]));
+        state.store.snapshots = state.store.snapshots.map(s => migratedMap.get(s.id) || s);
+        persistStore(state.store);
+        state.drawer = null;
+        render();
+        toast(
+          d.sourcePreset === d.targetPreset
+            ? `已同步新开关到 ${migrated.length} 份快照（可在「预设同步」内一键撤销）`
+            : `已将 ${migrated.length} 份快照从「${d.sourcePreset}」升级迁移到「${d.targetPreset}」`,
+          'success',
+        );
+        return;
+      }
+      return;
     }
 
     if (d.type === 'backup') {

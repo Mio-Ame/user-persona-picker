@@ -1,7 +1,7 @@
-// Pure core logic for 快照管家 (Native SillyTavern Extension v7.5.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.6.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.5.0';
+export const APP_VERSION = '7.6.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
@@ -58,6 +58,19 @@ export function sanitizeBoolMap(obj) {
   Object.keys(obj).forEach(k => {
     if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
     if (typeof obj[k] === 'boolean') out[k] = obj[k];
+  });
+  return out;
+}
+
+export function sanitizeStringMap(obj, maxLen = 80) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.keys(obj).forEach(k => {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
+    if (typeof obj[k] === 'string') {
+      const v = obj[k].trim().slice(0, maxLen);
+      if (v) out[k] = v;
+    }
   });
   return out;
 }
@@ -153,6 +166,8 @@ export function sanitizeStore(raw) {
                 name: String(prRaw.name || ''),
                 prompts: sanitizeBoolMap(prRaw.prompts),
                 groups: sanitizeBoolMap(prRaw.groups),
+                promptNames: sanitizeStringMap(prRaw.promptNames, 80),
+                groupNames: sanitizeStringMap(prRaw.groupNames, 60),
               }
             : null,
           regex: rgRaw
@@ -1037,5 +1052,236 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
   result.hasBlockingIssues = !!(result.missingPersona || result.missingWorldbooks.length || result.missingPreset);
   return result;
 }
+
+// =========================
+// Preset Version Migration & Batch Sync Engine
+// =========================
+
+export function normalizePresetLabel(label) {
+  return normalizeText(label)
+    .replace(/[\(（\[【][^\)）\]】]{1,24}[\)）\]】]/g, '')
+    .replace(/v?\d+(?:\.\d+)+/gi, '')
+    .replace(/[\s_\-·・/\\:：,，.。!！?？~～]+/g, '')
+    .trim();
+}
+
+// Analyze how a set of snapshots maps onto a target normalized preset (supports same-preset sync AND 0.17 -> 0.18 upgrades, even if old preset was deleted!)
+export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPresetNorm) {
+  const snaps = (Array.isArray(snapshots) ? snapshots : []).filter(s => s && s.scope?.preset && s.preset);
+  const targetPrompts = Array.isArray(targetPresetNorm?.prompts) ? targetPresetNorm.prompts : [];
+  const targetGroups = Array.isArray(targetPresetNorm?.groups) ? targetPresetNorm.groups : [];
+  const srcPrompts = Array.isArray(sourcePresetNorm?.prompts) ? sourcePresetNorm.prompts : [];
+  const srcGroups = Array.isArray(sourcePresetNorm?.groups) ? sourcePresetNorm.groups : [];
+
+  // Collect best-known old prompt/group names from live source preset + snapshot saved promptNames/groupNames
+  const oldPromptNameById = new Map();
+  srcPrompts.forEach(p => { if (p && p.id) oldPromptNameById.set(String(p.id), String(p.name || p.id)); });
+  const oldGroupNameById = new Map();
+  srcGroups.forEach(g => { if (g && g.id) oldGroupNameById.set(String(g.id), String(g.name || g.id)); });
+
+  const allOldPromptIds = new Set();
+  const allOldGroupIds = new Set();
+  snaps.forEach(s => {
+    const pm = s.preset?.prompts || {};
+    const pn = s.preset?.promptNames || {};
+    Object.keys(pm).forEach(id => {
+      allOldPromptIds.add(id);
+      if (!oldPromptNameById.has(id) && pn[id]) oldPromptNameById.set(id, pn[id]);
+    });
+    const gm = s.preset?.groups || {};
+    const gn = s.preset?.groupNames || {};
+    Object.keys(gm).forEach(gid => {
+      allOldGroupIds.add(gid);
+      if (!oldGroupNameById.has(gid) && gn[gid]) oldGroupNameById.set(gid, gn[gid]);
+    });
+  });
+
+  // Build unique normalized-title index for unmatched old prompts & groups
+  const targetPromptIds = new Set(targetPrompts.map(p => p.id));
+  const targetGroupIds = new Set(targetGroups.map(g => g.id));
+
+  const oldIdsByNormTitle = new Map();
+  allOldPromptIds.forEach(oldId => {
+    if (targetPromptIds.has(oldId)) return; // Already matched directly by ID
+    const rawName = oldPromptNameById.get(oldId) || '';
+    const norm = normalizePresetLabel(rawName);
+    if (!norm) return;
+    if (!oldIdsByNormTitle.has(norm)) oldIdsByNormTitle.set(norm, []);
+    oldIdsByNormTitle.get(norm).push(oldId);
+  });
+
+  const oldGroupIdsByNormTitle = new Map();
+  allOldGroupIds.forEach(oldGid => {
+    if (targetGroupIds.has(oldGid)) return;
+    const rawName = oldGroupNameById.get(oldGid) || '';
+    const norm = normalizePresetLabel(rawName);
+    if (!norm) return;
+    if (!oldGroupIdsByNormTitle.has(norm)) oldGroupIdsByNormTitle.set(norm, []);
+    oldGroupIdsByNormTitle.get(norm).push(oldGid);
+  });
+
+  const matchedById = [];
+  const matchedByName = [];
+  const newPrompts = [];
+  const usedOldPromptIds = new Set();
+
+  targetPrompts.forEach(tp => {
+    if (allOldPromptIds.has(tp.id)) {
+      usedOldPromptIds.add(tp.id);
+      matchedById.push({ targetId: tp.id, oldId: tp.id, name: tp.name, enabled: !!tp.enabled, role: tp.role, marker: !!tp.marker });
+      return;
+    }
+    const norm = normalizePresetLabel(tp.name);
+    const candidates = norm ? (oldIdsByNormTitle.get(norm) || []).filter(id => !usedOldPromptIds.has(id)) : [];
+    if (candidates.length === 1) {
+      const oldId = candidates[0];
+      usedOldPromptIds.add(oldId);
+      matchedByName.push({
+        targetId: tp.id,
+        oldId,
+        oldName: oldPromptNameById.get(oldId) || oldId,
+        name: tp.name,
+        enabled: !!tp.enabled,
+        role: tp.role,
+        marker: !!tp.marker,
+      });
+      return;
+    }
+    newPrompts.push({
+      id: tp.id,
+      name: tp.name,
+      enabled: !!tp.enabled,
+      role: tp.role,
+      marker: !!tp.marker,
+    });
+  });
+
+  const unmatchedOldPrompts = Array.from(allOldPromptIds)
+    .filter(id => !usedOldPromptIds.has(id))
+    .map(id => ({ id, name: oldPromptNameById.get(id) || `未知名条目 (${id.slice(0, 8)})` }));
+
+  const matchedGroups = [];
+  const newGroups = [];
+  const usedOldGroupIds = new Set();
+
+  targetGroups.forEach(tg => {
+    if (allOldGroupIds.has(tg.id)) {
+      usedOldGroupIds.add(tg.id);
+      matchedGroups.push({ targetId: tg.id, oldId: tg.id, matchType: 'id', name: tg.name, enabled: tg.enabled !== false });
+      return;
+    }
+    const norm = normalizePresetLabel(tg.name);
+    const candidates = norm ? (oldGroupIdsByNormTitle.get(norm) || []).filter(id => !usedOldGroupIds.has(id)) : [];
+    if (candidates.length === 1) {
+      const oldId = candidates[0];
+      usedOldGroupIds.add(oldId);
+      matchedGroups.push({ targetId: tg.id, oldId, matchType: 'name', oldName: oldGroupNameById.get(oldId) || oldId, name: tg.name, enabled: tg.enabled !== false });
+      return;
+    }
+    newGroups.push({ id: tg.id, name: tg.name, enabled: tg.enabled !== false });
+  });
+
+  const unmatchedOldGroups = Array.from(allOldGroupIds)
+    .filter(id => !usedOldGroupIds.has(id))
+    .map(id => ({ id, name: oldGroupNameById.get(id) || `未知名分组 (${id.slice(0, 8)})` }));
+
+  return {
+    matchedById,
+    matchedByName,
+    newPrompts,
+    unmatchedOldPrompts,
+    matchedGroups,
+    newGroups,
+    unmatchedOldGroups,
+  };
+}
+
+// Apply a planned preset migration / batch sync cleanly onto a list of snapshots (returns new cloned snapshots)
+export function applyPresetMigrationToSnapshots(snapshots, opts = {}) {
+  const {
+    targetPresetName,
+    targetPresetNorm,
+    analysis,
+    newPromptDecisions = {},   // { [newId]: { include: bool, enabled: bool, inheritFromOldId?: string } }
+    forceOverridePrompts = {}, // { [promptId]: bool } — optional explicit override for existing prompts
+    forceOverrideGroups = {},  // { [groupId]: bool } — optional explicit override for groups
+    syncNewGroups = true,
+    cleanRemovedIds = true,
+  } = opts;
+
+  const targetPrompts = Array.isArray(targetPresetNorm?.prompts) ? targetPresetNorm.prompts : [];
+  const targetGroups = Array.isArray(targetPresetNorm?.groups) ? targetPresetNorm.groups : [];
+  const targetPromptNameMap = {};
+  targetPrompts.forEach(p => { if (p && p.id) targetPromptNameMap[p.id] = String(p.name || p.id).slice(0, 80); });
+  const targetGroupNameMap = {};
+  targetGroups.forEach(g => { if (g && g.id) targetGroupNameMap[g.id] = String(g.name || g.id).slice(0, 60); });
+
+  const idMapByTarget = new Map();
+  (analysis?.matchedById || []).forEach(m => idMapByTarget.set(m.targetId, m.oldId));
+  (analysis?.matchedByName || []).forEach(m => idMapByTarget.set(m.targetId, m.oldId));
+
+  const grpMapByTarget = new Map();
+  (analysis?.matchedGroups || []).forEach(m => grpMapByTarget.set(m.targetId, m.oldId));
+
+  const now = Date.now();
+  return (Array.isArray(snapshots) ? snapshots : []).map(rawSnap => {
+    const snap = structuredClone(rawSnap);
+    if (!snap.scope?.preset || !snap.preset) return snap;
+
+    const oldPrompts = snap.preset.prompts || {};
+    const oldGroups = snap.preset.groups || {};
+    const nextPrompts = cleanRemovedIds ? {} : { ...oldPrompts };
+    const nextGroups = cleanRemovedIds ? {} : { ...oldGroups };
+
+    // 1. Carry over matched prompts (ID first, normalized-title fallback), with optional force override
+    targetPrompts.forEach(tp => {
+      if (Object.prototype.hasOwnProperty.call(forceOverridePrompts, tp.id)) {
+        nextPrompts[tp.id] = !!forceOverridePrompts[tp.id];
+        return;
+      }
+      const mappedOldId = idMapByTarget.get(tp.id);
+      if (mappedOldId && Object.prototype.hasOwnProperty.call(oldPrompts, mappedOldId)) {
+        nextPrompts[tp.id] = !!oldPrompts[mappedOldId];
+        return;
+      }
+      // 2. Handle new prompt decision (manual old-entry pairing OR sync from target preset live switch!)
+      const dec = newPromptDecisions[tp.id];
+      if (dec && dec.inheritFromOldId && Object.prototype.hasOwnProperty.call(oldPrompts, dec.inheritFromOldId)) {
+        nextPrompts[tp.id] = !!oldPrompts[dec.inheritFromOldId];
+      } else if (dec && dec.include) {
+        nextPrompts[tp.id] = !!dec.enabled;
+      } else if (!dec && Object.prototype.hasOwnProperty.call(oldPrompts, tp.id)) {
+        nextPrompts[tp.id] = !!oldPrompts[tp.id];
+      }
+    });
+
+    // 3. Carry over matched groups + optionally sync new groups / force overrides
+    targetGroups.forEach(tg => {
+      if (Object.prototype.hasOwnProperty.call(forceOverrideGroups, tg.id)) {
+        nextGroups[tg.id] = !!forceOverrideGroups[tg.id];
+        return;
+      }
+      const mappedOldGid = grpMapByTarget.get(tg.id);
+      if (mappedOldGid && Object.prototype.hasOwnProperty.call(oldGroups, mappedOldGid)) {
+        nextGroups[tg.id] = oldGroups[mappedOldGid] !== false;
+        return;
+      }
+      if (syncNewGroups) {
+        nextGroups[tg.id] = tg.enabled !== false;
+      }
+    });
+
+    snap.preset = {
+      name: targetPresetName || snap.preset.name,
+      prompts: nextPrompts,
+      groups: nextGroups,
+      promptNames: targetPromptNameMap,
+      groupNames: targetGroupNameMap,
+    };
+    snap.updatedAt = now;
+    return snap;
+  });
+}
+
 
 
