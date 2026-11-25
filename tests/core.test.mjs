@@ -579,3 +579,71 @@ test('suggestSnapshotNames, normalizePresetLabel, analyzePresetMigration & apply
   assert.equal(migrated[0].preset.groups.g_added, true); // synced new group
   assert.equal(migrated[1].preset, null);
 });
+
+test('regression: self-closing space tags, empty extension group bucket, duplicate worldbook rename & null sanitization', () => {
+  // 1. Self-closing tags with space before />
+  assert.deepEqual(analyzeEntryTags('<自定义 />').unclosed, []);
+  assert.deepEqual(analyzeEntryTags('<tag />').unclosed, []);
+  assert.deepEqual(analyzeEntryTags('<div data-x="1" />').unclosed, []);
+  assert.deepEqual(analyzeEntryTags('<div data-x="a/b">ok</div>').unclosed, []);
+
+  // 2. Empty groups: [] bucket before non-empty custom extension bucket
+  const shadowedPreset = {
+    extensions: {
+      emptyBucket: { presetPromptGroups: { groups: [], prompts: {} } },
+      customBucket: {
+        presetPromptGroups: {
+          groups: [{ id: 'g1', name: '有效组', enabled: true }],
+          prompts: { p1: { groupId: 'g1' } },
+        },
+      },
+    },
+  };
+  const extracted = extractPresetGroups(shadowedPreset, null, null);
+  assert.equal(extracted.groups.length, 1);
+  assert.equal(extracted.groups[0].id, 'g1');
+  assert.deepEqual(extracted.promptGroupMap, { p1: 'g1' });
+
+  // 3. Duplicate entries in migrateStoreOnWorldbookRename
+  const dupStore = {
+    settings: { pinnedWorldbooks: ['OldBook', 'Other', 'OldBook'] },
+    personaVersions: {},
+    snapshots: [
+      {
+        id: 's_dup',
+        worldbooks: {
+          global: ['OldBook', 'Other', 'OldBook'],
+          char: { primary: 'OldBook', additional: ['OldBook', 'Extra', 'OldBook'] },
+          chat: 'OldBook',
+          entries: { OldBook: { '1': true } },
+          deletedBooks: [],
+        },
+      },
+    ],
+  };
+  const renDup = migrateStoreOnWorldbookRename(dupStore, 'OldBook', 'NewBook');
+  assert.deepEqual(renDup, { changed: true, affectedSnapshots: 1 });
+  assert.deepEqual(dupStore.settings.pinnedWorldbooks, ['NewBook', 'Other']);
+  assert.deepEqual(dupStore.snapshots[0].worldbooks.global, ['NewBook', 'Other']);
+  assert.equal(dupStore.snapshots[0].worldbooks.char.primary, 'NewBook');
+  assert.deepEqual(dupStore.snapshots[0].worldbooks.char.additional, ['NewBook', 'Extra']);
+  assert.equal(dupStore.snapshots[0].worldbooks.chat, 'NewBook');
+
+  // 4. Null/undefined items in sanitizeStore worldbook arrays
+  const sanitized = sanitizeStore({
+    snapshots: [
+      {
+        id: 's_null',
+        name: '空值清洗',
+        worldbooks: {
+          global: [null, undefined, '  ', 'BookA', 'BookA'],
+          char: { primary: null, additional: [null, undefined, 'BookB'] },
+          deletedBooks: [null, undefined, '', 'BookC'],
+        },
+      },
+    ],
+  });
+  assert.deepEqual(sanitized.snapshots[0].worldbooks.global, ['BookA']);
+  assert.deepEqual(sanitized.snapshots[0].worldbooks.char.additional, ['BookB']);
+  assert.deepEqual(sanitized.snapshots[0].worldbooks.deletedBooks, ['BookC']);
+});

@@ -135,18 +135,19 @@ export function sanitizeStore(raw) {
           Object.keys(eMap).forEach(bk => {
             entriesOut[bk] = sanitizeBoolMap(eMap[bk]);
           });
+          const normBookList = arr => Array.from(new Set(arr.map(x => String(x || '').trim()).filter(Boolean)));
           cleanWb = {
-            global: Array.isArray(wbRaw.global) ? wbRaw.global.map(String) : null,
+            global: Array.isArray(wbRaw.global) ? normBookList(wbRaw.global) : null,
             char: wbRaw.char && typeof wbRaw.char === 'object'
               ? {
                   primary: wbRaw.char.primary ? String(wbRaw.char.primary) : null,
-                  additional: Array.isArray(wbRaw.char.additional) ? wbRaw.char.additional.map(String) : [],
+                  additional: Array.isArray(wbRaw.char.additional) ? normBookList(wbRaw.char.additional) : [],
                 }
               : null,
             chat: typeof wbRaw.chat === 'string' ? wbRaw.chat : null,
             entries: entriesOut,
             deletedBooks: Array.isArray(wbRaw.deletedBooks)
-              ? Array.from(new Set(wbRaw.deletedBooks.map(String).filter(Boolean)))
+              ? normBookList(wbRaw.deletedBooks)
               : [],
           };
         }
@@ -264,18 +265,21 @@ export function pickActivePromptOrder(promptOrderArr) {
 function findPresetPromptGroups(presetObj) {
   const exts = presetObj && typeof presetObj === 'object' ? presetObj.extensions : null;
   if (!exts || typeof exts !== 'object') return null;
+  let fallbackEmpty = null;
   if (exts.presetPromptGroups && typeof exts.presetPromptGroups === 'object' && Array.isArray(exts.presetPromptGroups.groups)) {
-    return exts.presetPromptGroups;
+    if (exts.presetPromptGroups.groups.length > 0) return exts.presetPromptGroups;
+    fallbackEmpty = exts.presetPromptGroups;
   }
   const vals = Object.values(exts);
   for (let i = 0; i < vals.length; i++) {
     const v = vals[i];
     const pg = v && typeof v === 'object' ? v.presetPromptGroups : null;
     if (pg && typeof pg === 'object' && Array.isArray(pg.groups)) {
-      return pg;
+      if (pg.groups.length > 0) return pg;
+      if (!fallbackEmpty) fallbackEmpty = pg;
     }
   }
-  return null;
+  return fallbackEmpty;
 }
 
 export function extractPresetGroups(rawPreset, runtimeState, fallbackPreset) {
@@ -539,7 +543,7 @@ const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'area', '
 export function analyzeEntryTags(content) {
   const raw = String(content || '');
   const cleaned = raw.replace(/<%[\s\S]*?%>/g, '').replace(/<!--[\s\S]*?-->/g, '');
-  const re = /<\s*(\/?)\s*([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+[^<>]*)?(\/?)\s*>/g;
+  const re = /<\s*(\/?)\s*([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+[^<>]*?)?(\/?)\s*>/g;
   const stack = [];
   const unclosed = [];
   const topWrappers = [];
@@ -990,13 +994,9 @@ export function migrateStoreOnWorldbookRename(store, oldName, newName) {
   let changed = false;
   let affectedSnapshots = 0;
 
-  if (Array.isArray(store.settings?.pinnedWorldbooks)) {
-    const idx = store.settings.pinnedWorldbooks.indexOf(from);
-    if (idx >= 0) {
-      store.settings.pinnedWorldbooks[idx] = to;
-      store.settings.pinnedWorldbooks = Array.from(new Set(store.settings.pinnedWorldbooks));
-      changed = true;
-    }
+  if (Array.isArray(store.settings?.pinnedWorldbooks) && store.settings.pinnedWorldbooks.includes(from)) {
+    store.settings.pinnedWorldbooks = Array.from(new Set(store.settings.pinnedWorldbooks.map(n => (n === from ? to : n))));
+    changed = true;
   }
 
   Object.values(store.personaVersions || {}).forEach(list => {
@@ -1015,23 +1015,15 @@ export function migrateStoreOnWorldbookRename(store, oldName, newName) {
     }
     const wb = s.worldbooks;
     if (wb) {
-      if (Array.isArray(wb.global)) {
-        const gi = wb.global.indexOf(from);
-        if (gi >= 0) {
-          wb.global[gi] = to;
-          wb.global = Array.from(new Set(wb.global));
-          snapHit = true;
-        }
+      if (Array.isArray(wb.global) && wb.global.includes(from)) {
+        wb.global = Array.from(new Set(wb.global.map(n => (n === from ? to : n))));
+        snapHit = true;
       }
       if (wb.char) {
         if (wb.char.primary === from) { wb.char.primary = to; snapHit = true; }
-        if (Array.isArray(wb.char.additional)) {
-          const ai = wb.char.additional.indexOf(from);
-          if (ai >= 0) {
-            wb.char.additional[ai] = to;
-            wb.char.additional = Array.from(new Set(wb.char.additional));
-            snapHit = true;
-          }
+        if (Array.isArray(wb.char.additional) && wb.char.additional.includes(from)) {
+          wb.char.additional = Array.from(new Set(wb.char.additional.map(n => (n === from ? to : n))));
+          snapHit = true;
         }
       }
       if (wb.chat === from) { wb.chat = to; snapHit = true; }

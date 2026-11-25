@@ -211,18 +211,21 @@ function getOrganizerSettings() {
 function findPresetGroupsBucket(presetObj) {
   const exts = presetObj && typeof presetObj === 'object' ? presetObj.extensions : null;
   if (!exts || typeof exts !== 'object') return null;
+  let fallbackEmpty = null;
   if (exts.presetPromptGroups && typeof exts.presetPromptGroups === 'object' && Array.isArray(exts.presetPromptGroups.groups)) {
-    return { extKey: null, data: exts.presetPromptGroups };
+    if (exts.presetPromptGroups.groups.length > 0) return { extKey: null, data: exts.presetPromptGroups };
+    fallbackEmpty = { extKey: null, data: exts.presetPromptGroups };
   }
   const entries = Object.entries(exts);
   for (let i = 0; i < entries.length; i++) {
     const [k, v] = entries[i];
     const pg = v && typeof v === 'object' ? v.presetPromptGroups : null;
     if (pg && typeof pg === 'object' && Array.isArray(pg.groups)) {
-      return { extKey: k, data: pg };
+      if (pg.groups.length > 0) return { extKey: k, data: pg };
+      if (!fallbackEmpty) fallbackEmpty = { extKey: k, data: pg };
     }
   }
-  return null;
+  return fallbackEmpty;
 }
 
 function findRuntimeGroupHostObjects() {
@@ -1637,6 +1640,7 @@ const STYLE_CSS = `
   border-radius: 999px; padding: 2px 8px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upp-head-actions { display: flex; align-items: center; gap: 6px; }
+#upp-theme-select { max-width: 96px; }
 
 .upp-tabs {
   flex-shrink: 0; display: flex; align-items: center; gap: 5px;
@@ -1775,13 +1779,19 @@ const STYLE_CSS = `
   padding: 11px 13px; display: flex; flex-direction: column; gap: 8px;
 }
 .upp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.upp-card-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upp-card-meta { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.upp-card-head > .upp-row-nowrap { flex: 1; min-width: 0; }
+.upp-card-head > .upp-card-meta { flex-shrink: 0; }
+.upp-card-head .upp-badge { max-width: 150px; }
+.upp-card-title { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-card-meta { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 
 .upp-badge {
-  display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px;
+  display: inline-block; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  padding: 2px 7px; border-radius: 999px; line-height: 1.45; vertical-align: middle;
   font-size: 11px; border: 1px solid var(--border); background: var(--surface-strong); color: var(--muted); white-space: nowrap; flex-shrink: 0;
 }
+button.upp-badge { display: inline-flex; align-items: center; gap: 4px; }
+button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-badge.accent { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); }
 .upp-badge.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
 .upp-badge.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
@@ -1894,6 +1904,17 @@ const STYLE_CSS = `
 .upp-bind-strip {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px;
   border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--accent-border); font-size: 12px;
+  min-width: 0;
+}
+.upp-bind-strip > span:first-child {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upp-bind-strip.is-confirm > span:first-child {
+  white-space: normal; overflow-wrap: anywhere;
+}
+.upp-bind-strip > .upp-row-nowrap,
+.upp-bind-strip > .upp-btn {
+  flex-shrink: 0;
 }
 
 .upp-empty {
@@ -1926,11 +1947,21 @@ const STYLE_CSS = `
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 11px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
 }
+.upp-drawer-head > .upp-row-nowrap:first-child { flex: 1; min-width: 0; }
+.upp-drawer-head > .upp-row-nowrap:last-child:not(:first-child) { flex-shrink: 0; }
 .upp-drawer-toolbar {
-  flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-  padding: 9px 14px; border-bottom: 1px solid var(--border); background: var(--surface);
-  min-height: 76px; justify-content: center;
+  flex-shrink: 0; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface);
+  height: 76px; justify-content: center; overflow: hidden;
 }
+.upp-drawer-toolbar .upp-row { flex-wrap: nowrap; min-width: 0; width: 100%; }
+.upp-drawer-toolbar .upp-input-wrap { min-width: 60px; }
+#upp-snap-inspect-meta {
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  min-width: 0; width: 100%; height: 22px; overflow: hidden;
+}
+#upp-snap-inspect-meta .upp-badge { flex: 0 1 auto; min-width: 48px; }
+#upp-snap-inspect-meta .upp-badge.upp-keep { flex-shrink: 0; min-width: 0; }
 .upp-drawer-body {
   flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 8px;
@@ -2078,6 +2109,9 @@ const STYLE_CSS = `
   .upp-snap-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .upp-snap-actions .upp-spacer { display: none; }
   .upp-snap-actions .upp-btn.icon-only { width: 100%; padding: 0 8px; }
+  .upp-bind-strip.is-confirm { flex-wrap: wrap; }
+  .upp-bind-strip.is-confirm > span:first-child { flex: 1 1 220px; }
+  .upp-bind-strip.is-confirm > .upp-row-nowrap { margin-left: auto; }
   .upp-check-grid { grid-template-columns: 1fr; }
 }
 
@@ -2326,7 +2360,7 @@ function initExtension() {
         <span class="upp-ctx-chip" id="upp-ctx-chip" hidden></span>
       </div>
       <div class="upp-head-actions">
-        <select class="upp-select" id="upp-theme-select" title="切换面板配色" style="max-width:96px;">
+        <select class="upp-select" id="upp-theme-select" title="切换面板配色">
           <option value="paper">素纸</option>
           <option value="ink">青岚</option>
           <option value="warm">暖砂</option>
@@ -2535,7 +2569,7 @@ function initExtension() {
       const allSelected = shownIds.length > 0 && shownIds.every(id => state.snapSelectedIds.has(id));
       const selCount = state.snapSelectedIds.size;
       html += `
-        <div class="upp-bind-strip" style="${state.snapBatchConfirm ? 'background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);' : ''}">
+        <div class="upp-bind-strip ${state.snapBatchConfirm ? 'is-confirm' : ''}" style="${state.snapBatchConfirm ? 'background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);' : ''}">
           ${state.snapBatchConfirm ? `
             <span>确认永久删除选中的 <strong>${selCount}</strong> 份快照？删除后无法恢复。</span>
             <div class="upp-row-nowrap">
@@ -2618,7 +2652,7 @@ function initExtension() {
           <div class="upp-card-meta">${scopeBadges.join('')}</div>
           ${s.note ? `<div class="upp-card-meta">${escapeHtml(s.note)}</div>` : ''}
           ${state.snapBatchMode ? '' : isPendingDelete ? `
-            <div class="upp-bind-strip" style="background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);">
+            <div class="upp-bind-strip is-confirm" style="background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);">
               <span>确认删除此快照？删除后无法恢复。</span>
               <div class="upp-row-nowrap">
                 <button type="button" class="upp-btn danger" data-snap-del-confirm="${s.id}">确认删除</button>
@@ -2780,10 +2814,10 @@ function initExtension() {
           <div class="upp-row-nowrap">
             <span class="upp-card-title">${escapeHtml(curP.name)}</span>
             ${matchedVer ? `<span class="upp-badge accent">${escapeHtml(matchedVer.name)}</span>` : '<span class="upp-badge">当前实时</span>'}
-            ${curP.lorebook ? `<span class="upp-badge">绑定世界书: ${escapeHtml(curP.lorebook)}</span>` : ''}
           </div>
           <span class="upp-card-meta">${liveDesc.length} 字</span>
         </div>
+        ${curP.lorebook ? `<div class="upp-card-meta"><span class="upp-badge">绑定世界书: ${escapeHtml(curP.lorebook)}</span></div>` : ''}
         <div class="upp-persona-live-box ${liveDesc.trim() ? '' : 'is-empty'}" id="upp-persona-preview-box">${escapeHtml(liveDesc.trim() ? liveDesc : '暂无描述，点击编辑')}</div>
       </div>
       <div class="upp-sec-title" style="padding: 2px 2px;">
@@ -2881,7 +2915,7 @@ function initExtension() {
     let html = '';
     if (state.wbAllOffConfirm) {
       html += `
-        <div class="upp-bind-strip" style="background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);">
+        <div class="upp-bind-strip is-confirm" style="background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);">
           <span>确认关闭「${escapeHtml(activeBook)}」全部 <strong>${onCount}</strong> 条已开条目？</span>
           <div class="upp-row-nowrap">
             <button type="button" class="upp-btn danger" id="upp-wb-all-off-confirm">确认全关</button>
@@ -3207,9 +3241,9 @@ function initExtension() {
       if (metaEl) {
         metaEl.innerHTML = `
           <span class="upp-badge accent">预设：${escapeHtml(s.preset.name || '当前')}</span>
-          <span class="upp-badge ok">生效 ${model.effectiveOnTotal} / ${model.totalPrompts} 条</span>
-          ${model.powerOffGroupCount ? `<span class="upp-badge warn">${model.powerOffGroupCount} 组已关</span>` : ''}
-          ${model.missingIds.length ? `<span class="upp-badge">${model.missingIds.length} 条已从预设删除</span>` : ''}
+          <span class="upp-badge ok upp-keep">生效 ${model.effectiveOnTotal} / ${model.totalPrompts} 条</span>
+          ${model.powerOffGroupCount ? `<span class="upp-badge warn upp-keep">${model.powerOffGroupCount} 组已关</span>` : ''}
+          ${model.missingIds.length ? `<span class="upp-badge upp-keep">${model.missingIds.length} 条已从预设删除</span>` : ''}
         `;
       }
       if (!model.nodes.length) {
@@ -3256,8 +3290,8 @@ function initExtension() {
       const q = normalizeText(d.search || '');
       if (metaEl) {
         metaEl.innerHTML = `
-          <span class="upp-badge accent">已录 ${bookNames.length} 本世界书</span>
-          ${Array.isArray(s.worldbooks.global) ? `<span class="upp-badge">全局绑定 ${s.worldbooks.global.length} 本</span>` : ''}
+          <span class="upp-badge accent upp-keep">已录 ${bookNames.length} 本世界书</span>
+          ${Array.isArray(s.worldbooks.global) ? `<span class="upp-badge upp-keep">全局绑定 ${s.worldbooks.global.length} 本</span>` : ''}
         `;
       }
       if (!bookNames.length) {
@@ -3392,9 +3426,9 @@ function initExtension() {
       if (metaEl) {
         const cnt = k => Object.values(s.regex[k] || {}).filter(Boolean).length;
         metaEl.innerHTML = `
-          <span class="upp-badge">全局开 ${cnt('global')}</span>
-          <span class="upp-badge">角色开 ${cnt('character')}</span>
-          <span class="upp-badge">预设开 ${cnt('preset')}</span>
+          <span class="upp-badge upp-keep">全局开 ${cnt('global')}</span>
+          <span class="upp-badge upp-keep">角色开 ${cnt('character')}</span>
+          <span class="upp-badge upp-keep">预设开 ${cnt('preset')}</span>
         `;
       }
       const blocks = scopes.map(sc => {
@@ -5675,7 +5709,7 @@ function initExtension() {
         if (ev.target.checked) set.add(bk); else set.delete(bk);
         d.selectedBooks = Array.from(set);
         const lbl = shadow.querySelector('#upp-ss-books-wrap > label');
-        if (lbl) lbl.textContent = `记录条目开关的世界书（已选 ${set.size} 本）`;
+        if (lbl) lbl.textContent = `记录条目开关的世界书 · 已选 ${set.size} 本`;
       }
       if (scopeTouched) {
         state.store.settings.defaultSnapshotScope = { ...d.scope };
