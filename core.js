@@ -1434,5 +1434,300 @@ export function applyPresetMigrationToSnapshots(snapshots, opts = {}) {
   });
 }
 
+// =========================
+// Window Geometry Clamping Helpers (Zero-DOM)
+// =========================
+
+function toFiniteNumber(val, fallback) {
+  return typeof val === 'number' && Number.isFinite(val) ? val : fallback;
+}
+
+function toPositiveViewport(val, fallback) {
+  return typeof val === 'number' && Number.isFinite(val) && val > 0 ? Math.round(val) : fallback;
+}
+
+function toNonNegNumber(val, fallback) {
+  return typeof val === 'number' && Number.isFinite(val) && val >= 0 ? val : fallback;
+}
+
+function clampBetween(val, min, max) {
+  return Math.min(max, Math.max(min, val));
+}
+
+export function clampModalSize({ width, height, viewportWidth, viewportHeight } = {}) {
+  const vw = toPositiveViewport(viewportWidth, 390);
+  const vh = toPositiveViewport(viewportHeight, 780);
+  const isMobile = vw <= 640;
+
+  const maxWidth = Math.max(1, Math.floor(0.96 * vw));
+  const maxHeight = Math.max(1, Math.floor(0.92 * vh));
+
+  const rawMinW = isMobile ? Math.min(310, Math.max(1, vw - 16)) : 340;
+  const rawMinH = isMobile ? 250 : 280;
+
+  const minWidth = Math.min(rawMinW, maxWidth);
+  const minHeight = Math.min(rawMinH, maxHeight);
+
+  const rawW = Math.round(toFiniteNumber(width, minWidth));
+  const rawH = Math.round(toFiniteNumber(height, minHeight));
+
+  return {
+    width: clampBetween(rawW, minWidth, maxWidth),
+    height: clampBetween(rawH, minHeight, maxHeight),
+    minWidth,
+    maxWidth,
+    minHeight,
+    maxHeight,
+  };
+}
+
+export function clampModalRect({
+  left,
+  top,
+  width,
+  height,
+  viewportWidth,
+  viewportHeight,
+  marginX = 8,
+  marginTop = 8,
+  marginBottom = 8,
+} = {}) {
+  const vw = toPositiveViewport(viewportWidth, 390);
+  const vh = toPositiveViewport(viewportHeight, 780);
+  const mX = toNonNegNumber(marginX, 8);
+  const mTop = toNonNegNumber(marginTop, 8);
+  const mBottom = toNonNegNumber(marginBottom, 8);
+
+  const sized = clampModalSize({ width, height, viewportWidth: vw, viewportHeight: vh });
+  const w = sized.width;
+  const h = sized.height;
+
+  const effMX = Math.min(mX, Math.max(0, Math.floor((vw - w) / 2)));
+  const maxLeft = Math.max(effMX, vw - w - effMX);
+  const defaultLeft = Math.round((vw - w) / 2);
+  const clampedLeft = Math.round(clampBetween(toFiniteNumber(left, defaultLeft), effMX, maxLeft));
+
+  const availTopRoom = Math.max(0, vh - h);
+  const effMTop = Math.min(mTop, availTopRoom);
+  const effMBottom = Math.min(mBottom, Math.max(0, availTopRoom - effMTop));
+  const maxTop = Math.max(effMTop, vh - h - effMBottom);
+  const defaultTop = Math.round((vh - h) / 2);
+  const clampedTop = Math.round(clampBetween(toFiniteNumber(top, defaultTop), effMTop, maxTop));
+
+  return {
+    left: clampedLeft,
+    top: clampedTop,
+    width: w,
+    height: h,
+  };
+}
+
+export function computeDraggedModalPosition({
+  origLeft,
+  origTop,
+  dx = 0,
+  dy = 0,
+  width,
+  height,
+  viewportWidth,
+  viewportHeight,
+  marginX = 8,
+  marginTop = 8,
+  marginBottom = 8,
+} = {}) {
+  const rawLeft = toFiniteNumber(origLeft, 0) + toFiniteNumber(dx, 0);
+  const rawTop = toFiniteNumber(origTop, 0) + toFiniteNumber(dy, 0);
+  const rect = clampModalRect({
+    left: rawLeft,
+    top: rawTop,
+    width,
+    height,
+    viewportWidth,
+    viewportHeight,
+    marginX,
+    marginTop,
+    marginBottom,
+  });
+  return { left: rect.left, top: rect.top };
+}
+
+export function computeResizedModalRect({
+  origLeft,
+  origTop,
+  origWidth,
+  origHeight,
+  dx = 0,
+  dy = 0,
+  handle = 'se',
+  viewportWidth,
+  viewportHeight,
+  marginX = 8,
+  marginTop = 8,
+  marginBottom = 8,
+} = {}) {
+  const vw = toPositiveViewport(viewportWidth, 390);
+  const vh = toPositiveViewport(viewportHeight, 780);
+  const mX = toNonNegNumber(marginX, 8);
+  const mTop = toNonNegNumber(marginTop, 8);
+  const mBottom = toNonNegNumber(marginBottom, 8);
+
+  const bounds = clampModalSize({
+    width: origWidth,
+    height: origHeight,
+    viewportWidth: vw,
+    viewportHeight: vh,
+  });
+
+  const oLeft = toFiniteNumber(origLeft, 0);
+  const oTop = toFiniteNumber(origTop, 0);
+  const oW = toFiniteNumber(origWidth, bounds.width);
+  const oH = toFiniteNumber(origHeight, bounds.height);
+  const deltaX = toFiniteNumber(dx, 0);
+  const deltaY = toFiniteNumber(dy, 0);
+
+  let nextLeft = oLeft;
+  let nextTop = oTop;
+  let nextW = oW;
+  let nextH = oH;
+
+  if (handle === 'sw' || handle === 'nw') {
+    const origRight = oLeft + oW;
+    const availW = Math.min(bounds.maxWidth, Math.max(bounds.minWidth, origRight - mX));
+    nextW = clampBetween(Math.round(oW - deltaX), bounds.minWidth, availW);
+    nextLeft = origRight - nextW;
+  } else {
+    const availW = Math.min(bounds.maxWidth, Math.max(bounds.minWidth, vw - mX - oLeft));
+    nextW = clampBetween(Math.round(oW + deltaX), bounds.minWidth, availW);
+  }
+
+  if (handle === 'ne' || handle === 'nw') {
+    const origBottom = oTop + oH;
+    const availH = Math.min(bounds.maxHeight, Math.max(bounds.minHeight, origBottom - mTop));
+    nextH = clampBetween(Math.round(oH - deltaY), bounds.minHeight, availH);
+    nextTop = origBottom - nextH;
+  } else {
+    const availH = Math.min(bounds.maxHeight, Math.max(bounds.minHeight, vh - mBottom - oTop));
+    nextH = clampBetween(Math.round(oH + deltaY), bounds.minHeight, availH);
+  }
+
+  return clampModalRect({
+    left: nextLeft,
+    top: nextTop,
+    width: nextW,
+    height: nextH,
+    viewportWidth: vw,
+    viewportHeight: vh,
+    marginX: mX,
+    marginTop: mTop,
+    marginBottom: mBottom,
+  });
+}
+
+export function computeMiniWindowRect({
+  viewportWidth,
+  viewportHeight,
+  heightRatio,
+  marginX = 8,
+  marginTop = 8,
+  marginBottom = 10,
+} = {}) {
+  const vw = toPositiveViewport(viewportWidth, 390);
+  const vh = toPositiveViewport(viewportHeight, 780);
+  const mX = toNonNegNumber(marginX, 8);
+  const mTop = toNonNegNumber(marginTop, 8);
+  const mBottom = toNonNegNumber(marginBottom, 10);
+  const isMobile = vw <= 640;
+
+  const defaultRatio = isMobile ? 0.46 : 0.49;
+  const ratio = clampBetween(toFiniteNumber(heightRatio, defaultRatio), 0.46, 0.52);
+
+  const targetW = isMobile ? Math.max(1, vw - mX * 2) : Math.min(640, Math.floor(vw * 0.92));
+  const targetH = Math.round(vh * ratio);
+
+  const sized = clampModalSize({
+    width: targetW,
+    height: targetH,
+    viewportWidth: vw,
+    viewportHeight: vh,
+  });
+
+  const left = Math.round((vw - sized.width) / 2);
+  const top = Math.max(mTop, vh - sized.height - mBottom);
+
+  return clampModalRect({
+    left,
+    top,
+    width: sized.width,
+    height: sized.height,
+    viewportWidth: vw,
+    viewportHeight: vh,
+    marginX: mX,
+    marginTop: mTop,
+    marginBottom: mBottom,
+  });
+}
+
+export function computeRestorePillPosition({
+  pillWidth = 148,
+  pillHeight = 34,
+  viewportWidth,
+  viewportHeight,
+  fabSide = 'right',
+  fabY = 0.68,
+  fabVisible = true,
+  margin = 12,
+  safeTop = 0,
+  safeBottom = 0,
+} = {}) {
+  const vw = toPositiveViewport(viewportWidth, 390);
+  const vh = toPositiveViewport(viewportHeight, 780);
+  const pw = Math.max(40, Math.round(toFiniteNumber(pillWidth, 148)));
+  const ph = Math.max(24, Math.round(toFiniteNumber(pillHeight, 34)));
+  const m = toNonNegNumber(margin, 12);
+  const sTop = toNonNegNumber(safeTop, 0);
+  const sBottom = toNonNegNumber(safeBottom, 0);
+
+  const minLeft = Math.min(m, Math.max(0, Math.floor((vw - pw) / 2)));
+  const maxLeft = Math.max(minLeft, vw - pw - minLeft);
+  const minTop = Math.min(sTop + m, Math.max(0, vh - ph));
+  const maxTop = Math.max(minTop, vh - sBottom - ph - m);
+
+  let left = minLeft;
+  let top = maxTop;
+
+  if (fabVisible) {
+    const fabSize = 42;
+    const fabMargin = 10;
+    const fSide = fabSide === 'left' ? 'left' : 'right';
+    const fRatio = clampBetween(toFiniteNumber(fabY, 0.68), 0.08, 0.92);
+    const fabLeft = fSide === 'left' ? fabMargin : Math.max(fabMargin, vw - fabSize - fabMargin);
+    const fabTop = Math.round(Math.min(vh - fabSize - 16, Math.max(54, vh * fRatio - fabSize / 2)));
+    const gap = 8;
+
+    const overlaps = (candLeft, candTop) => !(
+      candLeft + pw + gap <= fabLeft ||
+      candLeft >= fabLeft + fabSize + gap ||
+      candTop + ph + gap <= fabTop ||
+      candTop >= fabTop + fabSize + gap
+    );
+
+    if (overlaps(left, top)) {
+      const rightCand = maxLeft;
+      if (!overlaps(rightCand, top)) {
+        left = rightCand;
+      } else {
+        const aboveFabTop = Math.max(minTop, fabTop - ph - gap);
+        if (!overlaps(left, aboveFabTop)) top = aboveFabTop;
+      }
+    }
+  }
+
+  return {
+    left: Math.round(clampBetween(left, minLeft, maxLeft)),
+    top: Math.round(clampBetween(top, minTop, maxTop)),
+  };
+}
+
+
 
 

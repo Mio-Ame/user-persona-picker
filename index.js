@@ -35,7 +35,13 @@ import {
   buildCleanCopyText,
   buildPresetRenderNodes,
   buildSnapshotPresetInspectModel,
+  clampModalRect,
+  clampModalSize,
+  computeDraggedModalPosition,
   computeLineDiff,
+  computeMiniWindowRect,
+  computeResizedModalRect,
+  computeRestorePillPosition,
   createEmptyStore,
   detectProliferatedPersonas,
   escapeHtml,
@@ -1474,6 +1480,10 @@ const ICONS = {
   back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
   play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>',
   save: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
+  miniWindow: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="4" y="12" width="16" height="7" rx="1" fill="currentColor" fill-opacity="0.18"/></svg>',
+  restoreSize: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><polyline points="15 10 18 7 15 7"/><line x1="18" y1="7" x2="12" y2="13"/></svg>',
+  minimize: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  resizeGrip: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="11" y1="5" x2="5" y2="11"/><line x1="11" y1="9" x2="9" y2="11"/></svg>',
 };
 
 // =========================
@@ -1493,7 +1503,8 @@ const STYLE_CSS = `
 
 /* Unified Theme Palettes: paper (素纸) | ink (青岚) | warm (暖砂) | sakura (淡樱) | glass-dark (深色夜间) */
 .upp-backdrop,
-.upp-fab-root {
+.upp-fab-root,
+.upp-restore-pill {
   --bg: #f6f6f3;
   --surface: #eeeeea;
   --surface-strong: #fcfcfb;
@@ -1519,7 +1530,8 @@ const STYLE_CSS = `
 }
 
 .upp-backdrop[data-theme="ink"],
-.upp-fab-root[data-theme="ink"] {
+.upp-fab-root[data-theme="ink"],
+.upp-restore-pill[data-theme="ink"] {
   --bg: #f1f4f6;
   --surface: #e7ecef;
   --surface-strong: #fbfcfd;
@@ -1537,7 +1549,8 @@ const STYLE_CSS = `
 }
 
 .upp-backdrop[data-theme="warm"],
-.upp-fab-root[data-theme="warm"] {
+.upp-fab-root[data-theme="warm"],
+.upp-restore-pill[data-theme="warm"] {
   --bg: #f6f2ea;
   --surface: #ede7dc;
   --surface-strong: #fdfbf7;
@@ -1555,7 +1568,8 @@ const STYLE_CSS = `
 }
 
 .upp-backdrop[data-theme="sakura"],
-.upp-fab-root[data-theme="sakura"] {
+.upp-fab-root[data-theme="sakura"],
+.upp-restore-pill[data-theme="sakura"] {
   --bg: #faf3f5;
   --surface: #f3e8ec;
   --surface-strong: #fffcfd;
@@ -1573,7 +1587,8 @@ const STYLE_CSS = `
 }
 
 .upp-backdrop[data-theme="glass-dark"],
-.upp-fab-root[data-theme="glass-dark"] {
+.upp-fab-root[data-theme="glass-dark"],
+.upp-restore-pill[data-theme="glass-dark"] {
   --bg: #191a1d;
   --surface: #232429;
   --surface-strong: #2c2e34;
@@ -1601,16 +1616,29 @@ const STYLE_CSS = `
   inset: 0;
   z-index: 2147483000;
   background: transparent;
+  pointer-events: none;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 12px;
   color: var(--text);
 }
+.upp-backdrop.is-minimized {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.upp-backdrop.is-minimized .upp-modal,
+.upp-backdrop.is-minimized .upp-drawer-mask {
+  pointer-events: none !important;
+}
 .upp-fab-root { color: var(--text); }
 
 .upp-modal {
   position: relative;
+  pointer-events: auto;
+  container-type: inline-size;
+  container-name: plugin-win;
   width: min(780px, calc(100vw - 24px));
   height: min(690px, 88dvh);
   background: var(--bg);
@@ -1623,6 +1651,18 @@ const STYLE_CSS = `
   flex-direction: column;
   overflow: hidden;
 }
+.upp-modal.is-floating {
+  position: fixed;
+  margin: 0;
+}
+.upp-modal.is-mini {
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+}
+.upp-modal.is-dragging,
+.upp-modal.is-resizing {
+  user-select: none;
+}
 
 .upp-header {
   flex-shrink: 0;
@@ -1633,13 +1673,21 @@ const STYLE_CSS = `
   padding: 11px 16px 9px;
   border-bottom: 1px solid var(--border);
 }
-.upp-title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.upp-title { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
+.upp-modal.is-draggable .upp-header {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.upp-modal.is-dragging .upp-header {
+  cursor: grabbing;
+}
+.upp-title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.upp-title { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; flex-shrink: 0; }
 .upp-ctx-chip {
   font-size: 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--border);
   border-radius: 999px; padding: 2px 8px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.upp-head-actions { display: flex; align-items: center; gap: 6px; }
+.upp-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 #upp-theme-select { max-width: 96px; }
 
 .upp-tabs {
@@ -1757,6 +1805,9 @@ const STYLE_CSS = `
 .upp-footer {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface);
+}
+.upp-modal.is-resizable .upp-footer {
+  padding-right: 30px;
 }
 .upp-foot-status {
   min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px;
@@ -1940,9 +1991,35 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 /* Drawers — standard dialog + Full-Modal Snapshot Inspector */
 .upp-drawer-mask {
   position: absolute; inset: 0; z-index: 20; background: rgba(15, 22, 36, 0.36);
+  pointer-events: none;
   display: flex; align-items: center; justify-content: center; padding: 14px;
 }
+.upp-drawer-mask:not([hidden]) {
+  pointer-events: auto;
+}
 .upp-drawer-mask.is-full { padding: 0; background: var(--bg); }
+.upp-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  z-index: 15;
+  cursor: nwse-resize;
+  touch-action: none;
+  user-select: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 5px;
+  color: var(--muted);
+  opacity: 0.6;
+  transition: opacity 0.12s, color 0.12s;
+}
+.upp-resize-handle:hover {
+  opacity: 1;
+  color: var(--accent);
+}
 .upp-drawer {
   width: min(620px, 100%); max-height: 100%; background: var(--surface-strong);
   border: 1px solid var(--border-strong); border-radius: 15px; box-shadow: var(--shadow);
@@ -2068,16 +2145,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-detail-item:hover { border-color: var(--accent); background: var(--surface-hover); }
 .upp-ps-inherit-sel { height: 26px; font-size: 11px; max-width: 165px; padding: 0 20px 0 6px; }
 
-@media (max-width: 640px) {
-  .upp-backdrop { padding: 0; align-items: flex-end; }
-  .upp-modal { width: 100vw; height: 88dvh; border-radius: 18px 18px 0 0; border-bottom: none; }
-  .upp-header { padding: 10px 12px 8px; }
-  .upp-ctx-chip { max-width: 78px; }
-  .upp-head-actions { gap: 4px; }
-  #upp-theme-select { max-width: 82px; padding: 0 20px 0 7px; }
-  #upp-fab-vis-btn { padding: 0 7px; font-size: 11.5px; }
-  .upp-tabs { padding: 7px 12px; gap: 4px; }
-  .upp-tab { padding: 0 9px; font-size: 12px; }
+@container plugin-win (max-width: 560px) {
   .upp-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2116,16 +2184,17 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-tb-rg-search { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; }
   .upp-tb-rg-meta { grid-column: 1; grid-row: 3; justify-self: start; }
   .upp-tb-rg-onlyon { grid-column: 2; grid-row: 3; justify-self: end; }
-  .upp-body { padding: 10px 12px 12px; }
   .upp-footer {
     flex-direction: column; align-items: stretch; gap: 7px;
-    padding: 9px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+    padding: 9px 12px;
+  }
+  .upp-modal.is-resizable .upp-footer {
+    padding-right: 30px;
   }
   .upp-foot-status { width: 100%; }
   .upp-foot-actions { display: flex; width: 100%; gap: 7px; }
-  .upp-foot-actions .upp-btn { flex: 1; }
-  .upp-drawer-foot { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
-  .upp-drawer.is-full .upp-drawer-head { padding-top: calc(11px + env(safe-area-inset-top, 0px)); }
+  .upp-foot-actions .upp-btn { flex: 1; min-width: 0; }
+  .upp-drawer-foot { padding: 8px 12px; flex-wrap: wrap; }
   .upp-drawer.is-fixed-box, .upp-drawer.is-fixed-sm { width: 100%; height: min(560px, 100%); }
   .upp-mobile-only { display: inline; }
   .upp-snap-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -2136,6 +2205,69 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-bind-strip.is-confirm > .upp-row-nowrap { margin-left: auto; }
   .upp-check-grid { grid-template-columns: minmax(0, 1fr); }
   .upp-ps-inherit-sel { max-width: 115px; }
+
+  .upp-modal.is-compact-h .upp-toolbar {
+    grid-template-rows: 26px 26px 26px;
+    gap: 4px;
+    padding: 4px 10px;
+    height: 94px;
+  }
+  .upp-modal.is-compact-h .upp-foot-status {
+    display: none;
+  }
+}
+
+@container plugin-win (max-width: 420px) {
+  .upp-header { padding: 8px 10px; gap: 6px; }
+  .upp-title { font-size: 13.5px; }
+  .upp-ctx-chip { max-width: 52px; font-size: 10.5px; padding: 1px 6px; }
+  .upp-head-actions { gap: 3px; }
+  #upp-theme-select { max-width: 62px; height: 26px; padding: 0 14px 0 5px; font-size: 11px; }
+  #upp-fab-vis-btn { height: 26px; padding: 0 6px; font-size: 11px; }
+  .upp-header .upp-btn.icon-only { width: 25px; height: 25px; }
+  .upp-tabs { padding: 7px 12px; gap: 4px; }
+  .upp-tab { padding: 0 9px; font-size: 12px; }
+  .upp-body { padding: 10px 12px 12px; }
+}
+
+@container plugin-win (max-width: 355px) {
+  .upp-ctx-chip { display: none; }
+  #upp-theme-select { max-width: 56px; font-size: 10.5px; }
+  #upp-fab-vis-btn { padding: 0 5px; font-size: 10.5px; }
+  .upp-header .upp-btn.icon-only { width: 24px; height: 24px; }
+}
+
+.upp-modal.is-compact-h .upp-header { padding: 5px 10px; }
+.upp-modal.is-compact-h .upp-tabs { padding: 4px 10px; }
+.upp-modal.is-compact-h .upp-tab { height: 26px; min-height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar { padding: 4px 10px; gap: 4px; height: 70px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-btn,
+.upp-modal.is-compact-h .upp-toolbar .upp-select,
+.upp-modal.is-compact-h .upp-toolbar .upp-input-wrap,
+.upp-modal.is-compact-h .upp-toolbar .upp-switch-label { height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-footer { flex-direction: row; align-items: center; padding: 5px 10px; gap: 6px; }
+.upp-modal.is-compact-h.is-resizable .upp-footer { padding-right: 30px; }
+.upp-modal.is-compact-h .upp-foot-actions .upp-btn { height: 28px; font-size: 11.5px; }
+
+@media (max-width: 640px) {
+  .upp-backdrop { padding: 0; align-items: flex-end; }
+  .upp-modal:not(.is-floating):not(.is-mini) {
+    width: 100vw;
+    height: 88dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+  }
+  .upp-modal:not(.is-floating):not(.is-mini) .upp-footer {
+    padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px));
+  }
+  .upp-modal:not(.is-floating):not(.is-mini) .upp-drawer-foot {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .upp-modal:not(.is-floating):not(.is-mini) .upp-drawer.is-full .upp-drawer-head {
+    padding-top: calc(11px + env(safe-area-inset-top, 0px));
+  }
+  .upp-modal:not(.is-floating):not(.is-mini) .upp-resize-handle { display: none; }
+  .upp-modal:not(.is-floating):not(.is-mini) .upp-header { cursor: default; touch-action: auto; }
 }
 
 /* Floating Quick-Switch Ball & Popover (inherits theme palette from .upp-fab-root) */
@@ -2195,7 +2327,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-fab-pop {
   position: fixed;
-  z-index: 2147482001;
+  z-index: 2147483001;
   width: min(296px, calc(100vw - 24px));
   max-height: min(410px, 72dvh, calc(100dvh - 24px));
   background: var(--bg);
@@ -2304,6 +2436,32 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   border-top: 1px solid var(--border);
 }
 .upp-fab-pop-foot .upp-btn { flex: 1; height: 29px; font-size: 11.5px; padding: 0 8px; }
+.upp-restore-pill {
+  position: fixed;
+  z-index: 2147482002;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: calc(100vw - 24px);
+  pointer-events: auto;
+  transition: border-color 0.14s, background 0.14s;
+}
+.upp-restore-pill:hover {
+  border-color: var(--accent);
+  background: var(--surface-strong);
+}
 `;
 
 // =========================
@@ -2368,6 +2526,7 @@ function initExtension() {
 
     lastPresetSyncUndo: null,
     drawer: null,
+    minimized: false,
   };
 
   const host = document.createElement('div');
@@ -2381,6 +2540,9 @@ function initExtension() {
   </button>
   <div class="upp-fab-pop" id="upp-fab-pop" hidden></div>
 </div>
+<button type="button" class="upp-restore-pill" id="upp-restore-pill" hidden title="恢复快照管家面板">
+  ${ICONS.camera}<span>快照管家 · 点击恢复</span>
+</button>
 <div class="upp-backdrop" hidden>
   <div class="upp-modal" role="dialog" aria-modal="true" aria-label="快照管家">
     <div class="upp-header">
@@ -2399,6 +2561,8 @@ function initExtension() {
         </select>
         <button class="upp-btn" id="upp-fab-vis-btn" title="显示或隐藏悬浮球">悬浮球</button>
         <button class="upp-btn icon-only" id="upp-refresh-btn" title="刷新">${ICONS.refresh}</button>
+        <button class="upp-btn icon-only" id="upp-mini-btn" title="小窗对照" aria-pressed="false">${ICONS.miniWindow}</button>
+        <button class="upp-btn icon-only" id="upp-min-btn" title="收起为角落恢复条">${ICONS.minimize}</button>
         <button class="upp-btn icon-only" id="upp-close-btn" title="关闭">${ICONS.close}</button>
       </div>
     </div>
@@ -2407,6 +2571,7 @@ function initExtension() {
     <div class="upp-body" id="upp-body"></div>
     <div class="upp-footer" id="upp-footer"></div>
     <div class="upp-drawer-mask" id="upp-drawer-mask" hidden></div>
+    <div class="upp-resize-handle" id="upp-resize-handle" title="拖拽调整大小" aria-hidden="true">${ICONS.resizeGrip}</div>
   </div>
 </div>`;
 
@@ -2414,9 +2579,15 @@ function initExtension() {
   const elFabBtn = shadow.getElementById('upp-fab-btn');
   const elFabDot = shadow.getElementById('upp-fab-dot');
   const elFabPop = shadow.getElementById('upp-fab-pop');
+  const elRestorePill = shadow.getElementById('upp-restore-pill');
   const elFabVisBtn = shadow.getElementById('upp-fab-vis-btn');
   const elThemeSelect = shadow.getElementById('upp-theme-select');
   const elBackdrop = shadow.querySelector('.upp-backdrop');
+  const elModal = shadow.querySelector('.upp-modal');
+  const elHeader = shadow.querySelector('.upp-header');
+  const elMiniBtn = shadow.getElementById('upp-mini-btn');
+  const elMinBtn = shadow.getElementById('upp-min-btn');
+  const elResizeHandle = shadow.getElementById('upp-resize-handle');
   const elCtxChip = shadow.getElementById('upp-ctx-chip');
   const elTabs = shadow.getElementById('upp-tabs');
   const elToolbar = shadow.getElementById('upp-toolbar');
@@ -4104,7 +4275,7 @@ function initExtension() {
             ` : ''}
             <div class="upp-field" style="flex:1;display:flex;flex-direction:column;">
               <label>正文</label>
-              <textarea class="upp-textarea" id="upp-ed-content" style="flex:1;min-height:260px;" ${readOnly ? 'readonly' : ''}>${escapeHtml(d.content || '')}</textarea>
+              <textarea class="upp-textarea" id="upp-ed-content" style="flex:1;min-height:120px;" ${readOnly ? 'readonly' : ''}>${escapeHtml(d.content || '')}</textarea>
             </div>
           </div>
           <div class="upp-drawer-foot">
@@ -4635,6 +4806,7 @@ function initExtension() {
     else if (state.tab === 'regex') { renderRegexToolbar(); renderRegexBody(); }
     renderFooter();
     renderDrawer();
+    if (typeof syncModalLayoutClasses === 'function') syncModalLayoutClasses();
   }
 
   function backfillSnapshotPresetNames() {
@@ -4831,13 +5003,23 @@ function initExtension() {
       state.worldbooks = worldbooks;
       state.presets = presets;
       state.apiProfiles = apiProfiles;
-      if (fromFab && !state.open) {
-        state.store = loadStore();
-        applyThemeAll();
-        state.open = true;
-        elBackdrop.hidden = false;
-        syncFabVisBtn();
-        render();
+      if (fromFab) {
+        if (state.open && state.minimized) {
+          restoreModal();
+        } else if (!state.open) {
+          state.store = loadStore();
+          applyThemeAll();
+          state.minimized = false;
+          elBackdrop.classList.remove('is-minimized');
+          elBackdrop.removeAttribute('aria-hidden');
+          elRestorePill.hidden = true;
+          resetModalGeometry();
+          state.open = true;
+          elBackdrop.hidden = false;
+          syncModalLayoutClasses();
+          syncFabVisBtn();
+          render();
+        }
       }
       state.drawer = {
         type: 'missingAudit',
@@ -4936,6 +5118,9 @@ function initExtension() {
 
   shadow.getElementById('upp-close-btn').addEventListener('click', closeModal);
   shadow.getElementById('upp-refresh-btn').addEventListener('click', () => { void refreshAll(true); });
+  elMiniBtn.addEventListener('click', toggleMiniWindow);
+  elMinBtn.addEventListener('click', minimizeModal);
+  elRestorePill.addEventListener('click', restoreModal);
 
   elFooter.addEventListener('click', async ev => {
     const t = ev.target;
@@ -6686,6 +6871,7 @@ function initExtension() {
     const mode = state.store.settings.themeMode || 'paper';
     applyThemeToElement(elBackdrop, mode);
     applyThemeToElement(elFabRoot, mode);
+    applyThemeToElement(elRestorePill, mode);
     if (elThemeSelect) elThemeSelect.value = mode;
     const extSel = document.getElementById('upp-ext-theme-sel');
     if (extSel) extSel.value = mode;
@@ -6698,26 +6884,391 @@ function initExtension() {
     applyThemeAll();
   });
 
+  // =========================
+  // Floating Window Geometry, Drag, Resize & Minimize
+  // =========================
+
+  const modalGeo = {
+    floating: false,
+    mini: false,
+    resized: false,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    normalRect: null,
+  };
+  let dragState = null;
+  let resizeState = null;
+  const savedScroll = { body: 0, snapInspect: 0, drawerBody: 0, popList: 0 };
+
+  function getViewportSize() {
+    const vv = window.visualViewport;
+    const vw = Math.round(window.innerWidth || document.documentElement.clientWidth || 390);
+    const vh = Math.round((vv && vv.height) ? Math.min(window.innerHeight || vv.height, vv.height) : (window.innerHeight || document.documentElement.clientHeight || 780));
+    return { vw, vh };
+  }
+
+  function isMobileViewport() {
+    return getViewportSize().vw <= 640;
+  }
+
+  function isMobileFullscreen() {
+    return isMobileViewport() && !modalGeo.mini;
+  }
+
+  function syncMiniBtnUi() {
+    if (!elMiniBtn) return;
+    elMiniBtn.innerHTML = modalGeo.mini ? ICONS.restoreSize : ICONS.miniWindow;
+    elMiniBtn.title = modalGeo.mini ? '还原尺寸' : '小窗对照';
+    elMiniBtn.setAttribute('aria-pressed', String(!!modalGeo.mini));
+  }
+
+  function syncModalLayoutClasses() {
+    if (!elModal) return;
+    const mobileFs = isMobileFullscreen();
+    elModal.classList.toggle('is-floating', !!modalGeo.floating);
+    elModal.classList.toggle('is-mini', !!modalGeo.mini);
+    elModal.classList.toggle('is-draggable', !mobileFs);
+    elModal.classList.toggle('is-resizable', !mobileFs);
+    let h = modalGeo.floating && modalGeo.height ? modalGeo.height : (elModal.getBoundingClientRect().height || 0);
+    if (!h && state.open) h = getViewportSize().vh;
+    elModal.classList.toggle('is-compact-h', h > 0 && h <= 330);
+    syncMiniBtnUi();
+  }
+
+  function applyModalRect(rect) {
+    if (!rect || !elModal) return;
+    modalGeo.left = rect.left;
+    modalGeo.top = rect.top;
+    modalGeo.width = rect.width;
+    modalGeo.height = rect.height;
+    elModal.style.left = rect.left + 'px';
+    elModal.style.top = rect.top + 'px';
+    elModal.style.width = rect.width + 'px';
+    elModal.style.height = rect.height + 'px';
+    syncModalLayoutClasses();
+  }
+
+  function resetModalGeometry() {
+    modalGeo.floating = false;
+    modalGeo.mini = false;
+    modalGeo.resized = false;
+    modalGeo.left = 0;
+    modalGeo.top = 0;
+    modalGeo.width = 0;
+    modalGeo.height = 0;
+    modalGeo.normalRect = null;
+    if (elModal) {
+      elModal.style.removeProperty('left');
+      elModal.style.removeProperty('top');
+      elModal.style.removeProperty('width');
+      elModal.style.removeProperty('height');
+    }
+    syncModalLayoutClasses();
+  }
+
+  function reclampModalGeometry() {
+    if (!state.open || state.minimized) return;
+    const { vw, vh } = getViewportSize();
+    if (isMobileFullscreen()) {
+      if (modalGeo.floating) {
+        modalGeo.floating = false;
+        modalGeo.resized = false;
+        if (elModal) {
+          elModal.style.removeProperty('left');
+          elModal.style.removeProperty('top');
+          elModal.style.removeProperty('width');
+          elModal.style.removeProperty('height');
+        }
+      }
+      syncModalLayoutClasses();
+      return;
+    }
+    if (modalGeo.floating) {
+      if (modalGeo.mini && !modalGeo.resized) {
+        applyModalRect(computeMiniWindowRect({ viewportWidth: vw, viewportHeight: vh }));
+      } else {
+        applyModalRect(clampModalRect({
+          left: modalGeo.left,
+          top: modalGeo.top,
+          width: modalGeo.width,
+          height: modalGeo.height,
+          viewportWidth: vw,
+          viewportHeight: vh,
+        }));
+      }
+    } else {
+      syncModalLayoutClasses();
+    }
+  }
+
+  function toggleMiniWindow() {
+    if (!state.open || state.minimized) return;
+    const { vw, vh } = getViewportSize();
+    if (!modalGeo.mini) {
+      modalGeo.normalRect = modalGeo.floating
+        ? { left: modalGeo.left, top: modalGeo.top, width: modalGeo.width, height: modalGeo.height, resized: modalGeo.resized }
+        : null;
+      const miniRect = computeMiniWindowRect({ viewportWidth: vw, viewportHeight: vh });
+      modalGeo.mini = true;
+      modalGeo.floating = true;
+      modalGeo.resized = false;
+      applyModalRect(miniRect);
+      return;
+    }
+    if (modalGeo.normalRect && vw > 640) {
+      const prev = modalGeo.normalRect;
+      modalGeo.normalRect = null;
+      modalGeo.mini = false;
+      modalGeo.floating = true;
+      modalGeo.resized = !!prev.resized;
+      applyModalRect(clampModalRect({
+        left: prev.left,
+        top: prev.top,
+        width: prev.width,
+        height: prev.height,
+        viewportWidth: vw,
+        viewportHeight: vh,
+      }));
+      return;
+    }
+    resetModalGeometry();
+  }
+
+  function positionRestorePill() {
+    if (!elRestorePill || elRestorePill.hidden) return;
+    const { vw, vh } = getViewportSize();
+    const pillW = elRestorePill.offsetWidth || 148;
+    const pillH = elRestorePill.offsetHeight || 34;
+    const pos = computeRestorePillPosition({
+      pillWidth: pillW,
+      pillHeight: pillH,
+      viewportWidth: vw,
+      viewportHeight: vh,
+      fabSide: state.store.settings.fabSide === 'left' ? 'left' : 'right',
+      fabY: typeof state.store.settings.fabY === 'number' ? state.store.settings.fabY : 0.68,
+      fabVisible: state.store.settings.showFloatingBall !== false,
+    });
+    elRestorePill.style.left = pos.left + 'px';
+    elRestorePill.style.top = pos.top + 'px';
+  }
+
+  function minimizeModal() {
+    if (!state.open || state.minimized) return;
+    closeFabPop();
+    dragState = null;
+    resizeState = null;
+    elModal.classList.remove('is-dragging', 'is-resizing');
+    savedScroll.body = elBody?.scrollTop || 0;
+    savedScroll.snapInspect = shadow.getElementById('upp-snap-inspect-body')?.scrollTop || 0;
+    savedScroll.drawerBody = elDrawerMask.querySelector('.upp-drawer-body')?.scrollTop || 0;
+    savedScroll.popList = elDrawerMask.querySelector('.upp-pop-list')?.scrollTop || 0;
+    state.minimized = true;
+    elBackdrop.classList.add('is-minimized');
+    elBackdrop.setAttribute('aria-hidden', 'true');
+    applyThemeAll();
+    elRestorePill.hidden = false;
+    positionRestorePill();
+  }
+
+  function restoreModal() {
+    if (!state.open) { openModal(); return; }
+    if (!state.minimized) return;
+    state.minimized = false;
+    elRestorePill.hidden = true;
+    elBackdrop.classList.remove('is-minimized');
+    elBackdrop.removeAttribute('aria-hidden');
+    reclampModalGeometry();
+    const applySavedScroll = () => {
+      if (elBody) elBody.scrollTop = savedScroll.body;
+      const sib = shadow.getElementById('upp-snap-inspect-body');
+      if (sib) sib.scrollTop = savedScroll.snapInspect;
+      const db = elDrawerMask.querySelector('.upp-drawer-body');
+      if (db) db.scrollTop = savedScroll.drawerBody;
+      const pl = elDrawerMask.querySelector('.upp-pop-list');
+      if (pl) pl.scrollTop = savedScroll.popList;
+    };
+    applySavedScroll();
+    window.requestAnimationFrame(applySavedScroll);
+  }
+
   function openModal() {
     closeFabPop();
     state.store = loadStore();
     applyThemeAll();
+    if (state.open && state.minimized) {
+      restoreModal();
+      syncFabVisBtn();
+      return;
+    }
+    state.minimized = false;
+    elBackdrop.classList.remove('is-minimized');
+    elBackdrop.removeAttribute('aria-hidden');
+    elRestorePill.hidden = true;
+    resetModalGeometry();
     state.open = true;
     state.drawer = null;
     elBackdrop.hidden = false;
+    syncModalLayoutClasses();
     syncFabVisBtn();
     void refreshAll(false);
   }
 
   function closeModal() {
     state.open = false;
+    state.minimized = false;
     state.drawer = null;
     state.snapPendingDeleteId = '';
     state.wbAllOffConfirm = false;
     state.bookEntriesCache.clear();
+    dragState = null;
+    resizeState = null;
+    elModal.classList.remove('is-dragging', 'is-resizing');
+    elBackdrop.classList.remove('is-minimized');
+    elBackdrop.removeAttribute('aria-hidden');
     elBackdrop.hidden = true;
+    elRestorePill.hidden = true;
+    resetModalGeometry();
     syncFabUi();
   }
+
+  // Unified PointerEvent Drag on .upp-header
+  elHeader.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (!state.open || state.minimized || isMobileFullscreen()) return;
+    if (ev.target && ev.target.closest('button, select, input, textarea, a, label, [role="button"], option')) return;
+    const rect = elModal.getBoundingClientRect();
+    dragState = {
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+    };
+    try { elHeader.setPointerCapture(ev.pointerId); } catch (_) {}
+  }, { signal: ac.signal });
+
+  elHeader.addEventListener('pointermove', ev => {
+    if (!dragState || ev.pointerId !== dragState.pointerId) return;
+    const dx = ev.clientX - dragState.startX;
+    const dy = ev.clientY - dragState.startY;
+    const { vw, vh } = getViewportSize();
+    if (!dragState.moved && Math.hypot(dx, dy) >= 3) {
+      dragState.moved = true;
+      elModal.classList.add('is-dragging');
+      if (!modalGeo.floating) {
+        modalGeo.floating = true;
+        applyModalRect(clampModalRect({
+          left: dragState.origLeft,
+          top: dragState.origTop,
+          width: dragState.width,
+          height: dragState.height,
+          viewportWidth: vw,
+          viewportHeight: vh,
+        }));
+        dragState.origLeft = modalGeo.left;
+        dragState.origTop = modalGeo.top;
+      }
+    }
+    if (!dragState.moved) return;
+    const pos = computeDraggedModalPosition({
+      origLeft: dragState.origLeft,
+      origTop: dragState.origTop,
+      dx,
+      dy,
+      width: modalGeo.width,
+      height: modalGeo.height,
+      viewportWidth: vw,
+      viewportHeight: vh,
+    });
+    modalGeo.left = pos.left;
+    modalGeo.top = pos.top;
+    elModal.style.left = pos.left + 'px';
+    elModal.style.top = pos.top + 'px';
+  }, { signal: ac.signal });
+
+  function finishModalDrag(ev) {
+    if (!dragState || ev.pointerId !== dragState.pointerId) return;
+    dragState = null;
+    elModal.classList.remove('is-dragging');
+    try { elHeader.releasePointerCapture(ev.pointerId); } catch (_) {}
+  }
+  elHeader.addEventListener('pointerup', finishModalDrag, { signal: ac.signal });
+  elHeader.addEventListener('pointercancel', finishModalDrag, { signal: ac.signal });
+
+  // Unified PointerEvent Corner Resize on #upp-resize-handle
+  elResizeHandle.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (!state.open || state.minimized || isMobileFullscreen()) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const { vw, vh } = getViewportSize();
+    const rect = elModal.getBoundingClientRect();
+    modalGeo.floating = true;
+    modalGeo.resized = true;
+    applyModalRect(clampModalRect({
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      viewportWidth: vw,
+      viewportHeight: vh,
+    }));
+    resizeState = {
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      origLeft: modalGeo.left,
+      origTop: modalGeo.top,
+      origWidth: modalGeo.width,
+      origHeight: modalGeo.height,
+    };
+    elModal.classList.add('is-resizing');
+    try { elResizeHandle.setPointerCapture(ev.pointerId); } catch (_) {}
+  }, { signal: ac.signal });
+
+  elResizeHandle.addEventListener('pointermove', ev => {
+    if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
+    const { vw, vh } = getViewportSize();
+    const nextRect = computeResizedModalRect({
+      origLeft: resizeState.origLeft,
+      origTop: resizeState.origTop,
+      origWidth: resizeState.origWidth,
+      origHeight: resizeState.origHeight,
+      dx: ev.clientX - resizeState.startX,
+      dy: ev.clientY - resizeState.startY,
+      handle: 'se',
+      viewportWidth: vw,
+      viewportHeight: vh,
+    });
+    applyModalRect(nextRect);
+  }, { signal: ac.signal });
+
+  function finishModalResize(ev) {
+    if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
+    resizeState = null;
+    elModal.classList.remove('is-resizing');
+    try { elResizeHandle.releasePointerCapture(ev.pointerId); } catch (_) {}
+  }
+  elResizeHandle.addEventListener('pointerup', finishModalResize, { signal: ac.signal });
+  elResizeHandle.addEventListener('pointercancel', finishModalResize, { signal: ac.signal });
+
+  // Bubble-phase isolation on EVERY floating root (prevent collapsing ST .openDrawer)
+  function stopBubbleToHost(el) {
+    if (!el) return;
+    const stop = ev => { ev.stopPropagation(); };
+    el.addEventListener('mousedown', stop, { signal: ac.signal });
+    el.addEventListener('touchstart', stop, { signal: ac.signal, passive: true });
+    el.addEventListener('click', stop, { signal: ac.signal });
+  }
+  [host, elModal, elDrawerMask, elRestorePill, elFabBtn, elFabPop].forEach(stopBubbleToHost);
+
+  elModal.addEventListener('pointerdown', () => { if (fabPopOpen) closeFabPop(); }, { signal: ac.signal });
+  elRestorePill.addEventListener('pointerdown', () => { if (fabPopOpen) closeFabPop(); }, { signal: ac.signal });
 
   // =========================
   // Draggable Floating Ball & Quick Snapshot Popover
@@ -6934,6 +7485,7 @@ function initExtension() {
     persistStore(state.store);
     syncFabUi();
     syncExtSettingsCheckbox();
+    if (state.open && state.minimized) positionRestorePill();
     toast(state.store.settings.showFloatingBall ? '已显示悬浮球' : '已隐藏悬浮球');
   });
 
@@ -6944,17 +7496,25 @@ function initExtension() {
     closeFabPop();
   }, { signal: ac.signal });
 
-  window.addEventListener('resize', () => {
+  function handleViewportChange() {
     if (state.store.settings.showFloatingBall !== false) {
       positionFab();
       if (fabPopOpen) positionFabPop();
     }
-  }, { signal: ac.signal });
+    if (state.open && state.minimized) {
+      positionRestorePill();
+    } else if (state.open && !state.minimized) {
+      reclampModalGeometry();
+    }
+  }
+  window.addEventListener('resize', handleViewportChange, { signal: ac.signal });
+  window.addEventListener('orientationchange', handleViewportChange, { signal: ac.signal });
+  window.visualViewport?.addEventListener('resize', handleViewportChange, { signal: ac.signal });
 
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
       if (fabPopOpen) { closeFabPop(); return; }
-      if (state.open) {
+      if (state.open && !state.minimized) {
         if (state.drawer) {
           if (state.drawer.type === 'viewSnapshot' && state.drawer.dirty) {
             state.drawer.pendingAction = 'close';
@@ -7113,8 +7673,20 @@ function initExtension() {
     item.innerHTML =
       '<i class="fa-solid fa-camera-retro extensionsMenuExtensionButton"></i>' +
       '<span>快照管家</span>';
-    item.addEventListener('click', ev => { ev.preventDefault(); if (state.open) closeModal(); else openModal(); });
-    item.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (state.open) closeModal(); else openModal(); } });
+    item.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (state.open && state.minimized) restoreModal();
+      else if (state.open) closeModal();
+      else openModal();
+    });
+    item.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        if (state.open && state.minimized) restoreModal();
+        else if (state.open) closeModal();
+        else openModal();
+      }
+    });
     menu.appendChild(item);
   }
 
@@ -7217,6 +7789,9 @@ function initExtension() {
 
   activeCleanup = () => {
     ac.abort();
+    dragState = null;
+    resizeState = null;
+    fabDragging = false;
     if (autoTimer) { window.clearTimeout(autoTimer); autoTimer = null; }
     if (backfillIdleId !== null) {
       if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(backfillIdleId);

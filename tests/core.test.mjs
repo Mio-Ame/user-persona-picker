@@ -10,7 +10,13 @@ import {
   buildCleanCopyText,
   buildPresetRenderNodes,
   buildSnapshotPresetInspectModel,
+  clampModalRect,
+  clampModalSize,
+  computeDraggedModalPosition,
   computeLineDiff,
+  computeMiniWindowRect,
+  computeResizedModalRect,
+  computeRestorePillPosition,
   createEmptyStore,
   detectProliferatedPersonas,
   escapeHtml,
@@ -668,3 +674,209 @@ test('regression: self-closing space tags, empty extension group bucket, duplica
   assert.deepEqual(sanitized.snapshots[0].worldbooks.char.additional, ['BookB']);
   assert.deepEqual(sanitized.snapshots[0].worldbooks.deletedBooks, ['BookC']);
 });
+
+test('clampModalSize enforces desktop, mobile, max bounds, and ultra-small viewport guards', () => {
+  // Desktop 1280x800: min 340x280, max floor(0.96*1280)=1228 x floor(0.92*800)=736
+  const dMin = clampModalSize({ width: 100, height: 100, viewportWidth: 1280, viewportHeight: 800 });
+  assert.deepEqual(dMin, {
+    width: 340,
+    height: 280,
+    minWidth: 340,
+    maxWidth: 1228,
+    minHeight: 280,
+    maxHeight: 736,
+  });
+
+  const dMax = clampModalSize({ width: 2000, height: 1500, viewportWidth: 1280, viewportHeight: 800 });
+  assert.equal(dMax.width, 1228);
+  assert.equal(dMax.height, 736);
+
+  const dMid = clampModalSize({ width: 360, height: 420, viewportWidth: 1280, viewportHeight: 800 });
+  assert.equal(dMid.width, 360);
+  assert.equal(dMid.height, 420);
+
+  // Mobile 390x844: min min(310, 390-16)=310 x 250, max 374 x 776
+  const mMin = clampModalSize({ width: 200, height: 120, viewportWidth: 390, viewportHeight: 844 });
+  assert.deepEqual(mMin, {
+    width: 310,
+    height: 250,
+    minWidth: 310,
+    maxWidth: 374,
+    minHeight: 250,
+    maxHeight: 776,
+  });
+
+  // Boundary vw=640 is still mobile
+  const m640 = clampModalSize({ width: 200, height: 200, viewportWidth: 640, viewportHeight: 800 });
+  assert.equal(m640.minWidth, 310);
+  assert.equal(m640.minHeight, 250);
+
+  // Boundary vw=641 is desktop
+  const d641 = clampModalSize({ width: 200, height: 200, viewportWidth: 641, viewportHeight: 800 });
+  assert.equal(d641.minWidth, 340);
+  assert.equal(d641.minHeight, 280);
+
+  // Ultra-small viewports: minWidth <= maxWidth and minHeight <= maxHeight always hold
+  const tinyW = clampModalSize({ width: 300, height: 300, viewportWidth: 280, viewportHeight: 500 });
+  assert.equal(tinyW.minWidth, 264);
+  assert.equal(tinyW.maxWidth, 268);
+  assert.ok(tinyW.minWidth <= tinyW.maxWidth);
+
+  const tinyH = clampModalSize({ width: 300, height: 300, viewportWidth: 390, viewportHeight: 200 });
+  assert.equal(tinyH.minHeight, 184);
+  assert.equal(tinyH.maxHeight, 184);
+  assert.ok(tinyH.minHeight <= tinyH.maxHeight);
+
+  // Non-finite inputs fall back safely
+  const bad = clampModalSize({ width: NaN, height: Infinity, viewportWidth: -10, viewportHeight: NaN });
+  assert.ok(Number.isFinite(bad.width) && bad.width >= bad.minWidth && bad.width <= bad.maxWidth);
+  assert.ok(Number.isFinite(bad.height) && bad.height >= bad.minHeight && bad.height <= bad.maxHeight);
+});
+
+test('clampModalRect & computeDraggedModalPosition clamp all edges and reclamp across viewport changes', () => {
+  const clamped = clampModalRect({
+    left: -200,
+    top: 9999,
+    width: 500,
+    height: 400,
+    viewportWidth: 1280,
+    viewportHeight: 800,
+  });
+  assert.deepEqual(clamped, { left: 8, top: 392, width: 500, height: 400 });
+
+  // Dragging beyond right/top edges stops inside margin
+  const dragged = computeDraggedModalPosition({
+    origLeft: 500,
+    origTop: 200,
+    dx: 1200,
+    dy: -500,
+    width: 400,
+    height: 360,
+    viewportWidth: 1280,
+    viewportHeight: 800,
+  });
+  assert.deepEqual(dragged, { left: 872, top: 8 });
+
+  // Viewport shrink (desktop -> 390x844 mobile rotation/resize) reclamps cleanly with 0px overflow
+  const reclamped = clampModalRect({
+    left: 500,
+    top: 100,
+    width: 780,
+    height: 690,
+    viewportWidth: 390,
+    viewportHeight: 844,
+  });
+  assert.deepEqual(reclamped, { left: 8, top: 100, width: 374, height: 690 });
+  assert.ok(reclamped.left >= 0 && reclamped.left + reclamped.width <= 390);
+});
+
+test('computeResizedModalRect enforces desktop/mobile bounds and viewport containment', () => {
+  // Shrink desktop modal to 360x420
+  const narrow = computeResizedModalRect({
+    origLeft: 250,
+    origTop: 55,
+    origWidth: 780,
+    origHeight: 690,
+    dx: -420,
+    dy: -270,
+    handle: 'se',
+    viewportWidth: 1280,
+    viewportHeight: 800,
+  });
+  assert.deepEqual(narrow, { left: 250, top: 55, width: 360, height: 420 });
+
+  // Shrink below desktop minimum clamps at 340x280
+  const dFloor = computeResizedModalRect({
+    origLeft: 100,
+    origTop: 100,
+    origWidth: 400,
+    origHeight: 400,
+    dx: -200,
+    dy: -250,
+    handle: 'se',
+    viewportWidth: 1280,
+    viewportHeight: 800,
+  });
+  assert.deepEqual(dFloor, { left: 100, top: 100, width: 340, height: 280 });
+
+  // Expand beyond viewport right/bottom edges stops inside margins and max bounds
+  const dCap = computeResizedModalRect({
+    origLeft: 200,
+    origTop: 150,
+    origWidth: 500,
+    origHeight: 400,
+    dx: 2000,
+    dy: 2000,
+    handle: 'se',
+    viewportWidth: 1280,
+    viewportHeight: 800,
+  });
+  assert.equal(dCap.left, 200);
+  assert.equal(dCap.top, 150);
+  assert.equal(dCap.width, 1072); // 1280 - 8 - 200
+  assert.equal(dCap.height, 642); // 800 - 8 - 150
+
+  // Mobile 390x844 resize clamps to min(310, 390-16)=310 x 250 .. 374 x 776
+  const mFloor = computeResizedModalRect({
+    origLeft: 8,
+    origTop: 446,
+    origWidth: 374,
+    origHeight: 388,
+    dx: -200,
+    dy: -300,
+    handle: 'se',
+    viewportWidth: 390,
+    viewportHeight: 844,
+  });
+  assert.equal(mFloor.width, 310);
+  assert.equal(mFloor.height, 250);
+  assert.ok(mFloor.left + mFloor.width <= 390 - 8);
+});
+
+test('computeMiniWindowRect & computeRestorePillPosition compute safe floating rects', () => {
+  // Mobile 390x844 mini-window: ~46dvh x (vw - 16)
+  const mMini = computeMiniWindowRect({ viewportWidth: 390, viewportHeight: 844 });
+  assert.equal(mMini.width, 374);
+  assert.equal(mMini.height, Math.round(844 * 0.46)); // 388
+  assert.equal(mMini.left, 8);
+  assert.ok(mMini.top >= 400 && mMini.top + mMini.height <= 844 - 8);
+
+  // Desktop 1280x800 mini-window: ~48%-50% height
+  const dMini = computeMiniWindowRect({ viewportWidth: 1280, viewportHeight: 800 });
+  assert.equal(dMini.width, 640);
+  assert.ok(dMini.height >= Math.round(800 * 0.46) && dMini.height <= Math.round(800 * 0.52));
+  assert.equal(dMini.left, 320);
+  assert.ok(dMini.top >= 350 && dMini.top + dMini.height <= 800 - 8);
+
+  // Clamps out-of-range heightRatio into [0.46, 0.52]
+  const clampedRatio = computeMiniWindowRect({ viewportWidth: 390, viewportHeight: 844, heightRatio: 0.9 });
+  assert.equal(clampedRatio.height, Math.round(844 * 0.52));
+
+  // Restore pill avoids FAB when FAB sits in bottom-left
+  const pillRightAvoid = computeRestorePillPosition({
+    pillWidth: 148,
+    pillHeight: 34,
+    viewportWidth: 390,
+    viewportHeight: 844,
+    fabSide: 'left',
+    fabY: 0.9,
+    fabVisible: true,
+    safeBottom: 20,
+  });
+  assert.equal(pillRightAvoid.left, 390 - 148 - 12);
+  assert.equal(pillRightAvoid.top, 844 - 20 - 34 - 12);
+
+  // Restore pill defaults to bottom-left when FAB is on right
+  const pillLeft = computeRestorePillPosition({
+    pillWidth: 148,
+    pillHeight: 34,
+    viewportWidth: 390,
+    viewportHeight: 844,
+    fabSide: 'right',
+    fabY: 0.88,
+    fabVisible: true,
+  });
+  assert.equal(pillLeft.left, 12);
+  assert.equal(pillLeft.top, 844 - 34 - 12);
+});
+
