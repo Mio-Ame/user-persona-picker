@@ -1,7 +1,7 @@
-// Pure core logic for 快照管家 (Native SillyTavern Extension v7.8.0)
+// Pure core logic for 快照管家 (Native SillyTavern Extension v7.9.0)
 // Zero DOM / host dependencies — 100% unit-testable in Node ESM.
 
-export const APP_VERSION = '7.8.0';
+export const APP_VERSION = '7.9.0';
 export const THEME_MODES = ['paper', 'ink', 'warm', 'sakura', 'host', 'glass-dark'];
 
 export function uid(prefix) {
@@ -38,6 +38,8 @@ export function createEmptyStore() {
       themeMode: 'paper',
       fabSide: 'right',
       fabY: 0.68,
+      modalWidth: 0,
+      modalHeight: 0,
       pinnedWorldbooks: [],
     },
     personaVersions: {},
@@ -102,6 +104,10 @@ export function sanitizeStore(raw) {
   base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
   const yNum = Number(st.fabY);
   base.settings.fabY = Number.isFinite(yNum) ? Math.min(0.92, Math.max(0.08, yNum)) : 0.68;
+  const mwNum = Math.round(Number(st.modalWidth));
+  const mhNum = Math.round(Number(st.modalHeight));
+  base.settings.modalWidth = Number.isFinite(mwNum) && mwNum >= 310 && mwNum <= 2400 ? mwNum : 0;
+  base.settings.modalHeight = Number.isFinite(mhNum) && mhNum >= 250 && mhNum <= 2000 ? mhNum : 0;
   base.settings.pinnedWorldbooks = Array.isArray(st.pinnedWorldbooks)
     ? Array.from(new Set(st.pinnedWorldbooks.map(x => String(x || '').trim()).filter(Boolean)))
     : [];
@@ -306,14 +312,20 @@ export function extractPresetGroups(rawPreset, runtimeState, fallbackPreset) {
     }));
 
   const groupsById = {};
-  groups.forEach(g => { groupsById[g.id] = g; });
+  groups.forEach(g => {
+    if (g.id === '__proto__') {
+      Object.defineProperty(groupsById, '__proto__', { value: g, enumerable: true, writable: true, configurable: true });
+    } else {
+      groupsById[g.id] = g;
+    }
+  });
 
   const promptGroupMap = {};
   const rawPrompts = sanitizePlainMap(src.prompts);
   Object.keys(rawPrompts).forEach(pid => {
     const meta = rawPrompts[pid];
     const gid = meta && meta.groupId != null ? String(meta.groupId) : '';
-    if (gid && groupsById[gid]) {
+    if (gid && Object.prototype.hasOwnProperty.call(groupsById, gid)) {
       promptGroupMap[pid] = gid;
     }
   });
@@ -380,28 +392,36 @@ export function normalizeNativePreset(rawPreset, runtimeGroupState, fallbackDisk
 export function buildPresetRenderNodes(normalizedPreset, opts) {
   const prompts = normalizedPreset && Array.isArray(normalizedPreset.prompts) ? normalizedPreset.prompts : [];
   const groups = normalizedPreset && Array.isArray(normalizedPreset.groups) ? normalizedPreset.groups : [];
-  const groupsById = (normalizedPreset && normalizedPreset.groupsById) || {};
-  const promptGroupMap = (normalizedPreset && normalizedPreset.promptGroupMap) || {};
-  const q = normalizeText(opts?.search || '');
-  const onlyOn = !!opts?.onlyOn;
+  const groupsById = normalizedPreset && normalizedPreset.groupsById && typeof normalizedPreset.groupsById === 'object' && !Array.isArray(normalizedPreset.groupsById)
+    ? normalizedPreset.groupsById
+    : {};
+  const promptGroupMap = normalizedPreset && normalizedPreset.promptGroupMap && typeof normalizedPreset.promptGroupMap === 'object' && !Array.isArray(normalizedPreset.promptGroupMap)
+    ? normalizedPreset.promptGroupMap
+    : {};
+  const safeOpts = opts && typeof opts === 'object' && !Array.isArray(opts) && !(opts instanceof String) ? opts : {};
+  const q = normalizeText(typeof safeOpts.search === 'string' ? safeOpts.search : '');
+  const onlyOn = !!safeOpts.onlyOn;
 
-  const membersByGroup = {};
-  groups.forEach(g => { membersByGroup[g.id] = []; });
+  const membersByGroup = new Map();
+  groups.forEach(g => { if (g && g.id) membersByGroup.set(g.id, []); });
   prompts.forEach(p => {
-    const gid = promptGroupMap[p.id];
-    if (gid && membersByGroup[gid]) membersByGroup[gid].push(p);
+    if (!p || !p.id) return;
+    const gid = Object.prototype.hasOwnProperty.call(promptGroupMap, p.id) ? promptGroupMap[p.id] : '';
+    if (gid && membersByGroup.has(gid)) membersByGroup.get(gid).push(p);
   });
 
   const emittedGroups = new Set();
   const nodes = [];
 
   prompts.forEach(p => {
-    const gid = promptGroupMap[p.id];
-    if (gid && groupsById[gid]) {
+    if (!p || !p.id) return;
+    const gid = Object.prototype.hasOwnProperty.call(promptGroupMap, p.id) ? promptGroupMap[p.id] : '';
+    const rawGrp = gid && Object.prototype.hasOwnProperty.call(groupsById, gid) ? groupsById[gid] : null;
+    const grp = rawGrp && typeof rawGrp === 'object' && !Array.isArray(rawGrp) ? rawGrp : null;
+    if (gid && grp) {
       if (emittedGroups.has(gid)) return;
       emittedGroups.add(gid);
-      const grp = groupsById[gid];
-      const allMembers = membersByGroup[gid] || [];
+      const allMembers = membersByGroup.get(gid) || [];
       const groupNameMatched = !!q && normalizeText(grp.name).includes(q);
       const shownMembers = allMembers.filter(m => {
         if (onlyOn && (!grp.enabled || !m.enabled)) return false;
@@ -435,14 +455,19 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
   const savedGroups = (snapPreset && snapPreset.groups) || {};
   const prompts = normalizedPreset && Array.isArray(normalizedPreset.prompts) ? normalizedPreset.prompts : [];
   const groups = normalizedPreset && Array.isArray(normalizedPreset.groups) ? normalizedPreset.groups : [];
-  const groupsById = (normalizedPreset && normalizedPreset.groupsById) || {};
-  const promptGroupMap = (normalizedPreset && normalizedPreset.promptGroupMap) || {};
+  const groupsById = normalizedPreset && normalizedPreset.groupsById && typeof normalizedPreset.groupsById === 'object' && !Array.isArray(normalizedPreset.groupsById)
+    ? normalizedPreset.groupsById
+    : {};
+  const promptGroupMap = normalizedPreset && normalizedPreset.promptGroupMap && typeof normalizedPreset.promptGroupMap === 'object' && !Array.isArray(normalizedPreset.promptGroupMap)
+    ? normalizedPreset.promptGroupMap
+    : {};
 
-  const q = normalizeText(opts?.search || '');
-  const onlyOn = !!opts?.onlyOn;
+  const safeOpts = opts && typeof opts === 'object' && !Array.isArray(opts) && !(opts instanceof String) ? opts : {};
+  const q = normalizeText(typeof safeOpts.search === 'string' ? safeOpts.search : '');
+  const onlyOn = !!safeOpts.onlyOn;
 
   const isGroupOn = grp => {
-    if (!grp) return true;
+    if (!grp || typeof grp !== 'object' || Array.isArray(grp)) return true;
     if (Object.prototype.hasOwnProperty.call(savedGroups, grp.id)) return savedGroups[grp.id] !== false;
     return grp.enabled !== false;
   };
@@ -454,16 +479,17 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
   const missingIds = Object.keys(savedPrompts).filter(id => !knownIds.has(id));
 
   // Build effective rows
-  const membersByGroup = {};
-  groups.forEach(g => { membersByGroup[g.id] = []; });
+  const membersByGroup = new Map();
+  groups.forEach(g => { if (g && g.id) membersByGroup.set(g.id, []); });
 
   let effectiveOnTotal = 0;
   let powerOffGroupCount = 0;
   groups.forEach(g => { if (!isGroupOn(g)) powerOffGroupCount++; });
 
   const enrichedPrompts = prompts.map(p => {
-    const gid = promptGroupMap[p.id];
-    const grp = gid ? groupsById[gid] : null;
+    const gid = Object.prototype.hasOwnProperty.call(promptGroupMap, p.id) ? promptGroupMap[p.id] : '';
+    const rawGrp = gid && Object.prototype.hasOwnProperty.call(groupsById, gid) ? groupsById[gid] : null;
+    const grp = rawGrp && typeof rawGrp === 'object' && !Array.isArray(rawGrp) ? rawGrp : null;
     const grpOn = isGroupOn(grp);
     const selfOn = rawEntryOn(p);
     const effectiveOn = selfOn && grpOn;
@@ -483,7 +509,7 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
       groupId: gid || '',
       statusNote,
     };
-    if (gid && membersByGroup[gid]) membersByGroup[gid].push(item);
+    if (gid && membersByGroup.has(gid)) membersByGroup.get(gid).push(item);
     return item;
   });
 
@@ -492,12 +518,13 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
 
   enrichedPrompts.forEach(item => {
     const gid = item.groupId;
-    if (gid && groupsById[gid]) {
+    const rawGrp = gid && Object.prototype.hasOwnProperty.call(groupsById, gid) ? groupsById[gid] : null;
+    const grp = rawGrp && typeof rawGrp === 'object' && !Array.isArray(rawGrp) ? rawGrp : null;
+    if (gid && grp) {
       if (emittedGroups.has(gid)) return;
       emittedGroups.add(gid);
-      const grp = groupsById[gid];
       const grpOn = isGroupOn(grp);
-      const allMembers = membersByGroup[gid] || [];
+      const allMembers = membersByGroup.get(gid) || [];
       const effCount = allMembers.filter(m => m.effectiveOn).length;
       const selfOnCount = allMembers.filter(m => m.selfOn).length;
       const groupNameMatched = !!q && normalizeText(grp.name).includes(q);
@@ -531,6 +558,89 @@ export function buildSnapshotPresetInspectModel(snapPreset, normalizedPreset, op
     effectiveOnTotal,
     powerOffGroupCount,
     missingIds,
+  };
+}
+
+// Build grouped override tree for Preset Sync ("existing prompt/group switches") in true preset order, excluding newPromptIds
+export function buildPresetSyncOverrideTree(targetPresetNorm, newPromptIds, opts = {}) {
+  const prompts = targetPresetNorm && Array.isArray(targetPresetNorm.prompts) ? targetPresetNorm.prompts : [];
+  const groups = targetPresetNorm && Array.isArray(targetPresetNorm.groups) ? targetPresetNorm.groups : [];
+  const rawGroupsById = targetPresetNorm && targetPresetNorm.groupsById && typeof targetPresetNorm.groupsById === 'object' && !Array.isArray(targetPresetNorm.groupsById)
+    ? targetPresetNorm.groupsById
+    : null;
+  const groupsByIdMap = new Map();
+  if (rawGroupsById) {
+    Object.keys(rawGroupsById).forEach(gid => {
+      const g = rawGroupsById[gid];
+      if (gid && g && typeof g === 'object' && !Array.isArray(g)) groupsByIdMap.set(gid, g);
+    });
+  } else {
+    groups.forEach(g => {
+      if (g && g.id) groupsByIdMap.set(String(g.id), g);
+    });
+  }
+  const promptGroupMap = targetPresetNorm && targetPresetNorm.promptGroupMap && typeof targetPresetNorm.promptGroupMap === 'object' && !Array.isArray(targetPresetNorm.promptGroupMap)
+    ? targetPresetNorm.promptGroupMap
+    : {};
+
+  const excludeSet = new Set();
+  if (newPromptIds instanceof Set || Array.isArray(newPromptIds)) {
+    newPromptIds.forEach(entry => {
+      const id = entry && typeof entry === 'object' ? entry.id : entry;
+      if (id != null && String(id)) excludeSet.add(String(id));
+    });
+  }
+
+  const safeOpts = opts && typeof opts === 'object' && !Array.isArray(opts) && !(opts instanceof String) ? opts : {};
+  const q = normalizeText(typeof safeOpts.search === 'string' ? safeOpts.search : '');
+  const forceAllExpand = !!safeOpts.forceExpand;
+
+  const existingPrompts = prompts.filter(p => p && p.id && !excludeSet.has(String(p.id)));
+  const membersByGroup = new Map();
+  groups.forEach(g => {
+    if (g && g.id) membersByGroup.set(String(g.id), []);
+  });
+  existingPrompts.forEach(p => {
+    const gid = Object.prototype.hasOwnProperty.call(promptGroupMap, p.id) ? promptGroupMap[p.id] : '';
+    if (gid && membersByGroup.has(gid)) membersByGroup.get(gid).push(p);
+  });
+
+  const emittedGroups = new Set();
+  const nodes = [];
+
+  existingPrompts.forEach(p => {
+    const gid = Object.prototype.hasOwnProperty.call(promptGroupMap, p.id) ? promptGroupMap[p.id] : '';
+    if (gid && groupsByIdMap.has(gid)) {
+      if (emittedGroups.has(gid)) return;
+      emittedGroups.add(gid);
+      const grp = groupsByIdMap.get(gid);
+      const allMembers = membersByGroup.get(gid) || [];
+      const groupNameMatched = !!q && normalizeText(grp.name).includes(q);
+      const shownMembers = allMembers.filter(m => {
+        if (!q || groupNameMatched) return true;
+        return normalizeText((m.name || '') + ' ' + (m.content || '') + ' ' + (m.id || '')).includes(q);
+      });
+      if (!shownMembers.length) return;
+      const enabledCount = allMembers.filter(m => !!m.enabled).length;
+      nodes.push({
+        type: 'group',
+        group: grp,
+        items: shownMembers,
+        totalCount: allMembers.length,
+        enabledCount,
+        forceExpand: !!q || forceAllExpand,
+      });
+    } else {
+      if (q && !normalizeText((p.name || '') + ' ' + (p.content || '') + ' ' + (p.id || '')).includes(q)) return;
+      nodes.push({ type: 'prompt', prompt: p });
+    }
+  });
+
+  const matchedCount = nodes.reduce((sum, n) => sum + (n.type === 'group' ? n.items.length : 1), 0);
+  return {
+    nodes,
+    hasGroups: groups.length > 0,
+    matchedCount,
   };
 }
 
@@ -822,7 +932,7 @@ export function inferThemeFromTextColor(colorStr, bgColorOrLightHint) {
   return lum < 140 ? 'light' : 'dark';
 }
 
-// Format a single worldbook's display title & optional small subtitle honoring worldbook-organizer modes
+// Format a single worldbook's display title & optional small subtitle honoring external organizer modes
 export function formatWorldbookDisplay(name, orgSettings, charNameMap) {
   const realName = String(name || '');
   const org = orgSettings && typeof orgSettings === 'object' ? orgSettings : null;
@@ -855,7 +965,7 @@ export function formatWorldbookDisplay(name, orgSettings, charNameMap) {
   return { primary: realName, subtitle: '', isCharLabel: false };
 }
 
-// Group worldbooks using optional worldbook_organizer extension settings (read-only, graceful fallback)
+// Group worldbooks using optional external organizer extension settings (read-only, graceful fallback)
 export function groupWorldbooksByOrganizer(worldbooks, orgSettings, meta = {}) {
   const list = Array.isArray(worldbooks) ? worldbooks : [];
   const pinnedSet = new Set(Array.isArray(meta.pinned) ? meta.pinned : []);
@@ -1224,6 +1334,8 @@ export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPreset
   const srcPrompts = Array.isArray(sourcePresetNorm?.prompts) ? sourcePresetNorm.prompts : [];
   const srcGroups = Array.isArray(sourcePresetNorm?.groups) ? sourcePresetNorm.groups : [];
 
+  const isPlainObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+
   // Collect best-known old prompt/group names from live source preset + snapshot saved promptNames/groupNames
   const oldPromptNameById = new Map();
   srcPrompts.forEach(p => { if (p && p.id) oldPromptNameById.set(String(p.id), String(p.name || p.id)); });
@@ -1233,17 +1345,21 @@ export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPreset
   const allOldPromptIds = new Set();
   const allOldGroupIds = new Set();
   snaps.forEach(s => {
-    const pm = s.preset?.prompts || {};
-    const pn = s.preset?.promptNames || {};
+    const pm = isPlainObj(s.preset?.prompts) ? s.preset.prompts : {};
+    const pn = isPlainObj(s.preset?.promptNames) ? s.preset.promptNames : {};
     Object.keys(pm).forEach(id => {
       allOldPromptIds.add(id);
-      if (!oldPromptNameById.has(id) && pn[id]) oldPromptNameById.set(id, pn[id]);
+      if (!oldPromptNameById.has(id) && Object.prototype.hasOwnProperty.call(pn, id) && pn[id]) {
+        oldPromptNameById.set(id, String(pn[id]));
+      }
     });
-    const gm = s.preset?.groups || {};
-    const gn = s.preset?.groupNames || {};
+    const gm = isPlainObj(s.preset?.groups) ? s.preset.groups : {};
+    const gn = isPlainObj(s.preset?.groupNames) ? s.preset.groupNames : {};
     Object.keys(gm).forEach(gid => {
       allOldGroupIds.add(gid);
-      if (!oldGroupNameById.has(gid) && gn[gid]) oldGroupNameById.set(gid, gn[gid]);
+      if (!oldGroupNameById.has(gid) && Object.prototype.hasOwnProperty.call(gn, gid) && gn[gid]) {
+        oldGroupNameById.set(gid, String(gn[gid]));
+      }
     });
   });
 
@@ -1349,23 +1465,37 @@ export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPreset
 
 // Apply a planned preset migration / batch sync cleanly onto a list of snapshots (returns new cloned snapshots)
 export function applyPresetMigrationToSnapshots(snapshots, opts = {}) {
+  const isPlainObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const setOwnProp = (obj, key, val) => {
+    if (key === '__proto__') {
+      Object.defineProperty(obj, '__proto__', { value: val, enumerable: true, writable: true, configurable: true });
+    } else {
+      obj[key] = val;
+    }
+  };
+
+  const safeOpts = isPlainObj(opts) ? opts : {};
   const {
     targetPresetName,
     targetPresetNorm,
     analysis,
-    newPromptDecisions = {},   // { [newId]: { include: bool, enabled: bool, inheritFromOldId?: string } }
-    forceOverridePrompts = {}, // { [promptId]: bool } — optional explicit override for existing prompts
-    forceOverrideGroups = {},  // { [groupId]: bool } — optional explicit override for groups
+    newPromptDecisions,   // { [newId]: { include: bool, enabled: bool, inheritFromOldId?: string } }
+    forceOverridePrompts, // { [promptId]: bool } — optional explicit override for existing prompts
+    forceOverrideGroups,  // { [groupId]: bool } — optional explicit override for groups
     syncNewGroups = true,
     cleanRemovedIds = true,
-  } = opts;
+  } = safeOpts;
+
+  const safeNewDecisions = isPlainObj(newPromptDecisions) ? newPromptDecisions : {};
+  const safeForcePrompts = isPlainObj(forceOverridePrompts) ? forceOverridePrompts : {};
+  const safeForceGroups = isPlainObj(forceOverrideGroups) ? forceOverrideGroups : {};
 
   const targetPrompts = Array.isArray(targetPresetNorm?.prompts) ? targetPresetNorm.prompts : [];
   const targetGroups = Array.isArray(targetPresetNorm?.groups) ? targetPresetNorm.groups : [];
   const targetPromptNameMap = {};
-  targetPrompts.forEach(p => { if (p && p.id) targetPromptNameMap[p.id] = String(p.name || p.id).slice(0, 80); });
+  targetPrompts.forEach(p => { if (p && p.id) setOwnProp(targetPromptNameMap, p.id, String(p.name || p.id).slice(0, 80)); });
   const targetGroupNameMap = {};
-  targetGroups.forEach(g => { if (g && g.id) targetGroupNameMap[g.id] = String(g.name || g.id).slice(0, 60); });
+  targetGroups.forEach(g => { if (g && g.id) setOwnProp(targetGroupNameMap, g.id, String(g.name || g.id).slice(0, 60)); });
 
   const idMapByTarget = new Map();
   (analysis?.matchedById || []).forEach(m => idMapByTarget.set(m.targetId, m.oldId));
@@ -1377,57 +1507,63 @@ export function applyPresetMigrationToSnapshots(snapshots, opts = {}) {
   const now = Date.now();
   return (Array.isArray(snapshots) ? snapshots : []).map(rawSnap => {
     const snap = structuredClone(rawSnap);
-    if (!snap.scope?.preset || !snap.preset) return snap;
+    if (!snap || typeof snap !== 'object' || !snap.scope?.preset || !snap.preset) return snap;
 
-    const oldPrompts = snap.preset.prompts || {};
-    const oldGroups = snap.preset.groups || {};
+    const oldPrompts = isPlainObj(snap.preset.prompts) ? snap.preset.prompts : {};
+    const oldGroups = isPlainObj(snap.preset.groups) ? snap.preset.groups : {};
     const nextPrompts = cleanRemovedIds ? {} : { ...oldPrompts };
     const nextGroups = cleanRemovedIds ? {} : { ...oldGroups };
 
     // 1. Carry over matched prompts (ID first, normalized-title fallback), with optional force override
     targetPrompts.forEach(tp => {
-      if (Object.prototype.hasOwnProperty.call(forceOverridePrompts, tp.id)) {
-        nextPrompts[tp.id] = !!forceOverridePrompts[tp.id];
+      if (!tp || !tp.id) return;
+      if (Object.prototype.hasOwnProperty.call(safeForcePrompts, tp.id)) {
+        setOwnProp(nextPrompts, tp.id, !!safeForcePrompts[tp.id]);
         return;
       }
       const mappedOldId = idMapByTarget.get(tp.id);
       if (mappedOldId && Object.prototype.hasOwnProperty.call(oldPrompts, mappedOldId)) {
-        nextPrompts[tp.id] = !!oldPrompts[mappedOldId];
+        setOwnProp(nextPrompts, tp.id, !!oldPrompts[mappedOldId]);
         return;
       }
       // 2. Handle new prompt decision (manual old-entry pairing OR sync from target preset live switch!)
-      const dec = newPromptDecisions[tp.id];
-      if (dec && dec.inheritFromOldId && Object.prototype.hasOwnProperty.call(oldPrompts, dec.inheritFromOldId)) {
-        nextPrompts[tp.id] = !!oldPrompts[dec.inheritFromOldId];
-      } else if (dec && dec.include) {
-        nextPrompts[tp.id] = !!dec.enabled;
+      const dec = Object.prototype.hasOwnProperty.call(safeNewDecisions, tp.id) ? safeNewDecisions[tp.id] : null;
+      if (dec && typeof dec === 'object' && dec.inheritFromOldId && Object.prototype.hasOwnProperty.call(oldPrompts, dec.inheritFromOldId)) {
+        setOwnProp(nextPrompts, tp.id, !!oldPrompts[dec.inheritFromOldId]);
+      } else if (dec && typeof dec === 'object' && dec.include) {
+        setOwnProp(nextPrompts, tp.id, !!dec.enabled);
       } else if (!dec && Object.prototype.hasOwnProperty.call(oldPrompts, tp.id)) {
-        nextPrompts[tp.id] = !!oldPrompts[tp.id];
+        setOwnProp(nextPrompts, tp.id, !!oldPrompts[tp.id]);
       }
     });
 
     // 3. Carry over matched groups + optionally sync new groups / force overrides
     targetGroups.forEach(tg => {
-      if (Object.prototype.hasOwnProperty.call(forceOverrideGroups, tg.id)) {
-        nextGroups[tg.id] = !!forceOverrideGroups[tg.id];
+      if (!tg || !tg.id) return;
+      if (Object.prototype.hasOwnProperty.call(safeForceGroups, tg.id)) {
+        setOwnProp(nextGroups, tg.id, !!safeForceGroups[tg.id]);
         return;
       }
       const mappedOldGid = grpMapByTarget.get(tg.id);
       if (mappedOldGid && Object.prototype.hasOwnProperty.call(oldGroups, mappedOldGid)) {
-        nextGroups[tg.id] = oldGroups[mappedOldGid] !== false;
+        setOwnProp(nextGroups, tg.id, oldGroups[mappedOldGid] !== false);
         return;
       }
-      if (syncNewGroups) {
-        nextGroups[tg.id] = tg.enabled !== false;
+      if (Object.prototype.hasOwnProperty.call(oldGroups, tg.id)) {
+        setOwnProp(nextGroups, tg.id, oldGroups[tg.id] !== false);
+      } else if (syncNewGroups) {
+        setOwnProp(nextGroups, tg.id, tg.enabled !== false);
       }
     });
 
+    const oldPromptNames = isPlainObj(snap.preset.promptNames) ? snap.preset.promptNames : {};
+    const oldGroupNames = isPlainObj(snap.preset.groupNames) ? snap.preset.groupNames : {};
     snap.preset = {
       name: targetPresetName || snap.preset.name,
       prompts: nextPrompts,
       groups: nextGroups,
-      promptNames: targetPromptNameMap,
-      groupNames: targetGroupNameMap,
+      promptNames: cleanRemovedIds ? { ...targetPromptNameMap } : { ...oldPromptNames, ...targetPromptNameMap },
+      groupNames: cleanRemovedIds ? { ...targetGroupNameMap } : { ...oldGroupNames, ...targetGroupNameMap },
     };
     snap.updatedAt = now;
     return snap;
@@ -1443,7 +1579,7 @@ function toFiniteNumber(val, fallback) {
 }
 
 function toPositiveViewport(val, fallback) {
-  return typeof val === 'number' && Number.isFinite(val) && val > 0 ? Math.round(val) : fallback;
+  return typeof val === 'number' && Number.isFinite(val) && val > 0 ? Math.max(1, Math.round(val)) : fallback;
 }
 
 function toNonNegNumber(val, fallback) {
@@ -1454,13 +1590,19 @@ function clampBetween(val, min, max) {
   return Math.min(max, Math.max(min, val));
 }
 
-export function clampModalSize({ width, height, viewportWidth, viewportHeight } = {}) {
-  const vw = toPositiveViewport(viewportWidth, 390);
-  const vh = toPositiveViewport(viewportHeight, 780);
-  const isMobile = vw <= 640;
+export function clampModalSize(rectOrOpts = {}, viewport) {
+  const rect = rectOrOpts && typeof rectOrOpts === 'object' ? rectOrOpts : {};
+  const vp = viewport && typeof viewport === 'object' ? viewport : null;
+  const vw = vp
+    ? toPositiveViewport(vp.viewportWidth ?? vp.vw ?? vp.width, 390)
+    : toPositiveViewport(rect.viewportWidth ?? rect.vw, 390);
+  const vh = vp
+    ? toPositiveViewport(vp.viewportHeight ?? vp.vh ?? vp.height, 780)
+    : toPositiveViewport(rect.viewportHeight ?? rect.vh, 780);
+  const isMobile = vw <= 680;
 
   const maxWidth = Math.max(1, Math.floor(0.96 * vw));
-  const maxHeight = Math.max(1, Math.floor(0.92 * vh));
+  const maxHeight = Math.max(1, Math.floor(vh));
 
   const rawMinW = isMobile ? Math.min(310, Math.max(1, vw - 16)) : 340;
   const rawMinH = isMobile ? 250 : 280;
@@ -1468,8 +1610,8 @@ export function clampModalSize({ width, height, viewportWidth, viewportHeight } 
   const minWidth = Math.min(rawMinW, maxWidth);
   const minHeight = Math.min(rawMinH, maxHeight);
 
-  const rawW = Math.round(toFiniteNumber(width, minWidth));
-  const rawH = Math.round(toFiniteNumber(height, minHeight));
+  const rawW = Math.round(toFiniteNumber(rect.width, minWidth));
+  const rawH = Math.round(toFiniteNumber(rect.height, minHeight));
 
   return {
     width: clampBetween(rawW, minWidth, maxWidth),
@@ -1478,6 +1620,7 @@ export function clampModalSize({ width, height, viewportWidth, viewportHeight } 
     maxWidth,
     minHeight,
     maxHeight,
+    isMobile,
   };
 }
 
@@ -1590,37 +1733,47 @@ export function computeResizedModalRect({
   let nextW = oW;
   let nextH = oH;
 
-  if (handle === 'sw' || handle === 'nw') {
+  const hasW = handle === 'w' || handle === 'nw' || handle === 'sw';
+  const hasE = handle === 'e' || handle === 'ne' || handle === 'se';
+  const hasN = handle === 'n' || handle === 'nw' || handle === 'ne';
+  const hasS = handle === 's' || handle === 'sw' || handle === 'se';
+
+  if (hasW) {
     const origRight = oLeft + oW;
     const availW = Math.min(bounds.maxWidth, Math.max(bounds.minWidth, origRight - mX));
     nextW = clampBetween(Math.round(oW - deltaX), bounds.minWidth, availW);
     nextLeft = origRight - nextW;
-  } else {
+  } else if (hasE) {
     const availW = Math.min(bounds.maxWidth, Math.max(bounds.minWidth, vw - mX - oLeft));
     nextW = clampBetween(Math.round(oW + deltaX), bounds.minWidth, availW);
   }
 
-  if (handle === 'ne' || handle === 'nw') {
+  if (hasN) {
     const origBottom = oTop + oH;
     const availH = Math.min(bounds.maxHeight, Math.max(bounds.minHeight, origBottom - mTop));
     nextH = clampBetween(Math.round(oH - deltaY), bounds.minHeight, availH);
     nextTop = origBottom - nextH;
-  } else {
+  } else if (hasS) {
     const availH = Math.min(bounds.maxHeight, Math.max(bounds.minHeight, vh - mBottom - oTop));
     nextH = clampBetween(Math.round(oH + deltaY), bounds.minHeight, availH);
   }
 
-  return clampModalRect({
-    left: nextLeft,
-    top: nextTop,
-    width: nextW,
-    height: nextH,
-    viewportWidth: vw,
-    viewportHeight: vh,
-    marginX: mX,
-    marginTop: mTop,
-    marginBottom: mBottom,
-  });
+  // Explicitly anchor top/left during bottom/right resize so window never jumps back to top/center
+  const finalW = clampBetween(nextW, bounds.minWidth, bounds.maxWidth);
+  const finalH = clampBetween(nextH, bounds.minHeight, bounds.maxHeight);
+  const effMX = Math.min(mX, Math.max(0, Math.floor((vw - finalW) / 2)));
+  const finalLeft = Math.round(clampBetween(nextLeft, effMX, Math.max(effMX, vw - finalW - effMX)));
+  const availTopRoom = Math.max(0, vh - finalH);
+  const effMTop = Math.min(mTop, availTopRoom);
+  const effMBottom = Math.min(mBottom, Math.max(0, availTopRoom - effMTop));
+  const finalTop = Math.round(clampBetween(nextTop, effMTop, Math.max(effMTop, vh - finalH - effMBottom)));
+
+  return {
+    left: finalLeft,
+    top: finalTop,
+    width: finalW,
+    height: finalH,
+  };
 }
 
 export function computeMiniWindowRect({
@@ -1636,7 +1789,7 @@ export function computeMiniWindowRect({
   const mX = toNonNegNumber(marginX, 8);
   const mTop = toNonNegNumber(marginTop, 8);
   const mBottom = toNonNegNumber(marginBottom, 10);
-  const isMobile = vw <= 640;
+  const isMobile = vw <= 680;
 
   const defaultRatio = isMobile ? 0.46 : 0.49;
   const ratio = clampBetween(toFiniteNumber(heightRatio, defaultRatio), 0.46, 0.52);
@@ -1728,6 +1881,293 @@ export function computeRestorePillPosition({
   };
 }
 
+// =========================
+// Persona Merge / Undo / Release Helpers (Zero-DOM, Pure)
+// =========================
 
+function allocateUniqueLabel(rawBase, usedSet, fallback = '未命名版本', maxLen = 60) {
+  const base = String(rawBase == null ? '' : rawBase).trim().slice(0, maxLen) || String(fallback || '未命名版本').slice(0, maxLen);
+  if (!usedSet.has(base)) {
+    usedSet.add(base);
+    return base;
+  }
+  for (let i = 2; i <= 999; i++) {
+    const suffix = ` (${i})`;
+    const limit = Math.max(1, maxLen - suffix.length);
+    const head = base.slice(0, limit).trimEnd() || base.slice(0, limit);
+    const cand = `${head}${suffix}`;
+    if (!usedSet.has(cand)) {
+      usedSet.add(cand);
+      return cand;
+    }
+  }
+  const fallbackUnique = `${base.slice(0, Math.max(1, maxLen - 6))}_${Math.random().toString(36).slice(2, 7)}`;
+  usedSet.add(fallbackUnique);
+  return fallbackUnique;
+}
 
+function cloneCleanVersionEntry(v) {
+  const rawName = String(v.name == null ? '' : v.name).trim().slice(0, 60);
+  return {
+    id: String(v.id || uid('pv')),
+    name: rawName || '未命名版本',
+    displayName: typeof v.displayName === 'string' ? v.displayName.trim().slice(0, 60) : '',
+    description: String(v.description || ''),
+    lorebook: typeof v.lorebook === 'string' ? v.lorebook : '',
+    updatedAt: Number(v.updatedAt) || Date.now(),
+  };
+}
 
+function cloneCleanVersions(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(v => v && typeof v === 'object')
+    .map(cloneCleanVersionEntry);
+}
+
+export function buildPersonaMergePlan(personas, keepAvatarId, candidateAvatarIds, existingVersions = []) {
+  const cleanPersonas = (Array.isArray(personas) ? personas : [])
+    .filter(p => p && typeof p === 'object' && String(p.avatar_id || '').trim());
+
+  const keepId = String(keepAvatarId == null ? '' : keepAvatarId).trim();
+  const keepRaw = keepId ? cleanPersonas.find(p => String(p.avatar_id).trim() === keepId) : null;
+  const cleanExisting = cloneCleanVersions(existingVersions);
+  const planId = uid('merge');
+
+  if (!keepRaw) {
+    return {
+      keepPersona: null,
+      candidates: [],
+      previewVersions: cleanExisting,
+      planId,
+    };
+  }
+
+  const keepRawName = String(keepRaw.name == null ? '' : keepRaw.name).trim().slice(0, 60);
+  const keepAvatarCleanId = String(keepRaw.avatar_id).trim();
+  const keepPersona = {
+    avatar_id: keepAvatarCleanId,
+    name: keepRawName || keepAvatarCleanId,
+    description: String(keepRaw.description || ''),
+    lorebook: typeof keepRaw.lorebook === 'string' ? keepRaw.lorebook : '',
+    title: typeof keepRaw.title === 'string' ? keepRaw.title : '',
+  };
+
+  const personaById = new Map();
+  cleanPersonas.forEach(p => {
+    const id = String(p.avatar_id).trim();
+    if (id && !personaById.has(id)) personaById.set(id, p);
+  });
+
+  const rawCandIds = candidateAvatarIds instanceof Set
+    ? Array.from(candidateAvatarIds)
+    : (Array.isArray(candidateAvatarIds) ? candidateAvatarIds : []);
+  const seenCand = new Set();
+  const uniqueCandIds = [];
+  rawCandIds.forEach(cid => {
+    const id = String(cid == null ? '' : cid).trim();
+    if (!id || id === keepPersona.avatar_id || seenCand.has(id)) return;
+    if (!personaById.has(id)) return;
+    seenCand.add(id);
+    uniqueCandIds.push(id);
+  });
+
+  const usedNames = new Set(cleanExisting.map(v => v.name));
+  const keepDesc = keepPersona.description;
+  const needsBackup = Boolean(
+    keepDesc.trim()
+    && !cleanExisting.some(v => v.description === keepDesc && (!v.displayName || v.displayName === keepPersona.name)),
+  );
+  if (needsBackup) {
+    allocateUniqueLabel('原主描述', usedNames, '原主描述', 60);
+  }
+
+  const candidates = uniqueCandIds.map(id => {
+    const oldP = personaById.get(id);
+    const oldAvatarId = String(oldP.avatar_id).trim();
+    const rawName = String(oldP.name == null ? '' : oldP.name).trim().slice(0, 60);
+    const displayName = rawName;
+    let stripped = rawName;
+    if (keepRawName && rawName.startsWith(keepRawName) && rawName.length > keepRawName.length) {
+      const tail = rawName
+        .slice(keepRawName.length)
+        .replace(/^[\s_\-·・/()（）【】\[\]]+/, '')
+        .replace(/[)）】\]]+$/, '')
+        .trim();
+      if (tail) stripped = tail;
+    }
+    const labelBase = stripped || rawName || oldAvatarId || '分身版本';
+    const versionName = allocateUniqueLabel(labelBase, usedNames, '分身版本', 60);
+    return {
+      avatar_id: oldAvatarId,
+      name: rawName || oldAvatarId,
+      versionName,
+      displayName,
+      description: String(oldP.description || ''),
+      lorebook: typeof oldP.lorebook === 'string' ? oldP.lorebook : '',
+    };
+  });
+
+  const previewVersions = applyPersonaMergeToVersions(cleanExisting, candidates, {
+    keepPersona,
+    includeKeepBackup: true,
+  });
+
+  return {
+    keepPersona,
+    candidates,
+    previewVersions,
+    planId,
+  };
+}
+
+export function applyPersonaMergeToVersions(currentVersions, candidates, opts = {}) {
+  const cfg = opts && typeof opts === 'object' ? opts : {};
+  const next = cloneCleanVersions(currentVersions);
+  const usedNames = new Set(next.map(v => v.name));
+  const now = Number.isFinite(Number(cfg.now)) ? Number(cfg.now) : Date.now();
+
+  if (cfg.keepPersona && typeof cfg.keepPersona === 'object' && cfg.includeKeepBackup !== false) {
+    const keepDesc = String(cfg.keepPersona.description || '');
+    const keepName = String(cfg.keepPersona.name == null ? '' : cfg.keepPersona.name).trim().slice(0, 60);
+    const alreadyHasKeep = next.some(v => v.description === keepDesc && (!v.displayName || v.displayName === keepName));
+    if (keepDesc.trim() && !alreadyHasKeep) {
+      next.unshift({
+        id: uid('pv'),
+        name: allocateUniqueLabel('原主描述', usedNames, '原主描述', 60),
+        displayName: keepName,
+        description: keepDesc,
+        lorebook: typeof cfg.keepPersona.lorebook === 'string' ? cfg.keepPersona.lorebook : '',
+        updatedAt: now,
+      });
+    }
+  }
+
+  const candList = Array.isArray(candidates) ? candidates : [];
+  for (let i = 0; i < candList.length; i++) {
+    const c = candList[i];
+    if (!c || typeof c !== 'object') continue;
+    const rawLabel = String(c.versionName || c.name || c.avatar_id || '').trim() || '分身版本';
+    const name = allocateUniqueLabel(rawLabel, usedNames, '分身版本', 60);
+    const displayName = typeof c.displayName === 'string'
+      ? c.displayName.trim().slice(0, 60)
+      : String(c.name == null ? '' : c.name).trim().slice(0, 60);
+    next.push({
+      id: uid('pv'),
+      name,
+      displayName,
+      description: String(c.description || ''),
+      lorebook: typeof c.lorebook === 'string' ? c.lorebook : '',
+      updatedAt: now,
+    });
+  }
+
+  return next;
+}
+
+export function restorePersonaMergeVersions(undoSnapshot) {
+  const rawList = Array.isArray(undoSnapshot)
+    ? undoSnapshot
+    : (undoSnapshot && typeof undoSnapshot === 'object'
+        ? (undoSnapshot.versionsBackup ?? undoSnapshot.previousVersions ?? undoSnapshot.versions ?? [])
+        : []);
+  return cloneCleanVersions(rawList);
+}
+
+export function buildReleaseVersionToNativePayload(versionEntry, existingPersonas = []) {
+  const v = versionEntry && typeof versionEntry === 'object' ? versionEntry : {};
+  const personas = Array.isArray(existingPersonas)
+    ? existingPersonas.filter(p => p && typeof p === 'object')
+    : [];
+  const existingNames = new Set(personas.map(p => String(p.name == null ? '' : p.name).trim()).filter(Boolean));
+  const existingAvatarIds = new Set(personas.map(p => String(p.avatar_id == null ? '' : p.avatar_id).trim()).filter(Boolean));
+
+  const baseName = String(v.displayName == null ? '' : v.displayName).trim()
+    || String(v.name == null ? '' : v.name).trim()
+    || '恢复的 User';
+  const name = allocateUniqueLabel(baseName, existingNames, '恢复的 User', 60);
+
+  const fileBase = name
+    .replace(/[\\/:*?"<>|\s]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'persona';
+  let suggestedAvatarId = `${fileBase}.png`;
+  let idx = 2;
+  while (existingAvatarIds.has(suggestedAvatarId)) {
+    suggestedAvatarId = `${fileBase}_${idx}.png`;
+    idx++;
+  }
+
+  return {
+    name,
+    description: String(v.description || ''),
+    lorebook: typeof v.lorebook === 'string' ? v.lorebook : '',
+    overwriteName: false,
+    suggestedAvatarId,
+  };
+}
+
+// =========================
+// Extension & Built-in Module Availability Helpers (Zero-DOM, Pure)
+// =========================
+
+function normalizeExtKey(val) {
+  return String(val == null ? '' : val)
+    .trim()
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+}
+
+function getExtLeafCanonical(normKey) {
+  if (!normKey) return '';
+  const idx = normKey.lastIndexOf('/');
+  const leaf = idx >= 0 ? normKey.slice(idx + 1) : normKey;
+  return leaf.replace(/_/g, '-');
+}
+
+export function isExtensionEnabled(disabledList, extKey) {
+  const normKey = normalizeExtKey(extKey);
+  if (!normKey) return false;
+  const keyLeaf = getExtLeafCanonical(normKey);
+
+  let items = [];
+  if (Array.isArray(disabledList)) {
+    items = disabledList;
+  } else if (
+    !(disabledList instanceof String)
+    && (
+      disabledList instanceof Set
+      || (disabledList && typeof disabledList === 'object' && typeof disabledList[Symbol.iterator] === 'function')
+    )
+  ) {
+    items = Array.from(disabledList);
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    if (typeof items[i] !== 'string') continue;
+    const normItem = normalizeExtKey(items[i]);
+    if (!normItem) continue;
+    if (normItem === normKey) return false;
+    if (getExtLeafCanonical(normItem) === keyLeaf) return false;
+  }
+  return true;
+}
+
+export function canUseExternalOrganizer(opts = {}) {
+  const cfg = opts && typeof opts === 'object' ? opts : {};
+  const { orgSettings, disabledExtensions, hasActiveRuntime } = cfg;
+  if (!orgSettings || typeof orgSettings !== 'object' || Array.isArray(orgSettings)) {
+    return false;
+  }
+  if (!isExtensionEnabled(disabledExtensions, 'worldbook-organizer')) {
+    return false;
+  }
+  return Boolean(hasActiveRuntime);
+}
+
+export function isBuiltinModuleEnabled(disabledExtensions, moduleName) {
+  const key = String(moduleName == null ? '' : moduleName).trim();
+  if (!key) return false;
+  return isExtensionEnabled(disabledExtensions, key);
+}

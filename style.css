@@ -12,3 +12,60 @@
   gap: 10px;
   padding: 6px 0;
 }
+
+.upp-native-persona-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.upp-native-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.35));
+  background: var(--SmartThemeBlurTintColor, transparent);
+  color: var(--SmartThemeBodyColor, inherit);
+  font-size: 12.5px;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upp-native-btn:hover:not(:disabled) {
+  border-color: var(--SmartThemeEmColor, currentColor);
+}
+
+.upp-native-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.upp-native-select {
+  min-height: 30px;
+  max-width: 180px;
+  min-width: 110px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.35));
+  background: var(--SmartThemeBlurTintColor, transparent);
+  color: var(--SmartThemeBodyColor, inherit);
+  font-size: 12.5px;
+}
+
+@media (max-width: 680px), (pointer: coarse) {
+  .upp-native-select {
+    min-height: 34px;
+    font-size: 16px;
+  }
+  .upp-native-btn {
+    min-height: 34px;
+  }
+}

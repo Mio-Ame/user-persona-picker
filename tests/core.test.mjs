@@ -6,10 +6,15 @@ import {
   THEME_MODES,
   analyzeEntryTags,
   analyzePresetMigration,
+  applyPersonaMergeToVersions,
   applyPresetMigrationToSnapshots,
   buildCleanCopyText,
+  buildPersonaMergePlan,
   buildPresetRenderNodes,
+  buildPresetSyncOverrideTree,
+  buildReleaseVersionToNativePayload,
   buildSnapshotPresetInspectModel,
+  canUseExternalOrganizer,
   clampModalRect,
   clampModalSize,
   computeDraggedModalPosition,
@@ -29,6 +34,8 @@ import {
   inferThemeFromTextColor,
   inspectSnapshotHealth,
   inspectTagHygiene,
+  isBuiltinModuleEnabled,
+  isExtensionEnabled,
   markStoreOnWorldbookDeleted,
   migrateStoreOnWorldbookRename,
   normalizeNativePreset,
@@ -37,6 +44,7 @@ import {
   parseImportJson,
   pickActivePromptOrder,
   resolveBindingForContext,
+  restorePersonaMergeVersions,
   sanitizeBoolMap,
   sanitizePlainMap,
   sanitizeStore,
@@ -676,7 +684,7 @@ test('regression: self-closing space tags, empty extension group bucket, duplica
 });
 
 test('clampModalSize enforces desktop, mobile, max bounds, and ultra-small viewport guards', () => {
-  // Desktop 1280x800: min 340x280, max floor(0.96*1280)=1228 x floor(0.92*800)=736
+  // Desktop 1280x800: min 340x280, max floor(0.96*1280)=1228 x floor(800)=800 (100dvh)
   const dMin = clampModalSize({ width: 100, height: 100, viewportWidth: 1280, viewportHeight: 800 });
   assert.deepEqual(dMin, {
     width: 340,
@@ -684,18 +692,19 @@ test('clampModalSize enforces desktop, mobile, max bounds, and ultra-small viewp
     minWidth: 340,
     maxWidth: 1228,
     minHeight: 280,
-    maxHeight: 736,
+    maxHeight: 800,
+    isMobile: false,
   });
 
   const dMax = clampModalSize({ width: 2000, height: 1500, viewportWidth: 1280, viewportHeight: 800 });
   assert.equal(dMax.width, 1228);
-  assert.equal(dMax.height, 736);
+  assert.equal(dMax.height, 800);
 
   const dMid = clampModalSize({ width: 360, height: 420, viewportWidth: 1280, viewportHeight: 800 });
   assert.equal(dMid.width, 360);
   assert.equal(dMid.height, 420);
 
-  // Mobile 390x844: min min(310, 390-16)=310 x 250, max 374 x 776
+  // Mobile 390x844: min min(310, 390-16)=310 x 250, max 374 x 844
   const mMin = clampModalSize({ width: 200, height: 120, viewportWidth: 390, viewportHeight: 844 });
   assert.deepEqual(mMin, {
     width: 310,
@@ -703,18 +712,38 @@ test('clampModalSize enforces desktop, mobile, max bounds, and ultra-small viewp
     minWidth: 310,
     maxWidth: 374,
     minHeight: 250,
-    maxHeight: 776,
+    maxHeight: 844,
+    isMobile: true,
   });
 
-  // Boundary vw=640 is still mobile
-  const m640 = clampModalSize({ width: 200, height: 200, viewportWidth: 640, viewportHeight: 800 });
-  assert.equal(m640.minWidth, 310);
-  assert.equal(m640.minHeight, 250);
+  // Boundary vw=680 is still mobile
+  const m680 = clampModalSize({ width: 200, height: 200, viewportWidth: 680, viewportHeight: 800 });
+  assert.equal(m680.minWidth, 310);
+  assert.equal(m680.minHeight, 250);
+  assert.equal(m680.isMobile, true);
 
-  // Boundary vw=641 is desktop
-  const d641 = clampModalSize({ width: 200, height: 200, viewportWidth: 641, viewportHeight: 800 });
-  assert.equal(d641.minWidth, 340);
-  assert.equal(d641.minHeight, 280);
+  // Boundary vw=681 is desktop
+  const d681 = clampModalSize({ width: 200, height: 200, viewportWidth: 681, viewportHeight: 800 });
+  assert.equal(d681.minWidth, 340);
+  assert.equal(d681.minHeight, 280);
+  assert.equal(d681.isMobile, false);
+
+  // Supports 2-arg (rect, viewport) form cleanly
+  const twoArg = clampModalSize({ width: 500, height: 900 }, { viewportWidth: 1280, viewportHeight: 800 });
+  assert.equal(twoArg.width, 500);
+  assert.equal(twoArg.height, 800);
+  assert.equal(twoArg.maxHeight, 800);
+  assert.equal(twoArg.isMobile, false);
+
+  const twoArgShort = clampModalSize({ width: 320, height: 900 }, { width: 680, height: 700 });
+  assert.equal(twoArgShort.height, 700);
+  assert.equal(twoArgShort.maxHeight, 700);
+  assert.equal(twoArgShort.isMobile, true);
+
+  const twoArgNull = clampModalSize(null, { viewportWidth: 1280, viewportHeight: 800 });
+  assert.equal(twoArgNull.width, 340);
+  assert.equal(twoArgNull.height, 280);
+  assert.equal(twoArgNull.isMobile, false);
 
   // Ultra-small viewports: minWidth <= maxWidth and minHeight <= maxHeight always hold
   const tinyW = clampModalSize({ width: 300, height: 300, viewportWidth: 280, viewportHeight: 500 });
@@ -723,14 +752,25 @@ test('clampModalSize enforces desktop, mobile, max bounds, and ultra-small viewp
   assert.ok(tinyW.minWidth <= tinyW.maxWidth);
 
   const tinyH = clampModalSize({ width: 300, height: 300, viewportWidth: 390, viewportHeight: 200 });
-  assert.equal(tinyH.minHeight, 184);
-  assert.equal(tinyH.maxHeight, 184);
+  assert.equal(tinyH.minHeight, 200);
+  assert.equal(tinyH.maxHeight, 200);
   assert.ok(tinyH.minHeight <= tinyH.maxHeight);
 
   // Non-finite inputs fall back safely
   const bad = clampModalSize({ width: NaN, height: Infinity, viewportWidth: -10, viewportHeight: NaN });
   assert.ok(Number.isFinite(bad.width) && bad.width >= bad.minWidth && bad.width <= bad.maxWidth);
   assert.ok(Number.isFinite(bad.height) && bad.height >= bad.minHeight && bad.height <= bad.maxHeight);
+
+  // Tiny positive float viewport (< 0.5) rounds to 1 consistently across clampModalSize and clampModalRect
+  const subOneSize = clampModalSize({ width: 100, height: 100, viewportWidth: 0.4, viewportHeight: 0.4 });
+  assert.deepEqual({ width: subOneSize.width, height: subOneSize.height, maxWidth: subOneSize.maxWidth, maxHeight: subOneSize.maxHeight }, {
+    width: 1,
+    height: 1,
+    maxWidth: 1,
+    maxHeight: 1,
+  });
+  const subOneRect = clampModalRect({ left: 0, top: 0, width: 100, height: 100, viewportWidth: 0.4, viewportHeight: 0.4 });
+  assert.deepEqual(subOneRect, { left: 0, top: 0, width: 1, height: 1 });
 });
 
 test('clampModalRect & computeDraggedModalPosition clamp all edges and reclamp across viewport changes', () => {
@@ -816,7 +856,7 @@ test('computeResizedModalRect enforces desktop/mobile bounds and viewport contai
   assert.equal(dCap.width, 1072); // 1280 - 8 - 200
   assert.equal(dCap.height, 642); // 800 - 8 - 150
 
-  // Mobile 390x844 resize clamps to min(310, 390-16)=310 x 250 .. 374 x 776
+  // Mobile 390x844 resize clamps to min(310, 390-16)=310 x 250 .. 374 x 844
   const mFloor = computeResizedModalRect({
     origLeft: 8,
     origTop: 446,
@@ -878,5 +918,549 @@ test('computeMiniWindowRect & computeRestorePillPosition compute safe floating r
   });
   assert.equal(pillLeft.left, 12);
   assert.equal(pillLeft.top, 844 - 34 - 12);
+
+  // computeMiniWindowRect uses unified 680px mobile threshold
+  const mini680 = computeMiniWindowRect({ viewportWidth: 680, viewportHeight: 800 });
+  assert.equal(mini680.width, Math.floor(680 * 0.96)); // 652 (mobile target 664 clamped to maxWidth)
+  assert.equal(mini680.height, Math.round(800 * 0.46)); // mobile defaultRatio 0.46
+  const mini681 = computeMiniWindowRect({ viewportWidth: 681, viewportHeight: 800 });
+  assert.equal(mini681.width, Math.min(640, Math.floor(681 * 0.92))); // desktop: 626
+  assert.equal(mini681.height, Math.round(800 * 0.49)); // desktop defaultRatio 0.49
 });
 
+test('F2: buildPersonaMergePlan, applyPersonaMergeToVersions, restorePersonaMergeVersions & buildReleaseVersionToNativePayload', () => {
+  const personas = [
+    { avatar_id: 'main.png', name: '主角甲', description: '原主设定正文', lorebook: '世界书A', title: '称呼' },
+    { avatar_id: 'c1.png', name: '主角甲_现代版', description: '现代设定', lorebook: '世界书B' },
+    { avatar_id: 'c2.png', name: '主角甲 (校园)', description: '校园设定' },
+    { avatar_id: 'c3.png', name: '测试乙', description: '异名保留' },
+    { avatar_id: 'c4.png', name: '主角甲_现代版', description: '重复名字分身' },
+    { avatar_id: 'c5.png', name: '   ', description: '空白名字分身' },
+  ];
+  const existingVersions = [
+    { id: 'pv_old', name: '现代版', displayName: '主角甲_现代版', description: '旧现代', lorebook: '', updatedAt: 100 },
+  ];
+  const candIds = ['main.png', 'c1.png', 'c1.png', 'c2.png', 'c3.png', 'c4.png', 'c5.png', 'not_exist.png'];
+
+  const personasBefore = structuredClone(personas);
+  const candIdsBefore = structuredClone(candIds);
+  const existingBefore = structuredClone(existingVersions);
+
+  const plan = buildPersonaMergePlan(personas, 'main.png', candIds, existingVersions);
+  assert.ok(plan.planId.startsWith('merge_'));
+  assert.equal(plan.keepPersona.avatar_id, 'main.png');
+  assert.equal(plan.keepPersona.name, '主角甲');
+
+  // Self-exclusion, deduplication & missing ID filtering
+  assert.deepEqual(plan.candidates.map(c => c.avatar_id), ['c1.png', 'c2.png', 'c3.png', 'c4.png', 'c5.png']);
+  // Prefix stripping & collision-safe unique versionName
+  assert.equal(plan.candidates[0].versionName, '现代版 (2)');
+  assert.equal(plan.candidates[0].displayName, '主角甲_现代版');
+  assert.equal(plan.candidates[1].versionName, '校园');
+  assert.equal(plan.candidates[2].versionName, '测试乙');
+  assert.equal(plan.candidates[3].versionName, '现代版 (3)');
+  assert.equal(plan.candidates[4].displayName, '');
+  assert.equal(plan.candidates[4].versionName, 'c5.png');
+
+  // previewVersions prepends 原主描述 backup + preserves existing + appends candidates
+  assert.equal(plan.previewVersions[0].name, '原主描述');
+  assert.equal(plan.previewVersions[0].displayName, '主角甲');
+  assert.equal(plan.previewVersions[0].description, '原主设定正文');
+  assert.equal(plan.previewVersions[1].id, 'pv_old');
+  assert.equal(plan.previewVersions.length, 7);
+
+  // Strict immutability
+  assert.deepEqual(personas, personasBefore);
+  assert.deepEqual(candIds, candIdsBefore);
+  assert.deepEqual(existingVersions, existingBefore);
+
+  // Long >60-char name collision stays <= 60 chars and unique
+  const longBase = '长'.repeat(65);
+  const longPlan = buildPersonaMergePlan(
+    [
+      { avatar_id: 'm.png', name: '主号', description: '' },
+      { avatar_id: 'l1.png', name: longBase, description: '1' },
+      { avatar_id: 'l2.png', name: longBase, description: '2' },
+    ],
+    'm.png',
+    ['l1.png', 'l2.png'],
+    [{ id: 'pv_l', name: longBase.slice(0, 60), displayName: '', description: '0', updatedAt: 1 }],
+  );
+  assert.equal(longPlan.candidates[0].versionName.length <= 60, true);
+  assert.equal(longPlan.candidates[1].versionName.length <= 60, true);
+  assert.notEqual(longPlan.candidates[0].versionName, longPlan.candidates[1].versionName);
+  assert.equal(longPlan.previewVersions.some(v => v.name === '原主描述'), false); // empty keep description skips backup
+
+  // Missing/invalid keepAvatarId returns null keepPersona and safe cloned existing versions
+  const badPlan = buildPersonaMergePlan(personas, 'missing.png', ['c1.png'], existingVersions);
+  assert.equal(badPlan.keepPersona, null);
+  assert.deepEqual(badPlan.candidates, []);
+  assert.equal(badPlan.previewVersions.length, 1);
+  assert.notEqual(badPlan.previewVersions[0], existingVersions[0]);
+
+  // applyPersonaMergeToVersions deduplicates even when called directly without buildPersonaMergePlan
+  const directNext = applyPersonaMergeToVersions(
+    existingVersions,
+    [{ name: '现代版', description: '新1' }, { name: '现代版', description: '新2' }],
+    { keepPersona: { name: '主角甲', description: '主描述' }, now: 555 },
+  );
+  assert.deepEqual(directNext.map(v => v.name), ['原主描述', '现代版', '现代版 (2)', '现代版 (3)']);
+  assert.equal(directNext[0].updatedAt, 555);
+  assert.deepEqual(existingVersions, existingBefore);
+
+  // restorePersonaMergeVersions deep-clones from array, object wrappers, or null/undefined
+  const undoObj = { versionsBackup: [{ id: 'u1', name: '备份A', displayName: '主角甲', description: 'd', lorebook: 'wb', updatedAt: 42 }] };
+  const restored = restorePersonaMergeVersions(undoObj);
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0].name, '备份A');
+  restored[0].name = '篡改测试';
+  assert.equal(undoObj.versionsBackup[0].name, '备份A');
+  assert.deepEqual(restorePersonaMergeVersions({ previousVersions: [{ id: 'p', name: 'x' }] }).map(x => x.id), ['p']);
+  assert.deepEqual(restorePersonaMergeVersions({ versions: [{ id: 'v', name: 'y' }] }).map(x => x.id), ['v']);
+  assert.deepEqual(restorePersonaMergeVersions(null), []);
+  assert.deepEqual(restorePersonaMergeVersions(undefined), []);
+
+  // buildReleaseVersionToNativePayload prefers displayName, deduplicates name & suggestedAvatarId
+  const release1 = buildReleaseVersionToNativePayload(
+    { name: '版本别名', displayName: '主角甲', description: '设定1', lorebook: '世界书A' },
+    [
+      { avatar_id: '主角甲.png', name: '主角甲' },
+      { avatar_id: '主角甲_2.png', name: '主角甲 (2)' },
+    ],
+  );
+  assert.deepEqual(release1, {
+    name: '主角甲 (3)',
+    description: '设定1',
+    lorebook: '世界书A',
+    overwriteName: false,
+    suggestedAvatarId: '主角甲_(3).png',
+  });
+
+  // Falls back to version name, then '恢复的 User', sanitizing unsafe filename chars
+  const releaseFallbackName = buildReleaseVersionToNativePayload(
+    { name: '版本/名称:*?', displayName: '   ', description: '正文' },
+    [],
+  );
+  assert.equal(releaseFallbackName.name, '版本/名称:*?');
+  assert.equal(releaseFallbackName.suggestedAvatarId, '版本_名称.png');
+  assert.equal(releaseFallbackName.overwriteName, false);
+
+  const releaseEmpty = buildReleaseVersionToNativePayload({ name: ' ', displayName: '' }, []);
+  assert.equal(releaseEmpty.name, '恢复的 User');
+  assert.equal(releaseEmpty.suggestedAvatarId, '恢复的_User.png');
+
+  // Avatar ID collision suffixing when name differs from existing avatar_id
+  const releaseAvatarCollide = buildReleaseVersionToNativePayload(
+    { displayName: '新名字', description: '' },
+    [{ avatar_id: '新名字.png', name: '别的名字' }],
+  );
+  assert.equal(releaseAvatarCollide.name, '新名字');
+  assert.equal(releaseAvatarCollide.suggestedAvatarId, '新名字_2.png');
+});
+
+test('F3: isExtensionEnabled, canUseExternalOrganizer & isBuiltinModuleEnabled handle arrays, sets, paths & null guards', () => {
+  // Empty / non-iterable / string disabledList -> enabled
+  assert.equal(isExtensionEnabled(null, 'regex'), true);
+  assert.equal(isExtensionEnabled(undefined, 'regex'), true);
+  assert.equal(isExtensionEnabled([], 'regex'), true);
+  assert.equal(isExtensionEnabled(new Set(), 'regex'), true);
+  assert.equal(isExtensionEnabled({}, 'regex'), true);
+  assert.equal(isExtensionEnabled('regex', 'regex'), true); // never iterates string chars
+  assert.equal(isExtensionEnabled(new String('regex'), 'r'), true); // boxed String must not iterate chars
+  assert.equal(isExtensionEnabled(new String('regex'), 'regex'), true);
+
+  // Empty/null extKey -> false
+  assert.equal(isExtensionEnabled([], ''), false);
+  assert.equal(isExtensionEnabled([], null), false);
+
+  // Exact, path-prefixed, case, trailing slash, underscore normalization
+  assert.equal(isExtensionEnabled(['connection-manager'], 'connection-manager'), false);
+  assert.equal(isExtensionEnabled(['third-party/worldbook-organizer'], 'worldbook-organizer'), false);
+  assert.equal(isExtensionEnabled(['third-party\\worldbook-organizer/'], 'worldbook-organizer'), false);
+  assert.equal(isExtensionEnabled(new Set(['Worldbook_Organizer ']), 'worldbook-organizer'), false);
+  assert.equal(isExtensionEnabled(['builtin/regex'], 'regex'), false);
+
+  // Substring non-match must NOT false-positive
+  assert.equal(isExtensionEnabled(['my-regex-helper'], 'regex'), true);
+  assert.equal(isExtensionEnabled(['worldbook-organizer-extra'], 'worldbook-organizer'), true);
+
+  // canUseExternalOrganizer requires valid orgSettings object, enabled extension, AND active runtime
+  assert.equal(canUseExternalOrganizer({ orgSettings: { groups: [] }, disabledExtensions: [], hasActiveRuntime: true }), true);
+  assert.equal(canUseExternalOrganizer({ orgSettings: { groups: [] }, disabledExtensions: [], hasActiveRuntime: false }), false);
+  assert.equal(canUseExternalOrganizer({ orgSettings: { groups: [] }, disabledExtensions: [] }), false);
+  assert.equal(canUseExternalOrganizer({ orgSettings: { groups: [] }, disabledExtensions: ['third-party/worldbook-organizer'], hasActiveRuntime: true }), false);
+  assert.equal(canUseExternalOrganizer({ orgSettings: null, disabledExtensions: [], hasActiveRuntime: true }), false);
+  assert.equal(canUseExternalOrganizer({ orgSettings: [], disabledExtensions: [], hasActiveRuntime: true }), false);
+  assert.equal(canUseExternalOrganizer(null), false);
+  assert.equal(canUseExternalOrganizer(), false);
+
+  // isBuiltinModuleEnabled
+  assert.equal(isBuiltinModuleEnabled([], 'connection-manager'), true);
+  assert.equal(isBuiltinModuleEnabled(['connection-manager'], 'connection-manager'), false);
+  assert.equal(isBuiltinModuleEnabled(new Set(['builtin/regex']), 'regex'), false);
+  assert.equal(isBuiltinModuleEnabled(['my-regex'], 'regex'), true);
+  assert.equal(isBuiltinModuleEnabled([], ''), false);
+  assert.equal(isBuiltinModuleEnabled([], null), false);
+});
+
+test('F4: buildPresetSyncOverrideTree & hardened applyPresetMigrationToSnapshots', () => {
+  const norm = {
+    prompts: [
+      { id: 'p_top', name: '顶部独立条目', enabled: true, content: 'top' },
+      { id: 'p_g1_1', name: '分组甲条1', enabled: true, content: 'alpha' },
+      { id: 'p_g1_new', name: '分组甲新条', enabled: false, content: 'brandnew' },
+      { id: 'p_g1_2', name: '分组甲条2', enabled: false, content: 'beta' },
+      { id: 'p_mid', name: '中间独立条目', enabled: false, content: 'mid' },
+      { id: 'p_g2_only_new', name: '全是新条目的组', enabled: true, content: 'onlynew' },
+    ],
+    groups: [
+      { id: 'g1', name: '分组甲', enabled: true, collapsed: false },
+      { id: 'g2', name: '全是新条目的组', enabled: true, collapsed: false },
+      { id: 'g_empty', name: '空分组', enabled: true, collapsed: false },
+    ],
+    promptGroupMap: {
+      p_g1_1: 'g1',
+      p_g1_new: 'g1',
+      p_g1_2: 'g1',
+      p_g2_only_new: 'g2',
+    },
+  };
+
+  // Excludes newPromptIds (Set / Array / [{id}]), preserves preset order, omits empty & all-new groups while keeping hasGroups=true
+  const treeSet = buildPresetSyncOverrideTree(norm, new Set(['p_g1_new', 'p_g2_only_new']));
+  assert.equal(treeSet.hasGroups, true);
+  assert.equal(treeSet.matchedCount, 4);
+  assert.deepEqual(treeSet.nodes.map(n => n.type), ['prompt', 'group', 'prompt']);
+  assert.equal(treeSet.nodes[0].prompt.id, 'p_top');
+  assert.equal(treeSet.nodes[1].group.id, 'g1');
+  assert.equal(treeSet.nodes[1].totalCount, 2);
+  assert.equal(treeSet.nodes[1].enabledCount, 1);
+  assert.equal(treeSet.nodes[1].forceExpand, false);
+  assert.deepEqual(treeSet.nodes[1].items.map(i => i.id), ['p_g1_1', 'p_g1_2']);
+  assert.equal(treeSet.nodes[2].prompt.id, 'p_mid');
+
+  const treeObjArr = buildPresetSyncOverrideTree(norm, [{ id: 'p_g1_new' }, { id: 'p_g2_only_new' }], { forceExpand: true });
+  assert.equal(treeObjArr.nodes[1].forceExpand, true);
+
+  // Search by group name shows all existing members of that group and sets forceExpand
+  const byGroup = buildPresetSyncOverrideTree(norm, ['p_g1_new', 'p_g2_only_new'], { search: '分组甲' });
+  assert.equal(byGroup.matchedCount, 2);
+  assert.equal(byGroup.nodes.length, 1);
+  assert.equal(byGroup.nodes[0].items.length, 2);
+  assert.equal(byGroup.nodes[0].forceExpand, true);
+
+  // Search by member prompt name filters items while preserving totalCount & enabledCount
+  const byMember = buildPresetSyncOverrideTree(norm, ['p_g1_new', 'p_g2_only_new'], { search: 'beta' });
+  assert.equal(byMember.matchedCount, 1);
+  assert.equal(byMember.nodes[0].items.length, 1);
+  assert.equal(byMember.nodes[0].items[0].id, 'p_g1_2');
+  assert.equal(byMember.nodes[0].totalCount, 2);
+  assert.equal(byMember.nodes[0].enabledCount, 1);
+  assert.equal(byMember.nodes[0].forceExpand, true);
+
+  // Search matching nothing
+  const noHit = buildPresetSyncOverrideTree(norm, [], { search: '不存在的词' });
+  assert.equal(noHit.matchedCount, 0);
+  assert.deepEqual(noHit.nodes, []);
+  assert.equal(noHit.hasGroups, true);
+
+  // Null / missing targetPresetNorm / null opts safety
+  assert.deepEqual(buildPresetSyncOverrideTree(null, null, null), { nodes: [], hasGroups: false, matchedCount: 0 });
+
+  // Hardened applyPresetMigrationToSnapshots edge cases
+  const baseSnaps = [
+    null,
+    {
+      id: 's_keep',
+      scope: { preset: true },
+      preset: {
+        name: '预设V1',
+        prompts: { p_a: true, p_b: false, p_removed: true },
+        groups: { g_keep: false, g_removed: true },
+        promptNames: { p_a: '条目A', p_b: '条目B', p_removed: '旧残留条目' },
+        groupNames: { g_keep: '保留组', g_removed: '旧残留组' },
+      },
+    },
+  ];
+  const baseTarget = {
+    prompts: [
+      { id: 'p_a', name: '条目A新', enabled: false },
+      { id: 'p_b', name: '条目B', enabled: true },
+    ],
+    groups: [
+      { id: 'g_keep', name: '保留组', enabled: true },
+      { id: 'g_new', name: '全新组', enabled: true },
+    ],
+  };
+
+  // 1) Null analysis + syncNewGroups: false + cleanRemovedIds: false + forceOverride interplay + null newPromptDecisions
+  const res = applyPresetMigrationToSnapshots(baseSnaps, {
+    targetPresetName: '预设V2',
+    targetPresetNorm: baseTarget,
+    analysis: null,
+    newPromptDecisions: null,
+    forceOverridePrompts: { p_b: true },
+    forceOverrideGroups: { g_keep: true },
+    syncNewGroups: false,
+    cleanRemovedIds: false,
+  });
+  assert.equal(res[0], null);
+  assert.equal(res[1].preset.prompts.p_a, true); // not clobbered by group override
+  assert.equal(res[1].preset.prompts.p_b, true); // overridden to true
+  assert.equal(res[1].preset.prompts.p_removed, true); // retained
+  assert.equal(res[1].preset.promptNames.p_removed, '旧残留条目'); // retained name
+  assert.equal(res[1].preset.promptNames.p_a, '条目A新'); // updated target name
+  assert.equal(res[1].preset.groups.g_keep, true); // overridden
+  assert.equal(res[1].preset.groups.g_removed, true); // retained
+  assert.equal(res[1].preset.groupNames.g_removed, '旧残留组'); // retained group name
+  assert.equal(res[1].preset.groups.g_new, undefined); // syncNewGroups: false skipped brand new group
+
+  // 2) Null analysis + syncNewGroups: false carries over existing oldGroups[tg.id] when NOT overridden
+  const carryRes = applyPresetMigrationToSnapshots([baseSnaps[1]], {
+    targetPresetName: '预设V2',
+    targetPresetNorm: baseTarget,
+    analysis: null,
+    forceOverridePrompts: null,
+    forceOverrideGroups: null,
+    syncNewGroups: false,
+    cleanRemovedIds: true,
+  });
+  assert.equal(carryRes[0].preset.groups.g_keep, false); // carried over from oldGroups even without analysis
+  assert.equal(carryRes[0].preset.groups.g_new, undefined);
+  assert.equal(carryRes[0].preset.prompts.p_removed, undefined);
+  assert.equal(carryRes[0].preset.promptNames.p_removed, undefined);
+
+  // 3) Null opts does not throw
+  assert.equal(applyPresetMigrationToSnapshots([baseSnaps[1]], null).length, 1);
+});
+
+test('F4 regression: Object.prototype keys and non-plain-object map guards across preset tree & migration helpers', () => {
+  // 1) Direct buildPresetSyncOverrideTree with Object.prototype keys in promptGroupMap / groups
+  const directMissingGroup = buildPresetSyncOverrideTree(
+    {
+      prompts: [
+        { id: 'p1', name: 'Normal', enabled: true },
+        { id: 'toString', name: 'ToStringPrompt', enabled: false },
+      ],
+      groups: [{ id: 'g1', name: 'Group1', enabled: true }],
+      promptGroupMap: { p1: 'toString', constructor: 'valueOf' },
+    },
+    [],
+  );
+  assert.equal(directMissingGroup.hasGroups, true);
+  assert.equal(directMissingGroup.matchedCount, 2);
+  assert.deepEqual(directMissingGroup.nodes.map(n => n.type), ['prompt', 'prompt']);
+
+  // Group actually named 'toString' or '__proto__' or 'constructor' works cleanly
+  const directRealProtoGroup = buildPresetSyncOverrideTree(
+    {
+      prompts: [
+        { id: 'p_ts', name: 'TS Member', enabled: true },
+        { id: 'p_pr', name: 'Proto Member', enabled: false },
+      ],
+      groups: [
+        { id: 'toString', name: 'TS Group', enabled: true },
+        { id: '__proto__', name: 'Proto Group', enabled: true },
+      ],
+      promptGroupMap: { p_ts: 'toString', p_pr: '__proto__' },
+    },
+    [],
+  );
+  assert.equal(directRealProtoGroup.matchedCount, 2);
+  assert.deepEqual(directRealProtoGroup.nodes.map(n => n.group.id), ['toString', '__proto__']);
+
+  // 2) End-to-end normalizeNativePreset -> buildPresetSyncOverrideTree / buildPresetRenderNodes / buildSnapshotPresetInspectModel
+  //    when extensions metadata points a prompt to non-existent 'toString' or 'constructor' group
+  const normFromNative = normalizeNativePreset({
+    prompts: [
+      { identifier: 'p1', name: 'Entry 1', content: 'body 1' },
+      { identifier: 'toString', name: 'Entry TS', content: 'body 2' },
+    ],
+    prompt_order: [
+      {
+        character_id: 100001,
+        order: [
+          { identifier: 'p1', enabled: true },
+          { identifier: 'toString', enabled: false },
+        ],
+      },
+    ],
+    extensions: {
+      presetPromptGroups: {
+        groups: [{ id: 'g1', name: 'Valid Group', enabled: true }],
+        prompts: { p1: { groupId: 'toString' } },
+      },
+    },
+  });
+  assert.deepEqual(normFromNative.promptGroupMap, {});
+  const treeFromNative = buildPresetSyncOverrideTree(normFromNative, []);
+  assert.equal(treeFromNative.matchedCount, 2);
+  assert.deepEqual(treeFromNative.nodes.map(n => n.type), ['prompt', 'prompt']);
+
+  // buildPresetRenderNodes & buildSnapshotPresetInspectModel also survive unmapped Object.prototype keys
+  const renderProto = buildPresetRenderNodes({
+    prompts: [{ id: 'toString', name: 'TS', enabled: true }],
+    groups: [{ id: 'g1', name: 'G1', enabled: true }],
+    groupsById: { g1: { id: 'g1', name: 'G1', enabled: true } },
+    promptGroupMap: { p_other: 'constructor' },
+  });
+  assert.equal(renderProto.nodes.length, 1);
+  assert.equal(renderProto.nodes[0].type, 'prompt');
+
+  const inspectProto = buildSnapshotPresetInspectModel(
+    { prompts: { toString: true }, groups: {} },
+    {
+      prompts: [{ id: 'toString', name: 'TS', enabled: false }],
+      groups: [{ id: 'g1', name: 'G1', enabled: true }],
+      groupsById: { g1: { id: 'g1', name: 'G1', enabled: true } },
+      promptGroupMap: {},
+    },
+  );
+  assert.equal(inspectProto.nodes.length, 1);
+  assert.equal(inspectProto.nodes[0].prompt.selfOn, true);
+
+  // 3) analyzePresetMigration does not pull Object.prototype.toString into oldPromptNameById when promptNames lacks own key
+  const protoAnalysis = analyzePresetMigration(
+    [
+      {
+        id: 's_proto',
+        scope: { preset: true },
+        preset: { name: 'Old', prompts: { toString: true }, groups: { constructor: true }, promptNames: {}, groupNames: {} },
+      },
+    ],
+    null,
+    { prompts: [{ id: 'new_p', name: 'New', enabled: true }], groups: [] },
+  );
+  assert.equal(protoAnalysis.unmatchedOldPrompts[0].name, '未命名旧条目');
+  assert.equal(protoAnalysis.unmatchedOldGroups[0].name, '未命名旧分组');
+
+  // 4) applyPresetMigrationToSnapshots with cleanRemovedIds: true preserves own 'toString'/'constructor' prompt switches
+  const migratedProto = applyPresetMigrationToSnapshots(
+    [
+      {
+        id: 's_ts',
+        scope: { preset: true },
+        preset: {
+          name: 'Old',
+          prompts: { toString: true, constructor: false, '0': true },
+          groups: { toString: false, '0': true },
+        },
+      },
+    ],
+    {
+      targetPresetNorm: {
+        prompts: [
+          { id: 'toString', name: 'TS', enabled: false },
+          { id: 'constructor', name: 'Ctor', enabled: true },
+          { id: '0', name: 'Zero', enabled: false },
+          { id: 'length', name: 'Len', enabled: true },
+        ],
+        groups: [
+          { id: 'toString', name: 'TS Group', enabled: true },
+          { id: '0', name: 'Zero Group', enabled: false },
+        ],
+      },
+      analysis: null,
+      // Pass Arrays intentionally for decision/override maps: must be ignored safely
+      newPromptDecisions: [{ include: true, enabled: false }],
+      forceOverridePrompts: [false],
+      forceOverrideGroups: [true],
+      cleanRemovedIds: true,
+    },
+  );
+  assert.equal(Object.prototype.hasOwnProperty.call(migratedProto[0].preset.prompts, 'toString'), true);
+  assert.equal(migratedProto[0].preset.prompts.toString, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(migratedProto[0].preset.prompts, 'constructor'), true);
+  assert.equal(migratedProto[0].preset.prompts.constructor, false);
+  assert.equal(migratedProto[0].preset.prompts['0'], true); // Array forceOverridePrompts[0] was ignored
+  assert.equal(Object.prototype.hasOwnProperty.call(migratedProto[0].preset.prompts, 'length'), false); // Array.length ignored
+  assert.equal(migratedProto[0].preset.groups.toString, false);
+  assert.equal(migratedProto[0].preset.groups['0'], true); // Array forceOverrideGroups[0] was ignored
+
+  // Array passed as opts falls back safely without throwing
+  assert.equal(applyPresetMigrationToSnapshots([{ id: 's1', scope: { preset: true }, preset: { name: 'P', prompts: {}, groups: {} } }], []).length, 1);
+});
+
+test('F4 regression: string/boxed-String opts trap (T2.6) and null/non-object groupsById entries (T2.5)', () => {
+  const norm = {
+    prompts: [{ id: 'p1', name: 'P1', enabled: true, content: 'abc' }],
+    groups: [{ id: 'g1', name: 'G1', enabled: true }],
+    groupsById: { g1: { id: 'g1', name: 'G1', enabled: true } },
+    promptGroupMap: { p1: 'g1' },
+  };
+  const snapPreset = { prompts: { p1: true }, groups: {} };
+
+  // T2.6: string primitive, non-empty string, boxed String, and non-string search must not hit String.prototype.search
+  for (const weirdOpts of ['', 'str', new String('abc'), { search: 123 }]) {
+    const renderRes = buildPresetRenderNodes(norm, weirdOpts);
+    assert.equal(renderRes.nodes.length, 1);
+    assert.equal(renderRes.nodes[0].type, 'group');
+    assert.equal(renderRes.nodes[0].items.length, 1);
+    assert.equal(renderRes.nodes[0].forceExpand, false);
+
+    const inspectRes = buildSnapshotPresetInspectModel(snapPreset, norm, weirdOpts);
+    assert.equal(inspectRes.nodes.length, 1);
+    assert.equal(inspectRes.nodes[0].type, 'group');
+    assert.equal(inspectRes.nodes[0].items.length, 1);
+    assert.equal(inspectRes.nodes[0].forceExpand, false);
+
+    const syncRes = buildPresetSyncOverrideTree(norm, [], weirdOpts);
+    assert.equal(syncRes.matchedCount, 1);
+    assert.equal(syncRes.nodes.length, 1);
+    assert.equal(syncRes.nodes[0].type, 'group');
+    assert.equal(syncRes.nodes[0].items.length, 1);
+    assert.equal(syncRes.nodes[0].forceExpand, false);
+  }
+
+  // Normal plain-object search still filters accurately
+  assert.equal(buildPresetRenderNodes(norm, { search: 'abc' }).nodes.length, 1);
+  assert.equal(buildPresetRenderNodes(norm, { search: 'nope' }).nodes.length, 0);
+
+  // T2.5: groupsById entries mapped to null/undefined/non-plain-object degrade cleanly to ungrouped prompts
+  const normBadGroups = {
+    prompts: [
+      { id: 'p1', name: 'Alpha', enabled: true, content: 'abc' },
+      { id: 'p2', name: 'Beta', enabled: false, content: 'abc' },
+      { id: 'p3', name: 'Gamma', enabled: true, content: 'xyz' },
+    ],
+    groups: [
+      { id: 'g1', name: 'G1', enabled: true },
+      { id: 'g2', name: 'G2', enabled: true },
+      { id: 'g3', name: 'G3', enabled: true },
+    ],
+    groupsById: { g1: null, g2: undefined, g3: ['bad'] },
+    promptGroupMap: { p1: 'g1', p2: 'g2', p3: 'g3' },
+  };
+
+  const renderBadOnlyOn = buildPresetRenderNodes(normBadGroups, { search: 'abc', onlyOn: true });
+  assert.equal(renderBadOnlyOn.nodes.length, 1);
+  assert.equal(renderBadOnlyOn.nodes[0].type, 'prompt');
+  assert.equal(renderBadOnlyOn.nodes[0].prompt.id, 'p1');
+
+  const renderBadSearch = buildPresetRenderNodes(normBadGroups, { search: 'xyz' });
+  assert.equal(renderBadSearch.nodes.length, 1);
+  assert.equal(renderBadSearch.nodes[0].type, 'prompt');
+  assert.equal(renderBadSearch.nodes[0].prompt.id, 'p3');
+
+  const inspectBadOnlyOn = buildSnapshotPresetInspectModel(
+    { prompts: { p1: true, p2: false, p3: true }, groups: {} },
+    normBadGroups,
+    { search: 'abc', onlyOn: true },
+  );
+  assert.equal(inspectBadOnlyOn.nodes.length, 1);
+  assert.equal(inspectBadOnlyOn.nodes[0].type, 'prompt');
+  assert.equal(inspectBadOnlyOn.nodes[0].prompt.id, 'p1');
+  assert.equal(inspectBadOnlyOn.nodes[0].prompt.effectiveOn, true);
+
+  const inspectBadAll = buildSnapshotPresetInspectModel(
+    { prompts: { p1: true, p2: false, p3: true }, groups: {} },
+    normBadGroups,
+    {},
+  );
+  assert.deepEqual(inspectBadAll.nodes.map(n => n.type), ['prompt', 'prompt', 'prompt']);
+
+  const syncBadSearch = buildPresetSyncOverrideTree(normBadGroups, [], { search: 'abc' });
+  assert.equal(syncBadSearch.matchedCount, 2);
+  assert.deepEqual(syncBadSearch.nodes.map(n => n.type), ['prompt', 'prompt']);
+  assert.deepEqual(syncBadSearch.nodes.map(n => n.prompt.id), ['p1', 'p2']);
+});

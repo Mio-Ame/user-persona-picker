@@ -31,15 +31,18 @@ import {
   APP_VERSION,
   THEME_MODES,
   analyzePresetMigration,
+  applyPersonaMergeToVersions,
   applyPresetMigrationToSnapshots,
   buildCleanCopyText,
+  buildPersonaMergePlan,
   buildPresetRenderNodes,
+  buildReleaseVersionToNativePayload,
   buildSnapshotPresetInspectModel,
+  canUseExternalOrganizer,
   clampModalRect,
   clampModalSize,
   computeDraggedModalPosition,
   computeLineDiff,
-  computeMiniWindowRect,
   computeResizedModalRect,
   computeRestorePillPosition,
   createEmptyStore,
@@ -52,6 +55,7 @@ import {
   inferThemeFromTextColor,
   inspectSnapshotHealth,
   inspectTagHygiene,
+  isBuiltinModuleEnabled,
   markStoreOnWorldbookDeleted,
   migrateStoreOnWorldbookRename,
   normalizeNativePreset,
@@ -59,6 +63,7 @@ import {
   parseImportJson,
   pickActivePromptOrder,
   resolveBindingForContext,
+  restorePersonaMergeVersions,
   sanitizeStore,
   suggestSnapshotNames,
   toOpaqueColor,
@@ -70,17 +75,30 @@ const LEGACY_LOCAL_KEY = 'userPersonaPicker.v6';
 const HOST_ID = 'user-persona-picker-host';
 const MENU_ENTRY_ID = 'user-persona-picker-menu-entry';
 const SETTINGS_BOX_ID = 'user-persona-picker-ext-settings';
+const NATIVE_PERSONA_BAR_ID = 'upp-native-persona-bar';
 const MAX_BOOK_CACHE = 6;
+const FALLBACK_1PX_PNG_BYTES = new Uint8Array([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+  0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196,
+  137, 0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0,
+  5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174,
+  66, 96, 130,
+]);
 let activeCleanup = null;
 
 function canAutoFocusDesktop() {
   try {
     return typeof window !== 'undefined'
-      && window.innerWidth > 640
+      && window.innerWidth > 680
       && !window.matchMedia?.('(pointer: coarse)')?.matches;
   } catch (_) {
     return false;
   }
+}
+
+function focusDesktopSafe(el) {
+  if (!el || !canAutoFocusDesktop()) return;
+  try { el.focus({ preventScroll: true }); } catch (_) {}
 }
 
 function emitWindowEvent(name, detail) {
@@ -180,7 +198,7 @@ function applyThemeToElement(el, mode) {
   const resolvedMode = THEME_MODES.includes(mode) ? mode : 'paper';
   // Clear any previous dynamic host inline vars
   [
-    '--bg', '--surface', '--surface-strong', '--border', '--border-strong',
+    '--bg', '--chrome', '--surface', '--surface-strong', '--border', '--border-strong',
     '--text', '--accent', '--accent-soft', '--accent-border', '--accent-border-strong',
     '--accent-text',
   ].forEach(k => {
@@ -207,10 +225,45 @@ function applyThemeToElement(el, mode) {
   }
 }
 
-function getOrganizerSettings() {
+function getDisabledExtensions() {
+  return getContext()?.extensionSettings?.disabledExtensions ?? extension_settings?.disabledExtensions ?? [];
+}
+
+function isConnectionManagerEnabled() {
+  return isBuiltinModuleEnabled(getDisabledExtensions(), 'connection-manager');
+}
+
+function isRegexModuleEnabled() {
+  return isBuiltinModuleEnabled(getDisabledExtensions(), 'regex');
+}
+
+function getRawOrganizerSettings() {
   const ctxExt = getContext()?.extensionSettings;
   const raw = ctxExt?.worldbook_organizer || extension_settings?.worldbook_organizer;
-  return raw && typeof raw === 'object' ? raw : null;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+function hasActiveOrganizerRuntime() {
+  if (typeof document === 'undefined') return false;
+  return Boolean(
+    document.getElementById('wbo-wand-entry')
+    || document.getElementById('wbo-wi-quick-actions')
+    || document.getElementById('wbo-hdr-show-char')
+    || document.getElementById('wbo-manager-overlay')
+    || document.querySelector('[id^="wbo-"]'),
+  );
+}
+
+function hasActiveOrganizer() {
+  return canUseExternalOrganizer({
+    orgSettings: getRawOrganizerSettings(),
+    disabledExtensions: getDisabledExtensions(),
+    hasActiveRuntime: hasActiveOrganizerRuntime(),
+  });
+}
+
+function getOrganizerSettings() {
+  return hasActiveOrganizer() ? getRawOrganizerSettings() : null;
 }
 
 function findPresetGroupsBucket(presetObj) {
@@ -264,6 +317,20 @@ function getRuntimePresetGroups() {
 // Store Persistence (ST extension_settings + auto-migrate v6)
 // =========================
 
+function isNativePersonaBarEnabled() {
+  const raw = extension_settings?.[EXT_KEY];
+  if (raw && typeof raw.showNativePersonaBar === 'boolean') return raw.showNativePersonaBar;
+  return true;
+}
+
+function setNativePersonaBarEnabled(enabled) {
+  if (!extension_settings[EXT_KEY] || typeof extension_settings[EXT_KEY] !== 'object') {
+    extension_settings[EXT_KEY] = sanitizeStore(createEmptyStore());
+  }
+  extension_settings[EXT_KEY].showNativePersonaBar = !!enabled;
+  try { saveSettingsDebounced(); } catch (_) {}
+}
+
 function loadStore() {
   let raw = extension_settings[EXT_KEY];
   if (!raw || typeof raw !== 'object') {
@@ -273,13 +340,39 @@ function loadStore() {
       if (legacy) raw = JSON.parse(legacy);
     } catch (_) {}
   }
+  const showNativePersonaBar = typeof raw?.showNativePersonaBar === 'boolean' ? raw.showNativePersonaBar : true;
   const clean = sanitizeStore(raw || createEmptyStore());
+  clean.showNativePersonaBar = showNativePersonaBar;
+  if (raw && typeof raw === 'object' && extension_settings[EXT_KEY] === raw) {
+    raw.version = clean.version;
+    raw.settings = clean.settings;
+    raw.snapshots = clean.snapshots;
+    raw.personaVersions = clean.personaVersions;
+    raw.bindings = clean.bindings;
+    raw.showNativePersonaBar = showNativePersonaBar;
+    return raw;
+  }
   extension_settings[EXT_KEY] = clean;
   return clean;
 }
 
 function persistStore(store) {
+  const prevBar = extension_settings?.[EXT_KEY]?.showNativePersonaBar;
+  const showNativePersonaBar = typeof store?.showNativePersonaBar === 'boolean'
+    ? store.showNativePersonaBar
+    : (typeof prevBar === 'boolean' ? prevBar : true);
   const clean = sanitizeStore(store);
+  clean.showNativePersonaBar = showNativePersonaBar;
+  if (store && typeof store === 'object' && extension_settings[EXT_KEY] === store) {
+    store.version = clean.version;
+    store.settings = clean.settings;
+    store.snapshots = clean.snapshots;
+    store.personaVersions = clean.personaVersions;
+    store.bindings = clean.bindings;
+    store.showNativePersonaBar = showNativePersonaBar;
+    try { saveSettingsDebounced(); } catch (_) {}
+    return store;
+  }
   extension_settings[EXT_KEY] = clean;
   try { saveSettingsDebounced(); } catch (_) {}
   return clean;
@@ -412,7 +505,7 @@ const Host = {
   async switchPersona(avatarId) {
     if (!avatarId || !power_user?.personas?.[avatarId]) return false;
     if (user_avatar === avatarId) return true;
-    await setUserAvatar(avatarId, { toastPersonaNameChange: false, navigateToCurrent: true });
+    await setUserAvatar(avatarId, { toastPersonaNameChange: false, navigateToCurrent: false });
     return true;
   },
   async updatePersonaInPlace(avatarId, description, lorebook) {
@@ -470,6 +563,55 @@ const Host = {
     saveSettingsDebounced();
     try { await getUserAvatars(true); } catch (_) {}
     return true;
+  },
+  async fetchPersonaAvatarBlob(avatarId) {
+    const aid = String(avatarId || '').trim();
+    if (!aid) return null;
+    try {
+      const resp = await fetch(`/User Avatars/${encodeURIComponent(aid)}`, { cache: 'no-cache' });
+      if (!resp || !resp.ok) return null;
+      return await resp.blob();
+    } catch (_) {
+      return null;
+    }
+  },
+  async createNativePersona({ name, description, lorebook, avatarBlob, overwriteName, suggestedAvatarId } = {}) {
+    const cleanName = String(name || '').trim().slice(0, 60) || '恢复的 User';
+    const fallbackBlob = new Blob([FALLBACK_1PX_PNG_BYTES], { type: 'image/png' });
+    const blob = (avatarBlob && typeof avatarBlob.size === 'number' && avatarBlob.size > 0) ? avatarBlob : fallbackBlob;
+    const fd = new FormData();
+    const uploadFilename = (typeof overwriteName === 'string' && overwriteName.trim())
+      ? overwriteName.trim()
+      : (String(suggestedAvatarId || '').trim() || 'persona.png');
+    fd.append('avatar', blob, uploadFilename);
+    if (typeof overwriteName === 'string' && overwriteName.trim()) {
+      fd.append('overwrite_name', overwriteName.trim());
+    }
+    const headers = { ...(getRequestHeaders() || {}) };
+    delete headers['Content-Type'];
+    delete headers['content-type'];
+    const resp = await fetch('/api/avatars/upload', {
+      method: 'POST',
+      headers,
+      body: fd,
+    });
+    if (!resp || !resp.ok) {
+      throw new Error(`创建原生 User 头像失败 (${resp?.status || 'network'})`);
+    }
+    let data = null;
+    try { data = await resp.json(); } catch (_) { data = null; }
+    const newId = String(data?.path || uploadFilename).trim();
+    if (!newId) throw new Error('未能获取新建原生 User 头像标识');
+    if (!power_user.personas) power_user.personas = {};
+    if (!power_user.persona_descriptions) power_user.persona_descriptions = {};
+    power_user.personas[newId] = cleanName;
+    power_user.persona_descriptions[newId] = {
+      description: String(description || ''),
+      lorebook: typeof lorebook === 'string' ? lorebook : '',
+    };
+    saveSettingsDebounced();
+    try { await getUserAvatars(true, newId); } catch (_) {}
+    return newId;
   },
   async listOrphanAvatars() {
     try {
@@ -959,6 +1101,7 @@ const Host = {
 
   // --- Regex (Native ST regex extension via dynamic import) ---
   async getRegexes(scope) {
+    if (!isRegexModuleEnabled()) return [];
     const eng = await ensureRegexEngine();
     if (!eng || typeof eng.getScriptsByType !== 'function' || !eng.SCRIPT_TYPES) return [];
     const type = scope === 'character'
@@ -985,6 +1128,9 @@ const Host = {
     }
   },
   async toggleRegex(scope, id, enabled) {
+    if (!isRegexModuleEnabled()) {
+      throw new Error('酒馆内置正则模块已禁用');
+    }
     const eng = await ensureRegexEngine();
     if (!eng || typeof eng.getScriptsByType !== 'function' || typeof eng.saveScriptsByType !== 'function') {
       throw new Error('未检测到酒馆内置正则模块');
@@ -1011,6 +1157,7 @@ const Host = {
   async batchToggleRegexes(scope, idMap) {
     const wanted = Object.keys(idMap || {});
     if (!wanted.length) return { changed: 0, skipped: 0 };
+    if (!isRegexModuleEnabled()) return { changed: 0, skipped: wanted.length };
     const eng = await ensureRegexEngine();
     if (!eng || typeof eng.getScriptsByType !== 'function' || typeof eng.saveScriptsByType !== 'function') {
       return { changed: 0, skipped: wanted.length };
@@ -1050,8 +1197,7 @@ const Host = {
     try {
       const ctx = getContext();
       const cm = ctx?.extensionSettings?.connectionManager || extension_settings?.connectionManager;
-      const disabled = Array.isArray(ctx?.extensionSettings?.disabledExtensions)
-        && ctx.extensionSettings.disabledExtensions.includes('connection-manager');
+      const disabled = !isConnectionManagerEnabled();
       if (disabled || !Array.isArray(cm?.profiles)) return [];
       return cm.profiles
         .filter(p => p && p.id && p.name)
@@ -1069,8 +1215,7 @@ const Host = {
     try {
       const ctx = getContext();
       const cm = ctx?.extensionSettings?.connectionManager || extension_settings?.connectionManager;
-      const disabled = Array.isArray(ctx?.extensionSettings?.disabledExtensions)
-        && ctx.extensionSettings.disabledExtensions.includes('connection-manager');
+      const disabled = !isConnectionManagerEnabled();
       const selectedId = !disabled && cm?.selectedProfile ? String(cm.selectedProfile) : '';
       const profiles = Array.isArray(cm?.profiles) ? cm.profiles : [];
       const activeProfile = selectedId ? profiles.find(p => p && String(p.id) === selectedId) : null;
@@ -1125,7 +1270,7 @@ const Host = {
     const ctx = getContext();
 
     // Case A: Built-in Connection Profile
-    if (apiObj.profileId || apiObj.profileName) {
+    if ((apiObj.profileId || apiObj.profileName) && isConnectionManagerEnabled()) {
       const profiles = this.listConnectionProfiles();
       const target = profiles.find(p => p.id === apiObj.profileId)
         || profiles.find(p => p.name === apiObj.profileName);
@@ -1147,6 +1292,10 @@ const Host = {
         await ctx.executeSlashCommandsWithOptions(`/profile ${target.name}`, { handleParserErrors: false });
         return { applied: true, skipped: 0, switchedProfile: true };
       }
+      return { applied: false, skipped: 1, switchedProfile: false };
+    }
+
+    if ((apiObj.profileId || apiObj.profileName) && !isConnectionManagerEnabled() && !apiObj.source && !apiObj.model) {
       return { applied: false, skipped: 1, switchedProfile: false };
     }
 
@@ -1326,16 +1475,22 @@ async function captureLiveSnapshot(opts, store) {
   }
 
   if (scope.regex) {
-    const mapList = list => {
-      const m = {};
-      (list || []).forEach(r => { if (r && r.id) m[r.id] = !!r.enabled; });
-      return m;
-    };
-    snap.regex = {
-      global: mapList(await Host.getRegexes('global')),
-      character: mapList(await Host.getRegexes('character')),
-      preset: mapList(await Host.getRegexes('preset')),
-    };
+    const rgEng = isRegexModuleEnabled() ? await ensureRegexEngine() : false;
+    if (!rgEng || typeof rgEng.getScriptsByType !== 'function') {
+      snap.scope.regex = false;
+      snap.regex = null;
+    } else {
+      const mapList = list => {
+        const m = {};
+        (list || []).forEach(r => { if (r && r.id) m[r.id] = !!r.enabled; });
+        return m;
+      };
+      snap.regex = {
+        global: mapList(await Host.getRegexes('global')),
+        character: mapList(await Host.getRegexes('character')),
+        preset: mapList(await Host.getRegexes('preset')),
+      };
+    }
   }
 
   if (scope.api) {
@@ -1479,8 +1634,6 @@ const ICONS = {
   back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
   play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>',
   save: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
-  miniWindow: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="4" y="12" width="16" height="7" rx="1" fill="currentColor" fill-opacity="0.18"/></svg>',
-  restoreSize: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><polyline points="15 10 18 7 15 7"/><line x1="18" y1="7" x2="12" y2="13"/></svg>',
   minimize: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
   resizeGrip: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="11" y1="5" x2="5" y2="11"/><line x1="11" y1="9" x2="9" y2="11"/></svg>',
 };
@@ -1492,6 +1645,12 @@ const ICONS = {
 const STYLE_CSS = `
 :host {
   all: initial;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
   line-height: 1.45;
@@ -1504,114 +1663,125 @@ const STYLE_CSS = `
 .upp-backdrop,
 .upp-fab-root,
 .upp-restore-pill {
-  --bg: #f6f6f3;
-  --surface: #eeeeea;
-  --surface-strong: #fcfcfb;
-  --surface-hover: #e7e7e1;
-  --border: #e2e2dc;
-  --border-strong: #c8c8c0;
-  --text: #262626;
-  --muted: #70706c;
+  --bg: #f1f1ec;
+  --chrome: #e5e5de;
+  --surface: #e9e9e3;
+  --surface-strong: #ffffff;
+  --surface-hover: #e1e1da;
+  --border: #d8d8d0;
+  --border-strong: #b8b8ae;
+  --text: #222220;
+  --muted: #656560;
   --accent: #2c2c2e;
-  --accent-soft: rgba(44, 44, 46, 0.09);
-  --accent-border: color-mix(in srgb, var(--accent) 30%, var(--border));
-  --accent-border-strong: color-mix(in srgb, var(--accent) 42%, var(--border));
+  --accent-soft: rgba(44, 44, 46, 0.10);
+  --accent-border: color-mix(in srgb, var(--accent) 34%, var(--border));
+  --accent-border-strong: color-mix(in srgb, var(--accent) 52%, var(--border));
   --accent-text: #fcfcfb;
-  --ok: #3f7a6d;
-  --ok-soft: rgba(63, 122, 109, 0.13);
-  --warn: #a66e38;
-  --warn-soft: rgba(166, 110, 56, 0.13);
+  --ok: #367365;
+  --ok-soft: rgba(54, 115, 101, 0.14);
+  --warn: #9f6730;
+  --warn-soft: rgba(159, 103, 48, 0.15);
   --danger: #a53c3c;
-  --danger-soft: rgba(165, 60, 60, 0.11);
-  --switch-off: #d2d2cc;
-  --shadow: 0 18px 46px rgba(24, 24, 24, 0.14);
+  --danger-soft: rgba(165, 60, 60, 0.12);
+  --switch-off: #c9c9c1;
+  --shadow: 0 12px 32px rgba(18, 20, 26, 0.18), 0 0 0 1px rgba(18, 20, 26, 0.08);
+  --modal-shadow: 0 16px 44px rgba(18, 20, 26, 0.24), 0 2px 10px rgba(18, 20, 26, 0.12);
+  --card-shadow: 0 1px 2px rgba(18, 20, 26, 0.05);
+  --scrim: rgba(20, 24, 32, 0.22);
 }
 
 .upp-backdrop[data-theme="ink"],
 .upp-fab-root[data-theme="ink"],
 .upp-restore-pill[data-theme="ink"] {
-  --bg: #f1f4f6;
-  --surface: #e7ecef;
-  --surface-strong: #fbfcfd;
-  --surface-hover: #dce6ec;
-  --border: #d4dde3;
-  --border-strong: #aebec9;
-  --text: #1f2b33;
-  --muted: #5d707d;
-  --accent: #2c7a7b;
-  --accent-soft: rgba(44, 122, 123, 0.12);
+  --bg: #ebf0f3;
+  --chrome: #dde5ea;
+  --surface: #e2eaef;
+  --surface-strong: #ffffff;
+  --surface-hover: #d5e1e8;
+  --border: #c8d5de;
+  --border-strong: #9fb4c2;
+  --text: #1c2830;
+  --muted: #536775;
+  --accent: #267072;
+  --accent-soft: rgba(38, 112, 114, 0.13);
   --accent-text: #ffffff;
-  --ok: #2c7a7b;
-  --ok-soft: rgba(44, 122, 123, 0.13);
-  --switch-off: #c3d1da;
+  --ok: #267072;
+  --ok-soft: rgba(38, 112, 114, 0.14);
+  --switch-off: #b8c9d4;
 }
 
 .upp-backdrop[data-theme="warm"],
 .upp-fab-root[data-theme="warm"],
 .upp-restore-pill[data-theme="warm"] {
-  --bg: #f6f2ea;
-  --surface: #ede7dc;
-  --surface-strong: #fdfbf7;
-  --surface-hover: #e6dfd2;
-  --border: #dfd6c8;
-  --border-strong: #c5b8a4;
-  --text: #2f2820;
-  --muted: #7b6f60;
-  --accent: #8c6239;
-  --accent-soft: rgba(140, 98, 57, 0.12);
+  --bg: #f1ece2;
+  --chrome: #e5ddd0;
+  --surface: #e9e2d6;
+  --surface-strong: #fffdf9;
+  --surface-hover: #dfd6c6;
+  --border: #d5cab8;
+  --border-strong: #b6a68e;
+  --text: #2c241c;
+  --muted: #706455;
+  --accent: #825932;
+  --accent-soft: rgba(130, 89, 50, 0.13);
   --accent-text: #ffffff;
-  --ok: #4d7c66;
-  --ok-soft: rgba(77, 124, 102, 0.13);
-  --switch-off: #d4cab9;
+  --ok: #46745e;
+  --ok-soft: rgba(70, 116, 94, 0.14);
+  --switch-off: #cabfa9;
 }
 
 .upp-backdrop[data-theme="sakura"],
 .upp-fab-root[data-theme="sakura"],
 .upp-restore-pill[data-theme="sakura"] {
-  --bg: #faf3f5;
-  --surface: #f3e8ec;
-  --surface-strong: #fffcfd;
-  --surface-hover: #ecdde3;
-  --border: #e6d5dc;
-  --border-strong: #cfb4bf;
-  --text: #34242b;
-  --muted: #7f6670;
-  --accent: #b85d7a;
-  --accent-soft: rgba(184, 93, 122, 0.12);
+  --bg: #f6edf0;
+  --chrome: #ecdfe4;
+  --surface: #f0e4e8;
+  --surface-strong: #ffffff;
+  --surface-hover: #e7d5dc;
+  --border: #dec9d1;
+  --border-strong: #c2a1ae;
+  --text: #312128;
+  --muted: #755d67;
+  --accent: #ad5270;
+  --accent-soft: rgba(173, 82, 112, 0.13);
   --accent-text: #ffffff;
-  --ok: #4c8376;
-  --ok-soft: rgba(76, 131, 118, 0.13);
-  --switch-off: #dec7d0;
+  --ok: #477d70;
+  --ok-soft: rgba(71, 125, 112, 0.14);
+  --switch-off: #d5bcc6;
 }
 
 .upp-backdrop[data-theme="glass-dark"],
 .upp-fab-root[data-theme="glass-dark"],
 .upp-restore-pill[data-theme="glass-dark"] {
-  --bg: #191a1d;
-  --surface: #232429;
-  --surface-strong: #2c2e34;
-  --surface-hover: #35373f;
-  --border: #313238;
-  --border-strong: #484a52;
-  --text: #ecece8;
-  --muted: #9a9b9f;
-  --accent: #dcdcd8;
-  --accent-soft: rgba(220, 220, 216, 0.14);
-  --accent-text: #18191c;
+  --bg: #17181c;
+  --chrome: #111216;
+  --surface: #202228;
+  --surface-strong: #292c34;
+  --surface-hover: #333741;
+  --border: #353842;
+  --border-strong: #525666;
+  --text: #f0f0ec;
+  --muted: #a1a3ac;
+  --accent: #e0e0dc;
+  --accent-soft: rgba(224, 224, 220, 0.15);
+  --accent-text: #141518;
   --ok: #56b49c;
-  --ok-soft: rgba(86, 180, 156, 0.16);
+  --ok-soft: rgba(86, 180, 156, 0.18);
   --warn: #e5a95c;
-  --warn-soft: rgba(229, 169, 92, 0.16);
+  --warn-soft: rgba(229, 169, 92, 0.18);
   --danger: #e06c6c;
-  --danger-soft: rgba(224, 108, 108, 0.16);
-  --switch-off: rgba(255, 255, 255, 0.2);
-  --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  --danger-soft: rgba(224, 108, 108, 0.18);
+  --switch-off: rgba(255, 255, 255, 0.22);
+  --shadow: 0 18px 46px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --modal-shadow: 0 22px 58px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(255, 255, 255, 0.10);
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --scrim: rgba(0, 0, 0, 0.46);
 }
 
 .upp-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 2147483000;
+  z-index: 30000;
   background: transparent;
   pointer-events: none;
   display: flex;
@@ -1636,12 +1806,13 @@ const STYLE_CSS = `
   pointer-events: auto;
   container-type: inline-size;
   container-name: plugin-win;
-  width: min(780px, calc(100vw - 24px));
+  width: min(780px, 100%);
   height: min(690px, 88dvh);
+  max-height: 100dvh;
   background: var(--bg);
-  border: 1px solid var(--border-strong);
+  border: 1.5px solid var(--border-strong);
   border-radius: 16px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1649,10 +1820,6 @@ const STYLE_CSS = `
 .upp-modal.is-floating {
   position: fixed;
   margin: 0;
-}
-.upp-modal.is-mini {
-  border-radius: 16px;
-  border: 1px solid var(--border-strong);
 }
 .upp-modal.is-dragging,
 .upp-modal.is-resizing {
@@ -1665,8 +1832,10 @@ const STYLE_CSS = `
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 11px 16px 9px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 16px 9px;
+  background: var(--chrome);
+  border-top: 2.5px solid var(--accent);
+  border-bottom: 1px solid var(--border-strong);
 }
 .upp-modal.is-draggable .upp-header {
   cursor: grab;
@@ -1688,7 +1857,7 @@ const STYLE_CSS = `
 .upp-tabs {
   flex-shrink: 0; display: flex; align-items: center; gap: 5px;
   padding: 7px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
-  overflow-x: auto; scrollbar-width: none;
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
 }
 .upp-tabs::-webkit-scrollbar { display: none; }
 .upp-tab {
@@ -1696,14 +1865,18 @@ const STYLE_CSS = `
   background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 550; line-height: 1;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   white-space: nowrap; flex-shrink: 0; vertical-align: middle;
-  transition: background 0.14s, color 0.14s, border-color 0.14s;
+  transition: background 0.14s, color 0.14s, border-color 0.14s, box-shadow 0.14s;
 }
 .upp-tab > span { line-height: 1; display: inline-flex; align-items: center; }
 .upp-tab:hover { color: var(--text); background: var(--surface-hover); }
-.upp-tab.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); }
+.upp-tab.active {
+  color: var(--accent); background: var(--surface-strong);
+  border-color: var(--accent-border-strong); font-weight: 650;
+  box-shadow: var(--card-shadow);
+}
 .upp-tab-count {
   font-size: 11px; line-height: 1; height: 16px; min-width: 16px; padding: 0 5px;
-  border-radius: 999px; background: var(--surface-strong); border: 1px solid var(--border);
+  border-radius: 999px; background: var(--surface-strong); border: 1px solid var(--border-strong);
   color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
   font-variant-numeric: tabular-nums;
 }
@@ -1713,7 +1886,7 @@ const STYLE_CSS = `
 
 .upp-toolbar {
   flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-  padding: 9px 16px; border-bottom: 1px solid var(--border);
+  padding: 9px 16px; background: var(--surface); border-bottom: 1px solid var(--border-strong);
   height: 88px; justify-content: center; overflow: hidden;
 }
 .upp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1744,14 +1917,16 @@ const STYLE_CSS = `
   gap: 5px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.upp-btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.upp-btn:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-strong); }
 .upp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .upp-btn.icon-only { width: 30px; padding: 0; }
 .upp-btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 550; }
-.upp-btn.primary:hover { filter: brightness(1.06); }
+.upp-btn.primary:hover:not(:disabled) { filter: brightness(1.06); }
+.upp-btn.secondary { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); font-weight: 520; }
+.upp-btn.secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, var(--surface-strong)); border-color: var(--accent-border-strong); }
 .upp-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border-strong); }
-.upp-btn.danger { color: var(--danger); }
-.upp-btn.danger:hover { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.upp-btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, var(--border)); }
+.upp-btn.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 42%, transparent); }
 .upp-btn.pinned { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
 
 .upp-select { padding: 0 24px 0 9px; cursor: pointer; min-width: 0; max-width: 100%; outline: none; }
@@ -1786,7 +1961,7 @@ const STYLE_CSS = `
 }
 
 .upp-body {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
   padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 8px;
 }
 .upp-body > * { flex-shrink: 0; }
@@ -1799,10 +1974,7 @@ const STYLE_CSS = `
 
 .upp-footer {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface);
-}
-.upp-modal.is-resizable .upp-footer {
-  padding-right: 30px;
+  padding: 10px 16px; border-top: 1px solid var(--border-strong); background: var(--chrome);
 }
 .upp-foot-status {
   min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px;
@@ -1813,7 +1985,7 @@ const STYLE_CSS = `
 .upp-foot-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .upp-foot-actions .upp-btn { height: 32px; padding: 0 12px; }
 
-.upp-pill-strip { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding-bottom: 1px; scrollbar-width: none; }
+.upp-pill-strip { display: flex; align-items: center; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 1px; scrollbar-width: none; }
 .upp-pill-strip::-webkit-scrollbar { display: none; }
 .upp-pill {
   height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
@@ -1832,9 +2004,9 @@ const STYLE_CSS = `
 .upp-pill.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border-strong); font-weight: 550; }
 
 .upp-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+  background: var(--surface-strong); border: 1px solid var(--border-strong); border-radius: 13px;
   padding: 11px 13px; display: flex; flex-direction: column; gap: 8px;
-  min-width: 0; overflow: hidden;
+  min-width: 0; overflow: hidden; box-shadow: var(--card-shadow);
 }
 .upp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .upp-card-head > .upp-row-nowrap:first-child { flex: 1; min-width: 0; }
@@ -1857,7 +2029,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 
 /* Collapsible Group Box (shared by Preset tab and Snapshot Detail Viewer) */
 .upp-group-box {
-  border: 1px solid var(--border); border-radius: 13px; background: var(--surface); overflow: hidden;
+  border: 1px solid var(--border-strong); border-left: 3px solid var(--accent-border-strong);
+  border-radius: 12px; background: var(--surface); overflow: hidden; box-shadow: var(--card-shadow);
 }
 .upp-group-box.is-disabled { opacity: 0.72; }
 .upp-group-head {
@@ -1881,11 +2054,11 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-entry-list > * { flex-shrink: 0; }
 .upp-entry-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px;
-  border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 10px; border: 1px solid var(--border); background: var(--surface-strong);
   transition: background 0.12s, border-color 0.12s;
 }
 .upp-entry-row:hover { background: var(--surface-strong); border-color: var(--border-strong); }
-.upp-entry-row.is-on { border-color: var(--accent-border); background: var(--surface-strong); }
+.upp-entry-row.is-on { border-color: var(--accent-border-strong); background: var(--surface-strong); }
 .upp-entry-row.is-off { opacity: 0.68; }
 .upp-entry-main {
   flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 8px;
@@ -1921,6 +2094,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-entry-wrap.is-expanded .upp-entry-chev { transform: rotate(180deg); }
 .upp-inline-panel {
   border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
   border-top: 1px dashed var(--border);
   border-radius: 0 0 10px 10px;
   background: var(--bg);
@@ -1938,7 +2112,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   background: var(--surface-strong); color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
   font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
-  max-height: 280px; overflow-y: auto;
+  max-height: 280px; overflow-y: auto; overscroll-behavior: contain;
 }
 .upp-inline-textarea {
   width: 100%; min-height: 150px; max-height: 320px; resize: vertical;
@@ -1946,6 +2120,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   background: var(--surface-strong); color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
   font-size: 12px; line-height: 1.55; padding: 8px 10px; outline: none;
+  overscroll-behavior: contain;
 }
 .upp-inline-textarea:focus { border-color: var(--accent); }
 .upp-inline-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
@@ -1954,7 +2129,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-persona-live-box {
   font-size: 12.5px; line-height: 1.55; color: var(--text); background: var(--surface-strong);
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
-  max-height: 180px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; cursor: pointer;
+  max-height: 180px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; word-break: break-word; cursor: pointer;
 }
 .upp-persona-live-box:hover { border-color: var(--accent); }
 .upp-persona-live-box.is-empty { color: var(--muted); }
@@ -1985,7 +2160,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 
 /* Drawers — standard dialog + Full-Modal Snapshot Inspector */
 .upp-drawer-mask {
-  position: absolute; inset: 0; z-index: 20; background: rgba(15, 22, 36, 0.36);
+  position: absolute; inset: 0; z-index: 20; background: var(--scrim);
   pointer-events: none;
   display: flex; align-items: center; justify-content: center; padding: 14px;
 }
@@ -1993,31 +2168,37 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   pointer-events: auto;
 }
 .upp-drawer-mask.is-full { padding: 0; background: var(--bg); }
-.upp-resize-handle {
+.upp-drawer-mask.is-non-blocking:not([hidden]) {
+  pointer-events: none;
+  background: transparent;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 10px;
+}
+.upp-drawer-mask.is-non-blocking .upp-drawer {
+  pointer-events: auto;
+  width: min(440px, 100%);
+  height: 100%;
+  max-height: 100%;
+}
+/* 8 invisible edge + corner resize hotzones (desktop / floating mode) */
+.upp-rz {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 24px;
-  height: 24px;
-  z-index: 15;
-  cursor: nwse-resize;
+  z-index: 16;
   touch-action: none;
   user-select: none;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  padding: 5px;
-  color: var(--muted);
-  opacity: 0.6;
-  transition: opacity 0.12s, color 0.12s;
 }
-.upp-resize-handle:hover {
-  opacity: 1;
-  color: var(--accent);
-}
+.upp-rz-n { top: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.upp-rz-s { bottom: 0; left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.upp-rz-w { left: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.upp-rz-e { right: 0; top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.upp-rz-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; z-index: 17; }
+.upp-rz-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; z-index: 17; }
+.upp-rz-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; z-index: 17; }
+.upp-rz-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; z-index: 17; }
 .upp-drawer {
   width: min(620px, 100%); max-height: 100%; background: var(--surface-strong);
-  border: 1px solid var(--border-strong); border-radius: 15px; box-shadow: var(--shadow);
+  border: 1.5px solid var(--border-strong); border-radius: 15px; box-shadow: var(--modal-shadow);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .upp-drawer.is-fixed-box {
@@ -2051,7 +2232,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 #upp-snap-inspect-meta .upp-badge { flex: 0 1 auto; min-width: 48px; }
 #upp-snap-inspect-meta .upp-badge.upp-keep { flex-shrink: 0; min-width: 0; }
 .upp-drawer-body {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 14px;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 8px;
 }
 .upp-drawer-body > * { flex-shrink: 0; }
@@ -2068,7 +2249,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-text-input:focus, .upp-textarea:focus { border-color: var(--accent); }
 .upp-textarea {
-  min-height: 220px; resize: vertical; line-height: 1.55;
+  min-height: 220px; resize: vertical; line-height: 1.55; overscroll-behavior: contain;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
 }
 
@@ -2082,7 +2263,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-check-item > .upp-badge { flex-shrink: 0; max-width: 110px; }
 
 .upp-pop-list {
-  max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
+  max-height: 220px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: var(--bg);
 }
 .upp-pop-list > * { flex-shrink: 0; }
@@ -2118,7 +2299,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-diff-box {
   border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
-  max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+  max-height: 320px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
 }
 .upp-diff-line { padding: 1px 6px; border-radius: 4px; }
 .upp-diff-line.del { background: var(--danger-soft); color: var(--danger); }
@@ -2215,7 +2396,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-foot-actions { display: flex; width: 100%; gap: 7px; }
   .upp-foot-actions .upp-btn { flex: 1; min-width: 0; }
   .upp-drawer-foot { padding: 8px 12px; flex-wrap: wrap; }
-  .upp-drawer.is-fixed-box, .upp-drawer.is-fixed-sm { width: 100%; height: min(560px, 100%); }
+  .upp-drawer.is-fixed-box, .upp-drawer.is-fixed-sm, .upp-drawer-mask.is-non-blocking .upp-drawer { width: 100%; height: min(560px, 100%); }
   .upp-mobile-only { display: inline; }
   .upp-snap-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .upp-snap-actions .upp-spacer { display: none; }
@@ -2257,25 +2438,59 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-header .upp-btn.icon-only { width: 24px; height: 24px; }
 }
 
-@media (max-width: 640px) {
-  .upp-backdrop { padding: 0; align-items: flex-end; }
-  .upp-modal:not(.is-floating):not(.is-mini) {
-    width: 100vw;
-    height: 88dvh;
-    border-radius: 18px 18px 0 0;
+@media (max-width: 680px) {
+  .upp-backdrop {
+    padding: 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    align-items: flex-end;
+  }
+  .upp-modal:not(.is-floating) {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
     border-bottom: none;
   }
-  .upp-modal:not(.is-floating):not(.is-mini) .upp-footer {
+  .upp-modal:not(.is-floating) .upp-header {
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+  .upp-modal:not(.is-floating) .upp-footer {
     padding-bottom: calc(9px + env(safe-area-inset-bottom, 0px));
   }
-  .upp-modal:not(.is-floating):not(.is-mini) .upp-drawer-foot {
+  .upp-modal:not(.is-floating) .upp-drawer-foot {
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
-  .upp-modal:not(.is-floating):not(.is-mini) .upp-drawer.is-full .upp-drawer-head {
+  .upp-modal:not(.is-floating) .upp-drawer.is-full .upp-drawer-head {
     padding-top: calc(11px + env(safe-area-inset-top, 0px));
   }
-  .upp-modal:not(.is-floating):not(.is-mini) .upp-resize-handle { display: none; }
-  .upp-modal:not(.is-floating):not(.is-mini) .upp-header { cursor: default; touch-action: auto; }
+  .upp-modal:not(.is-floating) .upp-rz { display: none; }
+  .upp-modal:not(.is-floating) .upp-header { cursor: default; touch-action: auto; }
+}
+
+/* Mobile & coarse-pointer input font-size >= 16px and min-height >= 34px */
+@media (max-width: 680px), (pointer: coarse) {
+  .upp-input-wrap,
+  .upp-text-input,
+  .upp-select,
+  .upp-fab-search-wrap .upp-input-wrap {
+    min-height: 34px !important;
+    height: auto;
+  }
+  .upp-input-wrap input,
+  .upp-text-input,
+  .upp-select,
+  .upp-textarea,
+  .upp-inline-textarea,
+  .upp-fab-search-wrap input {
+    font-size: 16px !important;
+  }
+  .upp-input-wrap input,
+  .upp-fab-search-wrap input {
+    min-height: 34px !important;
+  }
 }
 
 /* Floating Quick-Switch Ball & Popover (inherits theme palette from .upp-fab-root) */
@@ -2303,14 +2518,14 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-fab {
   position: fixed;
-  z-index: 2147482000;
+  z-index: 29990;
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-strong);
   color: var(--accent);
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2329,17 +2544,17 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   height: 8px;
   border-radius: 50%;
   background: var(--ok);
-  box-shadow: 0 0 0 2px var(--bg);
+  box-shadow: 0 0 0 2px var(--surface-strong);
 }
 .upp-fab-pop {
   position: fixed;
-  z-index: 2147483001;
-  width: min(296px, calc(100vw - 24px));
-  max-height: min(410px, 72dvh, calc(100dvh - 24px));
+  z-index: 30001;
+  width: min(304px, calc(100dvw - 24px));
+  max-height: min(430px, 74dvh, calc(100dvh - 24px));
   background: var(--bg);
-  border: 1px solid var(--border-strong);
+  border: 1.5px solid var(--border-strong);
   border-radius: 15px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--modal-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2351,14 +2566,30 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   justify-content: space-between;
   gap: 8px;
   padding: 9px 11px;
-  border-bottom: 1px solid var(--border);
+  background: var(--chrome);
+  border-top: 2px solid var(--accent);
+  border-bottom: 1px solid var(--border-strong);
   font-size: 12.5px;
   font-weight: 600;
+}
+.upp-fab-search-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.upp-fab-search-wrap .upp-input-wrap {
+  height: 28px;
+  min-width: 0;
 }
 .upp-fab-pop-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -2442,7 +2673,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-fab-pop-foot .upp-btn { flex: 1; height: 29px; font-size: 11.5px; padding: 0 8px; }
 .upp-restore-pill {
   position: fixed;
-  z-index: 2147482002;
+  z-index: 29992;
   height: 34px;
   padding: 0 12px;
   border-radius: 999px;
@@ -2458,13 +2689,107 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100dvw - 24px);
   pointer-events: auto;
   transition: border-color 0.14s, background 0.14s;
 }
 .upp-restore-pill:hover {
   border-color: var(--accent);
   background: var(--surface-strong);
+}
+
+/* M3 Sectioning, In-Panel Subviews, Inline Editors & Merge Destination Clarity */
+.upp-section-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.upp-ma-block {
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.upp-block-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.upp-subview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.upp-subview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.upp-subview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+.upp-merge-dest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.upp-merge-dest-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+}
+.upp-merge-arrow {
+  color: var(--accent);
+  font-weight: 650;
+}
+.upp-sv-meta-panel {
+  margin: 8px 14px 0;
+  border-radius: 10px;
+  border-top: 1px solid var(--border-strong);
+  max-height: 55%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.upp-notice-box {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, var(--border));
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 `;
 
@@ -2481,6 +2806,7 @@ function initExtension() {
   document.getElementById(HOST_ID)?.remove();
   document.getElementById(MENU_ENTRY_ID)?.remove();
   document.getElementById(SETTINGS_BOX_ID)?.remove();
+  document.getElementById(NATIVE_PERSONA_BAR_ID)?.remove();
   ensureStylesheetCacheBust();
 
   const ac = new AbortController();
@@ -2501,6 +2827,23 @@ function initExtension() {
     personas: [],
     currentPersona: null,
     userSearch: '',
+    userView: 'main', // main | merge | diff
+    userInlineEditor: null, // null | rename | body
+    expandedPvIds: new Set(),
+    lastPersonaMergeUndo: null,
+    userMerge: {
+      keepId: '',
+      absorbIds: [],
+      deleteOld: false,
+      orphanAvatars: [],
+      query: '',
+      previewIds: new Set(),
+      showKeepPreview: false,
+    },
+    userDiff: {
+      leftId: '',
+      rightId: '',
+    },
 
     worldbooks: [],
     globalWorldbooks: [],
@@ -2527,6 +2870,7 @@ function initExtension() {
     regexList: [],
     regexSearch: '',
     regexOnlyOn: false,
+    expandedRegexIds: new Set(),
 
     lastPresetSyncUndo: null,
     drawer: null,
@@ -2563,11 +2907,9 @@ function initExtension() {
           <option value="host">跟随酒馆</option>
           <option value="glass-dark">深色夜间</option>
         </select>
-        <button class="upp-btn" id="upp-fab-vis-btn" title="显示或隐藏悬浮球">悬浮球</button>
-        <button class="upp-btn icon-only" id="upp-refresh-btn" title="刷新">${ICONS.refresh}</button>
-        <button class="upp-btn icon-only" id="upp-mini-btn" title="小窗对照" aria-pressed="false">${ICONS.miniWindow}</button>
-        <button class="upp-btn icon-only" id="upp-min-btn" title="收起为角落恢复条">${ICONS.minimize}</button>
-        <button class="upp-btn icon-only" id="upp-close-btn" title="关闭">${ICONS.close}</button>
+        <button type="button" class="upp-btn" id="upp-fab-vis-btn" title="显示或隐藏悬浮球">悬浮球</button>
+        <button type="button" class="upp-btn icon-only" id="upp-min-btn" title="收起为角落恢复条">${ICONS.minimize}</button>
+        <button type="button" class="upp-btn icon-only" id="upp-close-btn" title="关闭">${ICONS.close}</button>
       </div>
     </div>
     <div class="upp-tabs" id="upp-tabs"></div>
@@ -2575,7 +2917,14 @@ function initExtension() {
     <div class="upp-body" id="upp-body"></div>
     <div class="upp-footer" id="upp-footer"></div>
     <div class="upp-drawer-mask" id="upp-drawer-mask" hidden></div>
-    <div class="upp-resize-handle" id="upp-resize-handle" title="拖拽调整大小" aria-hidden="true">${ICONS.resizeGrip}</div>
+    <div class="upp-rz upp-rz-n" data-resize="n"></div>
+    <div class="upp-rz upp-rz-s" data-resize="s"></div>
+    <div class="upp-rz upp-rz-w" data-resize="w"></div>
+    <div class="upp-rz upp-rz-e" data-resize="e"></div>
+    <div class="upp-rz upp-rz-nw" data-resize="nw"></div>
+    <div class="upp-rz upp-rz-ne" data-resize="ne"></div>
+    <div class="upp-rz upp-rz-sw" data-resize="sw"></div>
+    <div class="upp-rz upp-rz-se" data-resize="se"></div>
   </div>
 </div>`;
 
@@ -2589,9 +2938,7 @@ function initExtension() {
   const elBackdrop = shadow.querySelector('.upp-backdrop');
   const elModal = shadow.querySelector('.upp-modal');
   const elHeader = shadow.querySelector('.upp-header');
-  const elMiniBtn = shadow.getElementById('upp-mini-btn');
   const elMinBtn = shadow.getElementById('upp-min-btn');
-  const elResizeHandle = shadow.getElementById('upp-resize-handle');
   const elCtxChip = shadow.getElementById('upp-ctx-chip');
   const elTabs = shadow.getElementById('upp-tabs');
   const elToolbar = shadow.getElementById('upp-toolbar');
@@ -2677,6 +3024,7 @@ function initExtension() {
     }
 
     render();
+    syncNativePersonaBar();
   }
 
   // =========================
@@ -2699,7 +3047,7 @@ function initExtension() {
       { id: 'regex', label: '正则', count: '' },
     ];
     elTabs.innerHTML = tabs.map(t => `
-      <button class="upp-tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
+      <button type="button" class="upp-tab ${state.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
         <span>${t.label}</span>
         ${t.count !== '' ? `<span class="upp-tab-count">${t.count}</span>` : ''}
       </button>
@@ -2720,8 +3068,8 @@ function initExtension() {
     elFooter.innerHTML = `
       <div class="upp-foot-status">${statusHtml}</div>
       <div class="upp-foot-actions">
-        ${boundSnap ? `<button class="upp-btn" id="upp-foot-update-btn" data-snap-update="${boundSnap.id}">更新当前快照</button>` : ''}
-        <button class="upp-btn primary" id="upp-foot-save-snap-btn">${ICONS.camera}<span>保存快照</span></button>
+        ${boundSnap ? `<button type="button" class="upp-btn secondary" id="upp-foot-update-btn" data-snap-update="${boundSnap.id}">更新当前快照</button>` : ''}
+        <button type="button" class="upp-btn primary" id="upp-foot-save-snap-btn">${ICONS.camera}<span>保存快照</span></button>
       </div>
     `;
   }
@@ -2743,14 +3091,14 @@ function initExtension() {
             <span>自动切换</span>
             <button type="button" class="upp-switch" id="upp-auto-bind-sw" role="switch" aria-checked="${autoOn}"></button>
           </label>
-          <button class="upp-btn ${state.snapBatchMode ? 'active' : ''}" id="upp-snap-batch-btn">${state.snapBatchMode ? '退出批量' : '批量管理'}</button>
-          <button class="upp-btn" id="upp-snap-preset-sync-btn" title="同步新增预设条目开关或将旧预设版本快照一键升级迁移到新版本">预设同步</button>
-          <button class="upp-btn" id="upp-backup-btn">${ICONS.backup}<span>备份</span></button>
+          <button type="button" class="upp-btn ${state.snapBatchMode ? 'active' : ''}" id="upp-snap-batch-btn">${state.snapBatchMode ? '退出批量' : '批量管理'}</button>
+          <button type="button" class="upp-btn secondary" id="upp-snap-preset-sync-btn" title="同步新增预设条目开关或将旧预设版本快照一键升级迁移到新版本">预设同步</button>
+          <button type="button" class="upp-btn" id="upp-backup-btn">${ICONS.backup}<span>备份</span></button>
         </div>
       </div>
       <div class="upp-pill-strip upp-tb-row3">
-        <button class="upp-pill ${state.snapGroup === '' ? 'active' : ''}" data-snap-group="">全部 (${snaps.length})</button>
-        ${groups.map(g => `<button class="upp-pill ${state.snapGroup === g ? 'active' : ''}" data-snap-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+        <button type="button" class="upp-pill ${state.snapGroup === '' ? 'active' : ''}" data-snap-group="">全部 (${snaps.length})</button>
+        ${groups.map(g => `<button type="button" class="upp-pill ${state.snapGroup === g ? 'active' : ''}" data-snap-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
       </div>
     `;
   }
@@ -2795,8 +3143,8 @@ function initExtension() {
         <div class="upp-bind-strip">
           <span>${srcText}已绑定：<strong>${escapeHtml(boundSnap.name)}</strong></span>
           <div class="upp-row-nowrap">
-            <button class="upp-btn" data-snap-apply="${boundSnap.id}">立即应用</button>
-            <button class="upp-btn" data-unbind-src="${bound.source}">解绑</button>
+            <button type="button" class="upp-btn primary" data-snap-apply="${boundSnap.id}">立即应用</button>
+            <button type="button" class="upp-btn" data-unbind-src="${bound.source}">解绑</button>
           </div>
         </div>
       `;
@@ -2806,7 +3154,7 @@ function initExtension() {
       html += `
         <div class="upp-empty">
           <span>${snaps.length ? '没有匹配的快照' : '在上方各页调好 User、世界书、预设与正则后，点右下角「保存快照」即可记录'}</span>
-          ${!snaps.length ? `<button class="upp-btn primary" data-open-save-snap>${ICONS.camera}<span>保存当前状态为第一份快照</span></button>` : ''}
+          ${!snaps.length ? `<button type="button" class="upp-btn primary" data-open-save-snap>${ICONS.camera}<span>保存当前状态为第一份快照</span></button>` : ''}
         </div>
       `;
       elBody.innerHTML = html;
@@ -2865,13 +3213,13 @@ function initExtension() {
             </div>
           ` : `
             <div class="upp-snap-actions">
-              <button class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
-              <button class="upp-btn" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
-              <button class="upp-btn" data-snap-edit="${s.id}">${ICONS.edit}<span>编辑</span></button>
-              <button class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
-              <button class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
+              <button type="button" class="upp-btn primary" data-snap-apply="${s.id}">应用</button>
+              <button type="button" class="upp-btn secondary" data-snap-view="${s.id}">${ICONS.eye}<span>查看</span></button>
+              <button type="button" class="upp-btn" data-snap-edit="${s.id}">${ICONS.edit}<span>编辑</span></button>
+              <button type="button" class="upp-btn" data-snap-update="${s.id}">覆盖更新</button>
+              <button type="button" class="upp-btn" data-snap-bind="${s.id}">${ICONS.link}<span>绑定</span></button>
               <div class="upp-spacer"></div>
-              <button class="upp-btn icon-only danger" data-snap-del="${s.id}" title="删除快照">${ICONS.trash}<span class="upp-mobile-only">删除</span></button>
+              <button type="button" class="upp-btn icon-only danger" data-snap-del="${s.id}" title="删除快照">${ICONS.trash}<span class="upp-mobile-only">删除</span></button>
             </div>
           `}
         </div>
@@ -2893,21 +3241,21 @@ function initExtension() {
       <div class="upp-row upp-tb-user-top">
         <div class="upp-tb-u-primary">
           <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
-          <button class="upp-btn" id="upp-persona-rename-btn" ${curP ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
-          <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
+          <button type="button" class="upp-btn ${state.userView === 'main' && state.userInlineEditor === 'rename' ? 'active' : ''}" id="upp-persona-rename-btn" ${curP ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
+          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'body' ? 'active' : ''}" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
         </div>
         <div class="upp-tb-u-secondary">
-          <button class="upp-btn" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
-          <button class="upp-btn" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
-          <button class="upp-btn ${dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
+          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'savever' ? 'active' : ''}" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
+          <button type="button" class="upp-btn ${state.userView === 'diff' ? 'active' : ''}" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
+          <button type="button" class="upp-btn ${state.userView === 'merge' || dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
         </div>
       </div>
       <div class="upp-row upp-tb-u-search-row">
         <div class="upp-input-wrap">
           ${ICONS.search}
-          <input type="text" id="upp-user-search" spellcheck="false" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" />
+          <input type="text" id="upp-user-search" spellcheck="false" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" ${state.userView === 'main' ? '' : 'disabled'} />
         </div>
-        <button class="upp-btn" id="upp-user-search-clear-btn" ${state.userSearch ? '' : 'hidden'}>清空</button>
+        <button type="button" class="upp-btn" id="upp-user-search-clear-btn" ${(state.userView === 'main' && state.userSearch) ? '' : 'hidden'} ${state.userView === 'main' ? '' : 'disabled'}>清空</button>
       </div>
     `;
   }
@@ -2924,7 +3272,202 @@ function initExtension() {
     return (start > 0 ? '…' : '') + clean.slice(start, end) + (end < clean.length ? '…' : '');
   }
 
+  function renderUserVersionItemHtml(v, curP, matchedVer, snippetText) {
+    const nameMatches = !v.displayName || v.displayName === curP.name;
+    const isCur = matchedVer && matchedVer.id === v.id && nameMatches;
+    const dnTag = v.displayName ? `<span class="upp-badge">名字: ${escapeHtml(v.displayName)}</span>` : '';
+    const vid = escapeHtml(v.id);
+    const isExpanded = state.expandedPvIds.has(v.id);
+    const snippet = snippetText !== undefined ? snippetText : String(v.description || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+    return `
+      <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-pv-wrap="${vid}">
+        <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
+          <button type="button" class="upp-entry-main" data-pv-view="${vid}">
+            <span class="upp-entry-chev">${ICONS.chevron}</span>
+            <div class="upp-entry-text">
+              <div class="upp-entry-title-row">
+                <span class="upp-entry-name">${escapeHtml(v.name)}</span>
+                ${dnTag}
+                ${isCur ? '<span class="upp-badge accent upp-keep">使用中</span>' : ''}
+              </div>
+              <div class="upp-entry-preview">${escapeHtml(snippet || '空描述')}</div>
+            </div>
+          </button>
+          <button type="button" class="upp-btn" data-pv-release="${vid}" title="将此内部版本释放为酒馆原生独立 User">放回原生</button>
+          <button type="button" class="upp-btn ${isCur ? '' : 'primary'}" data-pv-apply="${vid}" ${isCur ? 'disabled' : ''}>${isCur ? '当前' : '切换'}</button>
+          <button type="button" class="upp-btn icon-only danger" data-pv-del-inline="${vid}" title="删除版本">${ICONS.trash}</button>
+        </div>
+        ${isExpanded ? `
+          <div class="upp-inline-panel" data-pv-panel="${vid}">
+            <div class="upp-inline-meta">
+              <span>内部版本编辑 · ${String(v.description || '').length} 字</span>
+              ${v.lorebook ? `<span>绑定世界书：${escapeHtml(v.lorebook)}</span>` : ''}
+            </div>
+            <div class="upp-row">
+              <input type="text" class="upp-text-input" spellcheck="false" style="flex:1;min-width:120px;" data-pv-inline-name="${vid}" value="${escapeHtml(v.name || '')}" placeholder="版本名称" />
+              <input type="text" class="upp-text-input" spellcheck="false" style="flex:1;min-width:120px;" data-pv-inline-dn="${vid}" value="${escapeHtml(v.displayName || '')}" placeholder="切换时 User 名字（留空沿用当前）" />
+            </div>
+            <textarea class="upp-inline-textarea" spellcheck="false" data-pv-inline-desc="${vid}">${escapeHtml(v.description || '')}</textarea>
+            <div class="upp-inline-foot">
+              <button type="button" class="upp-btn" data-pv-inline-close="${vid}">收起</button>
+              <button type="button" class="upp-btn primary" data-pv-save="${vid}">保存</button>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function renderUserDiffView() {
+    const p = state.currentPersona;
+    const list = p ? (state.store.personaVersions[p.avatar_id] || []) : [];
+    const choices = [{ id: '__live__', name: '当前实时正文', description: p ? p.description : '' }, ...list];
+    const leftId = state.userDiff.leftId || (list[0]?.id || '__live__');
+    const rightId = state.userDiff.rightId || '__live__';
+    const leftItem = choices.find(c => c.id === leftId) || choices[0];
+    const rightItem = choices.find(c => c.id === rightId) || choices[0];
+    const diffLines = computeLineDiff(leftItem?.description || '', rightItem?.description || '');
+
+    elBody.innerHTML = `
+      <div class="upp-subview" data-user-subview="diff">
+        <div class="upp-subview-head">
+          <div class="upp-row-nowrap">
+            <button type="button" class="upp-btn" id="upp-diff-back-btn">${ICONS.back}<span>返回 User 列表</span></button>
+            <span class="upp-card-title">版本差异对比 · ${escapeHtml(p?.name || '')}</span>
+          </div>
+        </div>
+        <section class="upp-card upp-section-block" data-user-section="diff">
+          <div class="upp-row">
+            <select class="upp-select" id="upp-diff-left" style="flex:1;min-width:0;max-width:100%;">
+              ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === leftId ? 'selected' : ''}>旧：${escapeHtml(c.name)}</option>`).join('')}
+            </select>
+            <select class="upp-select" id="upp-diff-right" style="flex:1;min-width:0;max-width:100%;">
+              ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === rightId ? 'selected' : ''}>新：${escapeHtml(c.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="upp-diff-box">
+            ${diffLines.length ? diffLines.map(ln => {
+              const prefix = ln.type === 'del' ? '- ' : ln.type === 'add' ? '+ ' : '  ';
+              return `<div class="upp-diff-line ${ln.type}">${escapeHtml(prefix + ln.text)}</div>`;
+            }).join('') : '<div class="upp-card-meta">两版正文完全一致</div>'}
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  function renderUserMergePlanSection(m, plan) {
+    const planEl = shadow.getElementById('upp-merge-plan-box');
+    const runBtn = shadow.getElementById('upp-merge-run-btn');
+    const keepName = plan?.keepPersona?.name || '主 User';
+    const cands = plan?.candidates || [];
+    if (runBtn) {
+      runBtn.disabled = !cands.length;
+      runBtn.textContent = cands.length ? `确认整理并收纳 ${cands.length} 个分身` : '请先勾选待收纳分身';
+    }
+    if (!planEl) return;
+    if (!cands.length) {
+      planEl.innerHTML = `<div class="upp-card-meta">尚未勾选待收纳分身。勾选上方分身后，这里会明确展示整理前与整理后的去向。</div>`;
+      return;
+    }
+    const keepDescTrim = String(plan.keepPersona?.description || '').trim();
+    planEl.innerHTML = `
+      <div class="upp-card-meta">
+        <span>保留主 User 为 <strong>${escapeHtml(keepName)}</strong>${keepDescTrim ? '（原有正文将同步备份为「原主描述」）' : ''}。</span>
+      </div>
+      <div class="upp-merge-dest-list">
+        ${cands.map(c => `
+          <div class="upp-merge-dest-row">
+            <span class="upp-badge">整理前</span>
+            <span>原生 User「${escapeHtml(c.name)}」</span>
+            <span class="upp-merge-arrow">→</span>
+            <span class="upp-badge accent">整理后</span>
+            <span>将变为「${escapeHtml(keepName)}」的内部版本「<strong>${escapeHtml(c.versionName)}</strong>」${m.deleteOld ? '，并移出原生列表' : '（保留原原生 User）'}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function renderUserMergeView() {
+    const m = state.userMerge;
+    const dupGroups = detectProliferatedPersonas(state.personas);
+    const keepId = m.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
+    m.keepId = keepId;
+    const keepObj = state.personas.find(p => p.avatar_id === keepId);
+    const existingVersions = keepObj ? (state.store.personaVersions[keepObj.avatar_id] || []) : [];
+    const plan = buildPersonaMergePlan(state.personas, keepId, m.absorbIds, existingVersions);
+    const orphans = Array.isArray(m.orphanAvatars) ? m.orphanAvatars : [];
+
+    elBody.innerHTML = `
+      <div class="upp-subview" data-user-subview="merge">
+        <div class="upp-subview-head">
+          <div class="upp-row-nowrap">
+            <button type="button" class="upp-btn" id="upp-merge-back-btn">${ICONS.back}<span>返回 User 列表</span></button>
+            <span class="upp-card-title">整理同名与换姓分身</span>
+          </div>
+          ${state.lastPersonaMergeUndo ? `<button type="button" class="upp-btn secondary" id="upp-merge-undo-btn">撤销最近一次整理</button>` : ''}
+        </div>
+        ${orphans.length ? `
+          <div class="upp-bind-strip">
+            <span>检测到 ${orphans.length} 个未命名残留头像文件</span>
+            <button type="button" class="upp-btn danger" id="upp-clean-orphans-btn">一键清理</button>
+          </div>
+        ` : ''}
+        <section class="upp-card upp-section-block" data-merge-section="keep">
+          <h4 class="upp-block-title">
+            <span>1. 选择保留的主 User 槽位</span>
+            ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-merge-keep-preview-btn">${m.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
+          </h4>
+          ${dupGroups.length ? `
+            <div class="upp-pill-strip">
+              ${dupGroups.map((g, idx) => `<button type="button" class="upp-pill" data-merge-preset-group="${idx}">${escapeHtml(g.baseName)}（${g.items.length}）</button>`).join('')}
+            </div>
+          ` : ''}
+          <select class="upp-select" id="upp-merge-keep" style="width:100%;">
+            ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>保留：${escapeHtml(p.name)}（${String(p.description || '').length} 字）</option>`).join('')}
+          </select>
+          ${keepObj && m.showKeepPreview ? `<pre class="upp-inline-pre" style="max-height:150px;">${escapeHtml(keepObj.description || '（主 User 暂无描述）')}</pre>` : ''}
+          <div class="upp-card-meta">该槽位将作为保留后的唯一原生主 User，所有勾选项都会收纳进它的内部版本。</div>
+        </section>
+
+        <section class="upp-card upp-section-block" data-merge-section="candidates">
+          <h4 class="upp-block-title"><span>2. 选择要收纳为内部版本的分身</span></h4>
+          <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+            ${ICONS.search}
+            <input type="text" id="upp-merge-search" spellcheck="false" placeholder="筛选分身名称或正文关键词…" value="${escapeHtml(m.query || '')}" />
+          </div>
+          <div class="upp-pop-list" id="upp-merge-candidate-list" style="max-height:240px;"></div>
+        </section>
+
+        <section class="upp-card upp-section-block" data-merge-section="plan">
+          <h4 class="upp-block-title"><span>3. 整理前 → 整理后去向与可逆保障</span></h4>
+          <div id="upp-merge-plan-box"></div>
+          <label class="upp-check-item">
+            <input type="checkbox" id="upp-merge-delete-old" ${m.deleteOld ? 'checked' : ''} />
+            <span>收纳后从酒馆原生列表移除已选分身（已备份头像与正文，可「撤销最近一次整理」或随时「放回原生」）</span>
+          </label>
+          <div class="upp-subview-foot">
+            <button type="button" class="upp-btn" id="upp-merge-cancel-btn">返回列表</button>
+            <button type="button" class="upp-btn primary" id="upp-merge-run-btn" ${plan.candidates.length ? '' : 'disabled'}>确认整理并收纳 ${plan.candidates.length} 个分身</button>
+          </div>
+        </section>
+      </div>
+    `;
+    renderMergeCandidateList(m, plan);
+    renderUserMergePlanSection(m, plan);
+  }
+
   function renderUserBody() {
+    if (state.userView === 'merge') {
+      renderUserMergeView();
+      return;
+    }
+    if (state.userView === 'diff') {
+      renderUserDiffView();
+      return;
+    }
+
     const curP = state.currentPersona;
     if (!curP) { elBody.innerHTML = `<div class="upp-empty">未读取到当前 User 人设</div>`; return; }
 
@@ -2934,6 +3477,14 @@ function initExtension() {
     const q = normalizeText(state.userSearch);
 
     let html = '';
+    if (state.lastPersonaMergeUndo) {
+      html += `
+        <div class="upp-bind-strip">
+          <span>最近整理：${escapeHtml(state.lastPersonaMergeUndo.label || '已收纳分身')}</span>
+          <button type="button" class="upp-btn secondary" id="upp-merge-undo-btn">撤销最近一次整理</button>
+        </div>
+      `;
+    }
 
     if (q) {
       const matchedPersonas = state.personas.filter(p =>
@@ -2944,67 +3495,51 @@ function initExtension() {
       );
 
       if (!matchedPersonas.length && !matchedVersions.length) {
-        elBody.innerHTML = `<div class="upp-empty">未找到包含「${escapeHtml(state.userSearch)}」的 User 或内部版本</div>`;
+        elBody.innerHTML = html + `<div class="upp-empty">未找到包含「${escapeHtml(state.userSearch)}」的 User 或内部版本</div>`;
         return;
       }
 
       if (matchedPersonas.length) {
         html += `
-          <div class="upp-sec-title" style="padding: 2px 2px;">
-            <span>匹配的 User 人设</span>
-            <span>${matchedPersonas.length} 个</span>
-          </div>
-          <div class="upp-entry-list">
-            ${matchedPersonas.map(p => {
-              const isCurP = p.avatar_id === curP.avatar_id;
-              return `
-                <div class="upp-entry-row ${isCurP ? 'is-on' : ''}">
-                  <button class="upp-entry-main" data-user-switch-id="${escapeHtml(p.avatar_id)}">
-                    <div class="upp-entry-text">
-                      <div class="upp-entry-title-row">
-                        <span class="upp-entry-name">${escapeHtml(p.name)}</span>
-                        ${isCurP ? '<span class="upp-badge accent upp-keep">当前 User</span>' : ''}
+          <section class="upp-section-block" data-user-section="search-personas">
+            <div class="upp-sec-title" style="padding: 2px 2px;">
+              <span>匹配的 User 人设</span>
+              <span>${matchedPersonas.length} 个</span>
+            </div>
+            <div class="upp-entry-list">
+              ${matchedPersonas.map(p => {
+                const isCurP = p.avatar_id === curP.avatar_id;
+                return `
+                  <div class="upp-entry-row ${isCurP ? 'is-on' : ''}">
+                    <button type="button" class="upp-entry-main" data-user-switch-id="${escapeHtml(p.avatar_id)}">
+                      <div class="upp-entry-text">
+                        <div class="upp-entry-title-row">
+                          <span class="upp-entry-name">${escapeHtml(p.name)}</span>
+                          ${isCurP ? '<span class="upp-badge accent upp-keep">当前 User</span>' : ''}
+                        </div>
+                        <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(p.description, state.userSearch))}</div>
                       </div>
-                      <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(p.description, state.userSearch))}</div>
-                    </div>
-                  </button>
-                  <button class="upp-btn ${isCurP ? '' : 'primary'}" data-user-switch-id="${escapeHtml(p.avatar_id)}" ${isCurP ? 'disabled' : ''}>${isCurP ? '当前' : '切换'}</button>
-                </div>
-              `;
-            }).join('')}
-          </div>
+                    </button>
+                    <button type="button" class="upp-btn ${isCurP ? '' : 'primary'}" data-user-switch-id="${escapeHtml(p.avatar_id)}" ${isCurP ? 'disabled' : ''}>${isCurP ? '当前' : '切换'}</button>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </section>
         `;
       }
 
       if (matchedVersions.length) {
         html += `
-          <div class="upp-sec-title" style="padding: 4px 2px 2px;">
-            <span>当前 User 匹配的内部版本</span>
-            <span>${matchedVersions.length} 个</span>
-          </div>
-          <div class="upp-entry-list">
-            ${matchedVersions.map(v => {
-              const nameMatches = !v.displayName || v.displayName === curP.name;
-              const isCur = matchedVer && matchedVer.id === v.id && nameMatches;
-              const dnTag = v.displayName ? `<span class="upp-badge">名字: ${escapeHtml(v.displayName)}</span>` : '';
-              return `
-                <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
-                  <button class="upp-entry-main" data-pv-view="${v.id}">
-                    <div class="upp-entry-text">
-                      <div class="upp-entry-title-row">
-                        <span class="upp-entry-name">${escapeHtml(v.name)}</span>
-                        ${dnTag}
-                        ${isCur ? '<span class="upp-badge accent upp-keep">使用中</span>' : ''}
-                      </div>
-                      <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(v.description, state.userSearch))}</div>
-                    </div>
-                  </button>
-                  <button class="upp-btn ${isCur ? '' : 'primary'}" data-pv-apply="${v.id}" ${isCur ? 'disabled' : ''}>${isCur ? '当前' : '切换'}</button>
-                  <button class="upp-btn icon-only danger" data-pv-del-inline="${v.id}" title="删除版本">${ICONS.trash}</button>
-                </div>
-              `;
-            }).join('')}
-          </div>
+          <section class="upp-section-block" data-user-section="search-versions">
+            <div class="upp-sec-title" style="padding: 4px 2px 2px;">
+              <span>当前 User 匹配的内部版本</span>
+              <span>${matchedVersions.length} 个</span>
+            </div>
+            <div class="upp-entry-list">
+              ${matchedVersions.map(v => renderUserVersionItemHtml(v, curP, matchedVer, makeMatchedSnippet(v.description, state.userSearch))).join('')}
+            </div>
+          </section>
         `;
       }
 
@@ -3012,8 +3547,8 @@ function initExtension() {
       return;
     }
 
-    html = `
-      <div class="upp-card">
+    html += `
+      <section class="upp-card upp-section-block" data-user-section="current">
         <div class="upp-card-head">
           <div class="upp-row-nowrap">
             <span class="upp-card-title">${escapeHtml(curP.name)}</span>
@@ -3022,42 +3557,79 @@ function initExtension() {
           <span class="upp-card-meta">${liveDesc.length} 字</span>
         </div>
         ${curP.lorebook ? `<div class="upp-card-meta"><span class="upp-badge">绑定世界书: ${escapeHtml(curP.lorebook)}</span></div>` : ''}
-        <div class="upp-persona-live-box ${liveDesc.trim() ? '' : 'is-empty'}" id="upp-persona-preview-box">${escapeHtml(liveDesc.trim() ? liveDesc : '暂无描述，点击编辑')}</div>
-      </div>
-      <div class="upp-sec-title" style="padding: 2px 2px;">
-        <span>内部描述版本 · 可绑定不同名字并在切换时原地改名</span>
-        <span>${pVersions.length} 个</span>
-      </div>
-    `;
-
-    if (!pVersions.length) {
-      html += `<div class="upp-empty" style="padding: 24px 16px;">还没有保存过「${escapeHtml(curP.name)}」的内部版本，点上方「存为版本」或「整理分身」即可收纳。</div>`;
-      elBody.innerHTML = html;
-      return;
-    }
-
-    html += `<div class="upp-entry-list">` + pVersions.map(v => {
-      const nameMatches = !v.displayName || v.displayName === curP.name;
-      const isCur = matchedVer && matchedVer.id === v.id && nameMatches;
-      const snippet = String(v.description || '').replace(/\s+/g, ' ').trim().slice(0, 72);
-      const dnTag = v.displayName ? `<span class="upp-badge">名字: ${escapeHtml(v.displayName)}</span>` : '';
-      return `
-        <div class="upp-entry-row ${isCur ? 'is-on' : ''}">
-          <button class="upp-entry-main" data-pv-view="${v.id}">
-            <div class="upp-entry-text">
-              <div class="upp-entry-title-row">
-                <span class="upp-entry-name">${escapeHtml(v.name)}</span>
-                ${dnTag}
-                ${isCur ? '<span class="upp-badge accent upp-keep">使用中</span>' : ''}
-              </div>
-              <div class="upp-entry-preview">${escapeHtml(snippet || '空描述')}</div>
+        ${state.userInlineEditor === 'rename' ? `
+          <div class="upp-inline-panel" data-user-inline="rename">
+            <div class="upp-inline-meta">
+              <span>原地改名 · 直接更新当前 User 槽位，不新增分身</span>
             </div>
-          </button>
-          <button class="upp-btn ${isCur ? '' : 'primary'}" data-pv-apply="${v.id}" ${isCur ? 'disabled' : ''}>${isCur ? '当前' : '切换'}</button>
-          <button class="upp-btn icon-only danger" data-pv-del-inline="${v.id}" title="删除版本">${ICONS.trash}</button>
+            <div class="upp-row-nowrap">
+              <input type="text" class="upp-text-input" id="upp-rename-input" spellcheck="false" value="${escapeHtml(curP.name || '')}" placeholder="输入新的 User 名字" />
+              <button type="button" class="upp-btn" id="upp-rename-clear-btn">清空</button>
+            </div>
+            <div class="upp-inline-foot">
+              <button type="button" class="upp-btn" id="upp-rename-cancel-btn">取消</button>
+              <button type="button" class="upp-btn primary" id="upp-rename-confirm-btn" data-user-rename-save>确认改名</button>
+            </div>
+          </div>
+        ` : ''}
+        ${state.userInlineEditor === 'savever' ? `
+          <div class="upp-inline-panel" data-user-inline="savever">
+            <div class="upp-inline-meta">
+              <span>存为内部描述版本 · ${escapeHtml(curP.name)}</span>
+              <span>${liveDesc.length} 字</span>
+            </div>
+            <div class="upp-field">
+              <label>版本名称</label>
+              <input type="text" class="upp-text-input" id="upp-pv-name" spellcheck="false" placeholder="例如：默认 / 现代日常 / 古风线" value="" />
+            </div>
+            <div class="upp-field">
+              <label>切换时使用的 User 名字 · 剧情换姓直接填全名</label>
+              <div class="upp-row-nowrap">
+                <input type="text" class="upp-text-input" id="upp-pv-display-name" spellcheck="false" placeholder="留空则切换时不改当前名字" value="${escapeHtml(curP.name || '')}" />
+                <button type="button" class="upp-btn" id="upp-pv-dn-clear-btn">清空</button>
+              </div>
+            </div>
+            ${pVersions.length ? `
+              <div class="upp-field">
+                <label>快速覆盖已有版本（可选）</label>
+                <select class="upp-select" id="upp-pv-overwrite-sel" style="width:100%;">
+                  <option value="">新建版本或手动输入上方名称</option>
+                  ${pVersions.map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}${v.displayName ? `（${escapeHtml(v.displayName)}）` : ''}</option>`).join('')}
+                </select>
+              </div>
+            ` : ''}
+            <div class="upp-inline-foot">
+              <button type="button" class="upp-btn" id="upp-pv-cancel-btn">取消</button>
+              <button type="button" class="upp-btn primary" id="upp-pv-save-btn">保存版本</button>
+            </div>
+          </div>
+        ` : ''}
+        ${state.userInlineEditor === 'body' ? `
+          <div class="upp-inline-panel" data-user-inline="body">
+            <div class="upp-inline-meta">
+              <span>原地编辑正文 · ${escapeHtml(curP.name)}</span>
+              <span>${liveDesc.length} 字</span>
+            </div>
+            <textarea class="upp-inline-textarea" id="upp-user-body-ta" spellcheck="false" placeholder="编辑当前 User 描述正文…">${escapeHtml(liveDesc)}</textarea>
+            <div class="upp-inline-foot">
+              <button type="button" class="upp-btn" id="upp-user-body-cancel-btn">取消</button>
+              <button type="button" class="upp-btn primary" id="upp-ee-save-btn" data-user-body-save>保存正文</button>
+            </div>
+          </div>
+        ` : `
+          <div class="upp-persona-live-box ${liveDesc.trim() ? '' : 'is-empty'}" id="upp-persona-preview-box">${escapeHtml(liveDesc.trim() ? liveDesc : '暂无描述，点击编辑')}</div>
+        `}
+      </section>
+      <section class="upp-card upp-section-block" data-user-section="versions">
+        <div class="upp-sec-title" style="padding: 2px 2px; margin-top: 0;">
+          <span>内部描述版本 · 可绑定不同名字、原地编辑或放回原生列表</span>
+          <span>${pVersions.length} 个</span>
         </div>
-      `;
-    }).join('') + `</div>`;
+        ${!pVersions.length
+          ? `<div class="upp-empty" style="padding: 20px 14px;">还没有保存过「${escapeHtml(curP.name)}」的内部版本，点上方「存为版本」或「整理分身」即可收纳。</div>`
+          : `<div class="upp-entry-list">${pVersions.map(v => renderUserVersionItemHtml(v, curP, matchedVer)).join('')}</div>`}
+      </section>
+    `;
 
     elBody.innerHTML = html;
   }
@@ -3067,7 +3639,7 @@ function initExtension() {
     const isPinned = activeBook && state.store.settings.pinnedWorldbooks.includes(activeBook);
     const isGlobal = activeBook && state.globalWorldbooks.includes(activeBook);
     const org = getOrganizerSettings();
-    const hasOrg = !!org;
+    const hasOrg = hasActiveOrganizer();
     const bookFmt = activeBook ? formatWorldbookDisplay(activeBook, org, buildCombinedCharNameMap(org)) : null;
     const bookLabel = bookFmt ? bookFmt.primary : '选择世界书';
     const bookTitle = bookFmt ? (bookFmt.subtitle ? `${bookFmt.primary} (${bookFmt.subtitle})` : bookFmt.primary) : '选择或搜索世界书';
@@ -3075,18 +3647,18 @@ function initExtension() {
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-wb-row1">
         <div class="upp-tb-wb-p1">
-          <button class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="${escapeHtml(bookTitle)}">
+          <button type="button" class="upp-btn upp-book-trigger" id="upp-book-picker-btn" title="${escapeHtml(bookTitle)}">
             <span>${escapeHtml(bookLabel)}</span>
             ${ICONS.chevron}
           </button>
-          <button class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
-          <button class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="开启后对所有角色和聊天生效" ${activeBook ? '' : 'disabled'}>${isGlobal ? '已全局启用' : '全局启用'}</button>
-          ${hasOrg ? `<button class="upp-btn" id="upp-open-wbo-btn" title="直达世界书整理面板">整理分组</button>` : ''}
+          <button type="button" class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
+          <button type="button" class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="开启后对所有角色和聊天生效" ${activeBook ? '' : 'disabled'}>${isGlobal ? '已全局启用' : '全局启用'}</button>
+          ${hasOrg ? `<button type="button" class="upp-btn" id="upp-open-wbo-btn" title="直达世界书整理面板">整理分组</button>` : ''}
         </div>
         <div class="upp-spacer"></div>
         <div class="upp-tb-wb-p2">
-          <button class="upp-btn" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
-          <button class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
+          <button type="button" class="upp-btn secondary" id="upp-new-wb-entry-btn" ${activeBook ? '' : 'disabled'}>${ICONS.plus}<span>新建条目</span></button>
+          <button type="button" class="upp-btn icon-only" id="upp-copy-wb-btn" title="复制已开条目纯文本" ${activeBook ? '' : 'disabled'}>${ICONS.copy}</button>
         </div>
       </div>
       <div class="upp-row upp-tb-wb-row2">
@@ -3095,8 +3667,8 @@ function initExtension() {
           <input type="text" id="upp-wb-search" spellcheck="false" placeholder="搜索条目标题或正文…" value="${escapeHtml(state.wbEntrySearch)}" />
         </div>
         <div class="upp-tb-wb-filters">
-          <button class="upp-btn ${state.wbOnlyOn ? 'active' : ''}" id="upp-wb-only-on-btn">只看已开</button>
-          <button class="upp-btn" id="upp-wb-all-off-btn" ${activeBook ? '' : 'disabled'}>全关</button>
+          <button type="button" class="upp-btn ${state.wbOnlyOn ? 'active' : ''}" id="upp-wb-only-on-btn">只看已开</button>
+          <button type="button" class="upp-btn danger" id="upp-wb-all-off-btn" ${activeBook ? '' : 'disabled'}>全关</button>
         </div>
       </div>
     `;
@@ -3164,7 +3736,7 @@ function initExtension() {
       return `
         <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-wb-wrap="${escapeHtml(uidKey)}">
           <div class="upp-entry-row ${e.enabled ? 'is-on' : ''}" data-wb-row="${escapeHtml(uidKey)}">
-            <button class="upp-entry-main" data-wb-open="${escapeHtml(uidKey)}">
+            <button type="button" class="upp-entry-main" data-wb-open="${escapeHtml(uidKey)}">
               <span class="upp-entry-chev">${ICONS.chevron}</span>
               <span class="upp-dot ${e.strategyType}" title="${e.strategyType === 'constant' ? '蓝灯常驻' : e.strategyType === 'selective' ? '绿灯触发' : '向量'}"></span>
               <div class="upp-entry-text">
@@ -3224,12 +3796,12 @@ function initExtension() {
       <div class="upp-row upp-tb-pr-row1">
         <div class="upp-tb-pr-p1">
           <select class="upp-select" id="upp-preset-select" title="切换预设">${presetOpts || '<option value="">无可用预设</option>'}</select>
-          <button class="upp-btn" id="upp-preset-sync-btn" title="把当前预设的新增条目或更新后的开关批量同步或迁移到快照">同步到快照</button>
-          <button class="upp-btn" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
+          <button type="button" class="upp-btn secondary" id="upp-preset-sync-btn" title="把当前预设的新增条目或更新后的开关批量同步或迁移到快照">同步到快照</button>
+          <button type="button" class="upp-btn secondary" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
         </div>
         <div class="upp-spacer"></div>
         <div class="upp-tb-pr-fold">
-          ${groups.length ? `<button class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+          ${groups.length ? `<button type="button" class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
           ${groups.length ? `
             <label class="upp-switch-label" title="打开预设页或快照详情时，分组是否默认收起">
               <span>默认折叠</span>
@@ -3244,7 +3816,7 @@ function initExtension() {
           <input type="text" id="upp-preset-search" spellcheck="false" placeholder="搜索分组、提示词或正文…" value="${escapeHtml(state.presetSearch)}" />
         </div>
         <div class="upp-tb-pr-onlyon">
-          <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
+          <button type="button" class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
         </div>
       </div>
     `;
@@ -3260,7 +3832,7 @@ function initExtension() {
     return `
       <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-pr-wrap="${pid}">
         <div class="upp-entry-row ${p.enabled ? 'is-on' : ''}" data-pr-row="${pid}">
-          <button class="upp-entry-main" data-pr-open="${pid}" style="${isPh ? 'cursor:default;' : ''}">
+          <button type="button" class="upp-entry-main" data-pr-open="${pid}" style="${isPh ? 'cursor:default;' : ''}">
             ${!isPh ? `<span class="upp-entry-chev">${ICONS.chevron}</span>` : ''}
             <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
             <div class="upp-entry-text">
@@ -3323,17 +3895,22 @@ function initExtension() {
   }
 
   function renderRegexToolbar() {
+    const rgEnabled = isRegexModuleEnabled();
+    const rgUnavailable = !rgEnabled || regexEngine === false;
     const list = state.regexList || [];
     const onCount = list.filter(r => r.enabled).length;
+    const metaText = !rgEnabled
+      ? '模块已禁用'
+      : (rgUnavailable ? '模块不可用' : `共 ${list.length} 条 · 已开 ${onCount} 条`);
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-rg-row1">
         <div class="upp-tb-rg-scopes">
-          <button class="upp-btn ${state.regexScope === 'global' ? 'active' : ''}" data-rg-scope="global">全局</button>
-          <button class="upp-btn ${state.regexScope === 'character' ? 'active' : ''}" data-rg-scope="character">当前角色</button>
-          <button class="upp-btn ${state.regexScope === 'preset' ? 'active' : ''}" data-rg-scope="preset">当前预设</button>
+          <button type="button" class="upp-btn ${state.regexScope === 'global' ? 'active' : ''}" data-rg-scope="global">全局</button>
+          <button type="button" class="upp-btn ${state.regexScope === 'character' ? 'active' : ''}" data-rg-scope="character">当前角色</button>
+          <button type="button" class="upp-btn ${state.regexScope === 'preset' ? 'active' : ''}" data-rg-scope="preset">当前预设</button>
         </div>
         <div class="upp-spacer"></div>
-        <span class="upp-card-meta upp-tb-rg-meta">共 ${list.length} 条 · 已开 ${onCount} 条</span>
+        <span class="upp-card-meta upp-tb-rg-meta">${metaText}</span>
       </div>
       <div class="upp-row upp-tb-rg-row2">
         <div class="upp-input-wrap upp-tb-rg-search">
@@ -3341,13 +3918,21 @@ function initExtension() {
           <input type="text" id="upp-rg-search" spellcheck="false" placeholder="搜索正则名称或规则…" value="${escapeHtml(state.regexSearch)}" />
         </div>
         <div class="upp-tb-rg-onlyon">
-          <button class="upp-btn ${state.regexOnlyOn ? 'active' : ''}" id="upp-rg-only-on-btn">只看已开</button>
+          <button type="button" class="upp-btn ${state.regexOnlyOn ? 'active' : ''}" id="upp-rg-only-on-btn">只看已开</button>
         </div>
       </div>
     `;
   }
 
   function renderRegexBody() {
+    if (!isRegexModuleEnabled()) {
+      elBody.innerHTML = `<div class="upp-empty"><span>酒馆内置正则模块已禁用</span><span class="upp-card-meta">当前无法读取或切换正则脚本，其余快照与管理功能可正常独立使用。</span></div>`;
+      return;
+    }
+    if (regexEngine === false) {
+      elBody.innerHTML = `<div class="upp-empty"><span>未检测到酒馆内置正则模块，该功能当前不可用</span><span class="upp-card-meta">其余快照与管理功能可正常独立使用。</span></div>`;
+      return;
+    }
     const list = state.regexList || [];
     const q = normalizeText(state.regexSearch);
     const filtered = list.filter(r => {
@@ -3361,18 +3946,38 @@ function initExtension() {
       return;
     }
 
+    const scopeLabel = state.regexScope === 'character' ? '当前角色' : state.regexScope === 'preset' ? '当前预设' : '全局';
     elBody.innerHTML = `<div class="upp-entry-list">` + filtered.map(r => {
       const dest = [r.destination?.display ? '显示' : '', r.destination?.prompt ? '提示词' : ''].filter(Boolean).join('/');
+      const rid = escapeHtml(r.id);
+      const isExpanded = state.expandedRegexIds.has(r.id);
+      const detailText = `【查找正则】\n${r.find_regex || '（空）'}\n\n【替换为】\n${r.replace_string || '（空）'}`;
       return `
-        <div class="upp-entry-row ${r.enabled ? 'is-on' : ''}" data-rg-row="${escapeHtml(r.id)}">
-          <button class="upp-entry-main" data-rg-open="${escapeHtml(r.id)}">
-            <div class="upp-entry-text">
-              <div class="upp-entry-name">${escapeHtml(r.script_name)}</div>
-              <div class="upp-entry-preview">${escapeHtml(r.find_regex)}</div>
+        <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}" data-rg-wrap="${rid}">
+          <div class="upp-entry-row ${r.enabled ? 'is-on' : ''}" data-rg-row="${rid}">
+            <button type="button" class="upp-entry-main" data-rg-open="${rid}">
+              <span class="upp-entry-chev">${ICONS.chevron}</span>
+              <div class="upp-entry-text">
+                <div class="upp-entry-name">${escapeHtml(r.script_name)}</div>
+                <div class="upp-entry-preview">${escapeHtml(r.find_regex)}</div>
+              </div>
+              ${dest ? `<span class="upp-badge">${dest}</span>` : ''}
+            </button>
+            <button type="button" class="upp-switch" role="switch" aria-checked="${!!r.enabled}" data-rg-toggle="${rid}"></button>
+          </div>
+          ${isExpanded ? `
+            <div class="upp-inline-panel" data-rg-panel="${rid}">
+              <div class="upp-inline-meta">
+                <span>范围：${scopeLabel} · 状态：${r.enabled ? '开启' : '关闭'}</span>
+                ${dest ? `<span>作用：${escapeHtml(dest)}</span>` : ''}
+              </div>
+              <pre class="upp-inline-pre">${escapeHtml(detailText)}</pre>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-rg-inline-copy="${rid}">${ICONS.copy}<span>复制规则</span></button>
+                <button type="button" class="upp-btn" data-rg-inline-close="${rid}">收起</button>
+              </div>
             </div>
-            ${dest ? `<span class="upp-badge">${dest}</span>` : ''}
-          </button>
-          <button type="button" class="upp-switch" role="switch" aria-checked="${!!r.enabled}" data-rg-toggle="${escapeHtml(r.id)}"></button>
+          ` : ''}
         </div>
       `;
     }).join('') + `</div>`;
@@ -3392,7 +3997,7 @@ function initExtension() {
     return `
       <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}">
         <div class="upp-entry-row ${item.effectiveOn ? 'is-on' : 'is-off'}">
-          <button class="upp-entry-main" data-view-snap-pr="${pid}" style="${isPh ? 'cursor:default;' : ''}">
+          <button type="button" class="upp-entry-main" data-view-snap-pr="${pid}" style="${isPh ? 'cursor:default;' : ''}">
             ${!isPh ? `<span class="upp-entry-chev">${ICONS.chevron}</span>` : ''}
             <span class="upp-dot ${item.effectiveOn ? 'snap-on' : 'snap-off'}" title="${item.effectiveOn ? '本快照中生效' : '本快照中关闭'}"></span>
             <span class="upp-role-tag ${isPh ? 'placeholder' : ''}">${roleShort}</span>
@@ -3544,7 +4149,7 @@ function initExtension() {
                 return `
                   <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}">
                     <div class="upp-entry-row ${on ? 'is-on' : 'is-off'}">
-                      <button class="upp-entry-main" data-view-snap-wb="${escapeHtml(bk)}" data-view-snap-uid="${escapeHtml(u)}" style="${canExpand ? '' : 'cursor:default;'}">
+                      <button type="button" class="upp-entry-main" data-view-snap-wb="${escapeHtml(bk)}" data-view-snap-uid="${escapeHtml(u)}" style="${canExpand ? '' : 'cursor:default;'}">
                         ${canExpand ? `<span class="upp-entry-chev">${ICONS.chevron}</span>` : ''}
                         <span class="upp-dot ${on ? 'snap-on' : 'snap-off'}"></span>
                         <div class="upp-entry-text">
@@ -3578,21 +4183,42 @@ function initExtension() {
     }
 
     if (sub === 'persona' && s.scope.persona && s.persona) {
+      const descText = String(s.persona.description || '');
       if (metaEl) {
         metaEl.innerHTML = `
-          <span class="upp-badge accent">User：${escapeHtml(s.persona.name)}</span>
-          ${s.persona.versionName ? `<span class="upp-badge">版本：${escapeHtml(s.persona.versionName)}</span>` : ''}
+          <span class="upp-badge accent">User：${escapeHtml(s.persona.name || '未命名')}</span>
+          ${s.persona.versionName ? `<span class="upp-badge">版本：${escapeHtml(s.persona.versionName)}</span>` : '<span class="upp-badge">独立正文</span>'}
           ${s.persona.lorebook ? `<span class="upp-badge">绑定世界书：${escapeHtml(s.persona.lorebook)}</span>` : ''}
+          <span class="upp-badge upp-keep" id="upp-sv-persona-len">${descText.length} 字</span>
         `;
       }
       bodyEl.innerHTML = `
-        <div class="upp-persona-live-box" style="max-height:none;cursor:default;">${escapeHtml(s.persona.description || '空描述')}</div>
+        <div class="upp-card" style="flex:1;min-height:0;">
+          <div class="upp-field">
+            <label>User 显示名</label>
+            <div class="upp-row-nowrap">
+              <input type="text" class="upp-text-input" id="upp-sv-persona-name" spellcheck="false" value="${escapeHtml(s.persona.name || '')}" placeholder="输入此快照生效的 User 名字" />
+              <button type="button" class="upp-btn" id="upp-sv-persona-name-clear">清空</button>
+            </div>
+          </div>
+          <div class="upp-field" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+            <div class="upp-sec-title" style="margin:0;">
+              <span>人设详细正文</span>
+              <div class="upp-row-nowrap">
+                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" id="upp-sv-persona-pull" title="用当前酒馆正在使用的 User 名字与正文覆盖下方内容">拉取当前 User</button>
+                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" id="upp-sv-persona-copy">${ICONS.copy}<span>复制</span></button>
+              </div>
+            </div>
+            <textarea class="upp-textarea" id="upp-sv-persona-desc" spellcheck="false" style="flex:1;min-height:220px;" placeholder="直接微调此快照的 User 人设正文，修改后点右上角「保存修改」生效">${escapeHtml(descText)}</textarea>
+          </div>
+        </div>
       `;
       return;
     }
 
     if (sub === 'api' && s.scope.api && s.api) {
-      const profiles = state.apiProfiles || Host.listConnectionProfiles();
+      const cmEnabled = isConnectionManagerEnabled();
+      const profiles = cmEnabled ? (state.apiProfiles || Host.listConnectionProfiles()) : [];
       if (metaEl) {
         metaEl.innerHTML = `
           ${s.api.profileName ? `<span class="upp-badge accent">连接配置：${escapeHtml(s.api.profileName)}</span>` : ''}
@@ -3604,6 +4230,14 @@ function initExtension() {
         <div class="upp-card">
           <div class="upp-card-head"><span class="upp-card-title">当前快照记录的 API 连接</span></div>
           <div class="upp-card-meta">仅保存连接配置名、来源与模型标识，绝不保存任何 API 密钥。</div>
+          ${!cmEnabled && (s.api.profileId || s.api.profileName) ? `
+            <div class="upp-notice-box">
+              <span>酒馆连接配置模块（Connection Manager）当前未启用，可清除此快照的旧配置绑定，改用独立记录的来源与模型。</span>
+              <div class="upp-row">
+                <button type="button" class="upp-btn secondary" id="upp-sv-api-clear-profile">清除旧配置绑定</button>
+              </div>
+            </div>
+          ` : ''}
           ${profiles.length ? `
             <div class="upp-field">
               <label>切换此快照使用的连接配置，点右上角保存修改生效</label>
@@ -3621,6 +4255,8 @@ function initExtension() {
     }
 
     if (sub === 'regex' && s.scope.regex && s.regex) {
+      const rgEnabled = isRegexModuleEnabled();
+      const rgAvailable = rgEnabled && regexEngine !== false;
       const scopes = [
         { key: 'global', label: '全局正则' },
         { key: 'character', label: '当前角色正则' },
@@ -3635,6 +4271,9 @@ function initExtension() {
           <span class="upp-badge upp-keep">预设开 ${cnt('preset')}</span>
         `;
       }
+      const noticeHtml = !rgAvailable
+        ? `<div class="upp-notice-box"><span>内置正则模块当前${!rgEnabled ? '已禁用' : '不可用'}，仅展示快照已保存的开关状态。</span></div>`
+        : '';
       const blocks = scopes.map(sc => {
         const map = s.regex[sc.key] || {};
         const ids = Object.keys(map);
@@ -3659,16 +4298,35 @@ function initExtension() {
               ${shown.map(id => {
                 const live = byId.get(id);
                 const on = !!map[id];
+                const expKey = `rg::${sc.key}::${id}`;
+                const canExpand = !!live;
+                const isExpanded = canExpand && !!(d.expandedIds && d.expandedIds.has(expKey));
+                const detailText = live ? `【查找正则】\n${live.find_regex || '（空）'}\n\n【替换为】\n${live.replace_string || '（空）'}` : '';
                 return `
-                  <div class="upp-entry-row ${on ? 'is-on' : 'is-off'}">
-                    <button class="upp-entry-main" data-view-snap-rg="${sc.key}" data-view-snap-rgid="${escapeHtml(id)}">
-                      <span class="upp-dot ${on ? 'snap-on' : 'snap-off'}"></span>
-                      <div class="upp-entry-text">
-                        <div class="upp-entry-name">${escapeHtml(live ? live.script_name : `正则 #${id.slice(0, 8)}`)}</div>
-                        <div class="upp-entry-preview">${escapeHtml(live ? live.find_regex : '未在当前范围找到')}</div>
+                  <div class="upp-entry-wrap ${isExpanded ? 'is-expanded' : ''}">
+                    <div class="upp-entry-row ${on ? 'is-on' : 'is-off'}">
+                      <button type="button" class="upp-entry-main" data-view-snap-rg="${sc.key}" data-view-snap-rgid="${escapeHtml(id)}" style="${canExpand ? '' : 'cursor:default;'}">
+                        ${canExpand ? `<span class="upp-entry-chev">${ICONS.chevron}</span>` : ''}
+                        <span class="upp-dot ${on ? 'snap-on' : 'snap-off'}"></span>
+                        <div class="upp-entry-text">
+                          <div class="upp-entry-name">${escapeHtml(live ? live.script_name : `正则 #${id.slice(0, 8)}`)}</div>
+                          <div class="upp-entry-preview">${escapeHtml(live ? live.find_regex : (!rgAvailable ? '正则模块当前不可用' : '未在当前范围找到'))}</div>
+                        </div>
+                      </button>
+                      <button type="button" class="upp-switch" role="switch" aria-checked="${on}" data-sv-rg-toggle="${sc.key}" data-sv-rg-id="${escapeHtml(id)}"></button>
+                    </div>
+                    ${isExpanded ? `
+                      <div class="upp-inline-panel" data-sv-rg-panel="${escapeHtml(expKey)}">
+                        <div class="upp-inline-meta">
+                          <span>${sc.label} · 快照中${on ? '开启' : '关闭'}</span>
+                        </div>
+                        <pre class="upp-inline-pre">${escapeHtml(detailText)}</pre>
+                        <div class="upp-inline-foot">
+                          <button type="button" class="upp-btn" data-sv-rg-copy="${sc.key}" data-sv-rg-copy-id="${escapeHtml(id)}">${ICONS.copy}<span>复制规则</span></button>
+                          <button type="button" class="upp-btn" data-sv-rg-close="${escapeHtml(expKey)}">收起</button>
+                        </div>
                       </div>
-                    </button>
-                    <button type="button" class="upp-switch" role="switch" aria-checked="${on}" data-sv-rg-toggle="${sc.key}" data-sv-rg-id="${escapeHtml(id)}"></button>
+                    ` : ''}
                   </div>
                 `;
               }).join('')}
@@ -3676,15 +4334,18 @@ function initExtension() {
           </div>
         `;
       }).filter(Boolean).join('');
-      bodyEl.innerHTML = blocks ? `<div class="upp-entry-list">${blocks}</div>` : `<div class="upp-empty">没有匹配的正则条目</div>`;
+      bodyEl.innerHTML = noticeHtml + (blocks ? `<div class="upp-entry-list">${blocks}</div>` : `<div class="upp-empty">没有匹配的正则条目</div>`);
     }
   }
 
-  function renderMergeCandidateList(d) {
+  function renderMergeCandidateList(d, planArg) {
     const listEl = shadow.getElementById('upp-merge-candidate-list');
     if (!listEl) return;
     const keepId = d.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
     const keep = state.personas.find(p => p.avatar_id === keepId);
+    const existingVersions = keep ? (state.store.personaVersions[keep.avatar_id] || []) : [];
+    const plan = planArg || buildPersonaMergePlan(state.personas, keepId, d.absorbIds, existingVersions);
+    const planById = new Map((plan?.candidates || []).map(c => [c.avatar_id, c]));
     const dupGroups = detectProliferatedPersonas(state.personas);
     const absorbSet = new Set(d.absorbIds || []);
     const previewSet = d.previewIds || new Set();
@@ -3729,6 +4390,7 @@ function initExtension() {
       const desc = String(p.description || '');
       const snippet = desc.replace(/\s+/g, ' ').trim();
       const aid = escapeHtml(p.avatar_id);
+      const candPlan = planById.get(p.avatar_id);
       return `
         <div class="upp-merge-row ${checked ? 'is-checked' : ''}">
           <div class="upp-merge-top">
@@ -3736,6 +4398,7 @@ function initExtension() {
               <input type="checkbox" data-merge-absorb="${aid}" ${checked ? 'checked' : ''} style="accent-color:var(--accent);margin:0;flex-shrink:0;" />
               <span class="upp-merge-name">${escapeHtml(p.name)}</span>
               ${isOverlap ? '<span class="upp-badge accent">相似分身</span>' : ''}
+              ${candPlan ? `<span class="upp-badge">将变为：${escapeHtml(candPlan.versionName)}</span>` : ''}
               <span class="upp-card-meta">${desc.length} 字</span>
             </label>
             <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" data-merge-preview="${aid}">${expanded ? '收起正文' : '查看正文'}</button>
@@ -3749,7 +4412,7 @@ function initExtension() {
 
     let html = '';
     if (topItems.length) {
-      html += `<div class="upp-wb-sec-head"><span>推荐合并 · 重合与已选分身（${topItems.length}）</span></div>`;
+      html += `<div class="upp-wb-sec-head"><span>推荐收纳 · 重合与已选分身（${topItems.length}）</span></div>`;
       html += topItems.map(p => renderRow(p, overlapIds.has(p.avatar_id))).join('');
     }
     if (restItems.length) {
@@ -3801,6 +4464,74 @@ function initExtension() {
         </div>
       `;
     }).join('');
+  }
+
+  function renderSaveSnapshotBooksList(d) {
+    const listEl = shadow.getElementById('upp-ss-books-list');
+    if (!listEl) return;
+    const selectedSet = new Set(d.selectedBooks || []);
+    const { sections } = groupWorldbooksByOrganizer(state.worldbooks, getOrganizerSettings(), {
+      pinned: state.store.settings.pinnedWorldbooks,
+      globals: state.globalWorldbooks,
+      charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
+      chatBook: state.chatWorldbook,
+      liveCharBookMap: buildLiveCharBookMap(),
+      query: d.bookQuery || '',
+    });
+    if (!sections.length) {
+      listEl.innerHTML = '<div class="upp-card-meta" style="padding:10px;text-align:center;">未找到匹配的世界书</div>';
+      return;
+    }
+    listEl.innerHTML = sections.map(sec => {
+      const names = sec.items.map(it => it.name);
+      const allChecked = names.length > 0 && names.every(n => selectedSet.has(n));
+      const dotHtml = sec.color ? `<span class="upp-wb-dot" style="background:${escapeHtml(sec.color)};"></span>` : '';
+      return `
+        <div class="upp-wb-sec-head">
+          <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span>${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}</span>
+          <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
+        </div>
+        ${sec.items.map(it => {
+          const sub = it.subtitle ? `<span class="upp-wb-sub">${escapeHtml(it.subtitle)}</span>` : '';
+          return `
+            <label class="upp-check-item" style="border:none;background:transparent;padding:4px 6px;">
+              <input type="checkbox" data-ss-book="${escapeHtml(it.name)}" ${selectedSet.has(it.name) ? 'checked' : ''} />
+              <span>${escapeHtml(it.displayTitle)}${sub}</span>
+              ${it.isPinned ? '<span class="upp-badge warn" style="margin-left:auto;">置顶</span>' : ''}
+            </label>
+          `;
+        }).join('')}
+      `;
+    }).join('');
+  }
+
+  function renderBindChatCharOptions(d) {
+    const selEl = shadow.getElementById('upp-bind-chat-char-sel');
+    const picksEl = shadow.getElementById('upp-bind-chat-char-picks');
+    const q = normalizeText(d.chatCharQuery || '');
+    const withAvatar = (d.allChars || []).filter(c => c.avatar);
+    const matched = q ? withAvatar.filter(c => normalizeText(c.name + ' ' + c.id).includes(q)) : withAvatar;
+    if (selEl) {
+      const opts = matched.map(c =>
+        `<option value="${escapeHtml(c.avatar)}" ${d.scanCharAvatar === c.avatar ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+      ).join('');
+      const hasSelected = matched.some(c => c.avatar === d.scanCharAvatar);
+      const selectedObj = !hasSelected && d.scanCharAvatar ? withAvatar.find(c => c.avatar === d.scanCharAvatar) : null;
+      selEl.innerHTML = `<option value="">${matched.length ? `选择角色扫描其聊天档（共 ${matched.length} 个）…` : '未找到匹配角色'}</option>`
+        + (selectedObj ? `<option value="${escapeHtml(selectedObj.avatar)}" selected>${escapeHtml(selectedObj.name)}</option>` : '')
+        + opts;
+    }
+    if (picksEl) {
+      if (q && matched.length) {
+        picksEl.hidden = false;
+        picksEl.innerHTML = matched.slice(0, 8).map(c =>
+          `<button type="button" class="upp-pill ${d.scanCharAvatar === c.avatar ? 'active' : ''}" data-bind-pick-chat-char="${escapeHtml(c.avatar)}">${escapeHtml(c.name)}</button>`
+        ).join('');
+      } else {
+        picksEl.hidden = true;
+        picksEl.innerHTML = '';
+      }
+    }
   }
 
   function renderBindChatList(d) {
@@ -3894,7 +4625,7 @@ function initExtension() {
               if (item.isChat) tags.push('<span class="upp-badge ok">聊天</span>');
               const sub = item.subtitle ? `<span class="upp-wb-sub">${escapeHtml(item.subtitle)}</span>` : '';
               return `
-                <button class="upp-detail-item" data-pick-book="${escapeHtml(item.name)}" style="${item.name === state.activeBook ? 'border-color:var(--accent);' : ''}">
+                <button type="button" class="upp-detail-item" data-pick-book="${escapeHtml(item.name)}" style="${item.name === state.activeBook ? 'border-color:var(--accent);' : ''}">
                   <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.displayTitle)}${sub}</span>
                   <span class="upp-row-nowrap">${tags.join('')}</span>
                 </button>
@@ -3962,17 +4693,21 @@ function initExtension() {
     listEl.innerHTML = html;
   }
 
+  const NON_BLOCKING_DRAWERS = new Set(['bookPicker', 'bindSnapshot', 'presetSync', 'backup']);
+
   function renderDrawer() {
     const d = state.drawer;
     if (!d) {
       elDrawerMask.hidden = true;
-      elDrawerMask.classList.remove('is-full');
+      elDrawerMask.classList.remove('is-full', 'is-non-blocking');
       elDrawerMask.innerHTML = '';
       return;
     }
     elDrawerMask.hidden = false;
     const isFull = d.type === 'viewSnapshot' || (d.type === 'entryEditor' && d.fullView);
+    const isNonBlocking = !isFull && NON_BLOCKING_DRAWERS.has(d.type);
     elDrawerMask.classList.toggle('is-full', isFull);
+    elDrawerMask.classList.toggle('is-non-blocking', isNonBlocking);
 
     if (d.type === 'viewSnapshot') {
       const s = d.draft || d.snapshot;
@@ -3986,21 +4721,66 @@ function initExtension() {
 
       const showFilter = d.subTab === 'preset' || d.subTab === 'worldbooks' || d.subTab === 'regex';
       const showFoldAll = d.subTab === 'preset' && (d.presetNorm?.groups?.length > 0);
+      const existingGroups = Array.from(new Set(state.store.snapshots.map(x => x.group).filter(Boolean)));
+      const metaDraft = d.metaDraft || {
+        name: s.name || '',
+        group: s.group || '',
+        note: s.note || '',
+        scope: { ...s.scope },
+      };
+      const mSc = metaDraft.scope || { persona: true, worldbooks: true, preset: true, regex: true, api: false };
 
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-full">
           <div class="upp-drawer-head">
             <div class="upp-row-nowrap" style="min-width:0;">
-              <button class="upp-btn icon-only" data-sv-back title="返回">${ICONS.back}</button>
+              <button type="button" class="upp-btn icon-only" data-sv-back title="返回">${ICONS.back}</button>
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">快照详情 · ${escapeHtml(s.name)}</span>
               ${d.dirty ? '<span class="upp-badge warn">未保存</span>' : ''}
             </div>
             <div class="upp-row-nowrap">
-              <button class="upp-btn" id="upp-sv-edit-meta-btn" title="编辑名称、分组或说明">${ICONS.edit}<span>编辑</span></button>
-              <button class="upp-btn ${d.dirty ? 'primary' : ''}" id="upp-sv-save-btn" ${d.dirty ? '' : 'disabled'}>${ICONS.save}<span>${d.dirty ? '保存修改' : '已保存'}</span></button>
-              <button class="upp-btn ${d.dirty ? '' : 'primary'}" id="upp-sv-apply-btn">应用此快照</button>
+              <button type="button" class="upp-btn secondary ${d.editingMeta ? 'active' : ''}" id="upp-sv-edit-meta-btn" title="原地编辑名称、分组或说明">${ICONS.edit}<span>编辑</span></button>
+              <button type="button" class="upp-btn ${d.dirty ? 'primary' : ''}" id="upp-sv-save-btn" ${d.dirty ? '' : 'disabled'}>${ICONS.save}<span>${d.dirty ? '保存修改' : '已保存'}</span></button>
+              <button type="button" class="upp-btn ${d.dirty ? 'secondary' : 'primary'}" id="upp-sv-apply-btn">应用此快照</button>
             </div>
           </div>
+          ${d.editingMeta ? `
+            <div class="upp-card upp-inline-panel upp-sv-meta-panel" data-sv-meta-panel>
+              <div class="upp-inline-meta">
+                <span>原地编辑快照信息与包含模块</span>
+                <button type="button" class="upp-btn" id="upp-em-cancel-btn">收起</button>
+              </div>
+              <div class="upp-row">
+                <div class="upp-field" style="flex:1;min-width:160px;">
+                  <label>快照名称</label>
+                  <div class="upp-row-nowrap">
+                    <input type="text" class="upp-text-input" id="upp-em-name" data-sv-meta-name spellcheck="false" value="${escapeHtml(metaDraft.name || '')}" placeholder="输入快照名称" />
+                    <button type="button" class="upp-btn" id="upp-em-name-clear">清空</button>
+                  </div>
+                </div>
+                <div class="upp-field" style="flex:1;min-width:140px;">
+                  <label>分组</label>
+                  <input type="text" class="upp-text-input" id="upp-em-group" spellcheck="false" value="${escapeHtml(metaDraft.group || '')}" placeholder="可选分组" />
+                </div>
+              </div>
+              ${existingGroups.length ? `<div class="upp-pill-strip">${existingGroups.map(g => `<button type="button" class="upp-pill" data-em-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}</div>` : ''}
+              <div class="upp-field">
+                <label>说明备注</label>
+                <input type="text" class="upp-text-input" id="upp-em-note" spellcheck="false" value="${escapeHtml(metaDraft.note || '')}" placeholder="可选简短说明，最多 120 字" />
+              </div>
+              <div class="upp-check-grid">
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-persona" ${mSc.persona ? 'checked' : ''} /><span>User 人设</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-wb" ${mSc.worldbooks ? 'checked' : ''} /><span>世界书</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-preset" ${mSc.preset ? 'checked' : ''} /><span>预设与分组</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-api" ${mSc.api ? 'checked' : ''} /><span>API / 连接配置</span></label>
+                <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-regex" ${mSc.regex ? 'checked' : ''} /><span>正则开关</span></label>
+              </div>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" id="upp-em-cancel-btn-foot">取消</button>
+                <button type="button" class="upp-btn primary" id="upp-em-save-btn" data-sv-meta-save>保存修改</button>
+              </div>
+            </div>
+          ` : ''}
           ${d.pendingAction ? `
             <div class="upp-unsaved-bar">
               <span>${d.pendingAction === 'apply' ? '当前快照有未保存的开关修改，应用前要先保存吗？' : '当前快照有未保存的开关修改，离开前要先保存吗？'}</span>
@@ -4012,7 +4792,7 @@ function initExtension() {
             </div>
           ` : ''}
           <div class="upp-tabs" style="padding:7px 14px;">
-            ${availTabs.map(t => `<button class="upp-tab ${d.subTab === t.id ? 'active' : ''}" data-sv-tab="${t.id}"><span>${t.label}</span></button>`).join('')}
+            ${availTabs.map(t => `<button type="button" class="upp-tab ${d.subTab === t.id ? 'active' : ''}" data-sv-tab="${t.id}"><span>${t.label}</span></button>`).join('')}
           </div>
           <div class="upp-drawer-toolbar">
             ${showFilter ? `
@@ -4021,8 +4801,8 @@ function initExtension() {
                   ${ICONS.search}
                   <input type="text" id="upp-sv-search" spellcheck="false" placeholder="搜索分组、名称或正文…" value="${escapeHtml(d.search || '')}" />
                 </div>
-                <button class="upp-btn ${d.onlyOn ? 'active' : ''}" id="upp-sv-only-on">只看已开</button>
-                ${showFoldAll ? `<button class="upp-btn" id="upp-sv-fold-all">${d.allExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+                <button type="button" class="upp-btn ${d.onlyOn ? 'active' : ''}" id="upp-sv-only-on">只看已开</button>
+                ${showFoldAll ? `<button type="button" class="upp-btn" id="upp-sv-fold-all">${d.allExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
               </div>
             ` : ''}
             <div class="upp-card-meta" id="upp-snap-inspect-meta"></div>
@@ -4041,7 +4821,7 @@ function initExtension() {
         <div class="upp-drawer is-fixed-box" style="width:min(500px,100%);">
           <div class="upp-drawer-head">
             <span>编辑快照信息与包含模块</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-field">
@@ -4072,12 +4852,12 @@ function initExtension() {
             </div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-em-save-btn">保存修改</button>
+            <button type="button" class="upp-btn" data-drawer-close>取消</button>
+            <button type="button" class="upp-btn primary" id="upp-em-save-btn">保存修改</button>
           </div>
         </div>
       `;
-      if (canAutoFocusDesktop()) window.setTimeout(() => shadow.getElementById('upp-em-name')?.focus(), 10);
+      if (canAutoFocusDesktop()) window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-em-name')), 10);
       return;
     }
 
@@ -4090,98 +4870,107 @@ function initExtension() {
         || d.apiProfileRemap
         || Object.values(d.bookRemap || {}).some(v => v && v !== '__keep__')
       );
-      const hasOrg = !!getOrganizerSettings();
+      const hasOrg = hasActiveOrganizer();
       const org = getOrganizerSettings();
       const charNameMap = buildCombinedCharNameMap(org);
+      const cmEnabled = isConnectionManagerEnabled();
+      const liveProfiles = cmEnabled ? (state.apiProfiles || []) : [];
+      const driftRemoved = Number(health.presetDrift?.removedPromptCount || 0);
+      const driftAdded = Number(health.presetDrift?.newPromptCount || 0);
+      const summaryBadges = [];
+      if (health.missingPersona) summaryBadges.push(`<span class="upp-badge warn">缺失 User：${escapeHtml(health.missingPersona.name)}</span>`);
+      if (health.missingWorldbooks.length) summaryBadges.push(`<span class="upp-badge warn">缺失世界书 ${health.missingWorldbooks.length} 本</span>`);
+      if (health.missingPreset) summaryBadges.push(`<span class="upp-badge warn">缺失预设：${escapeHtml(health.missingPreset)}</span>`);
+      if (health.missingApiProfile) summaryBadges.push(`<span class="upp-badge warn">缺失连接配置：${escapeHtml(health.missingApiProfile.profileName)}</span>`);
+      if (driftRemoved > 0) summaryBadges.push(`<span class="upp-badge">预设已删条目 ${driftRemoved} 条</span>`);
+      if (driftAdded > 0) summaryBadges.push(`<span class="upp-badge accent">预设新增条目 ${driftAdded} 条</span>`);
+      const hasRepairableFields = !!(health.missingPersona || health.missingWorldbooks.length || health.missingPreset || health.missingApiProfile);
 
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">快照存在缺失项 · ${escapeHtml(snap.name)}</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
-            <div class="upp-card-meta">快照本身已完整保留，不会被删除。你可以直接选择替代项修复，或先前往对应模块处理，也可以跳过缺失项继续应用其余正常部分。</div>
-            ${health.missingPersona ? `
-              <div class="upp-card">
-                <div class="upp-card-head" style="flex-wrap:wrap;">
-                  <span class="upp-card-title">缺失 User 人设：${escapeHtml(health.missingPersona.name)}</span>
-                  <button type="button" class="upp-btn" data-ma-goto="user">前往 User 页</button>
+            <section class="upp-section-block upp-ma-block" data-ma-block="summary">
+              <h4 class="upp-block-title">1. 诊断摘要与预设变更</h4>
+              <div class="upp-card-meta">快照本身已完整保留，不会被删除。请按需在下方直接替代修复，或前往对应模块处理。</div>
+              ${summaryBadges.length ? `<div class="upp-card-meta">${summaryBadges.join('')}</div>` : ''}
+              ${(driftRemoved > 0 || driftAdded > 0) ? `
+                <div class="upp-notice-box">
+                  <span>检测到当前预设与快照记录存在变动（已删 ${driftRemoved} 条、新增 ${driftAdded} 条），可用下方「批量迁移旧预设快照」同步开关。</span>
                 </div>
+              ` : ''}
+            </section>
+
+            <section class="upp-section-block upp-ma-block" data-ma-block="repair">
+              <h4 class="upp-block-title">2. 原地替代与清理修复</h4>
+              ${!hasRepairableFields ? `<div class="upp-card-meta">暂无需要手动重绑的缺失资源。</div>` : ''}
+              ${health.missingPersona ? `
                 <div class="upp-field">
-                  <label>替换为现有 User（可选）</label>
+                  <label>缺失 User（${escapeHtml(health.missingPersona.name)}）替换为：</label>
                   <select class="upp-select" id="upp-ma-persona-sel" style="width:100%;">
                     <option value="">暂不替换（应用时跳过 User）</option>
                     ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${d.personaRemap === p.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
                   </select>
                 </div>
-              </div>
-            ` : ''}
-            ${health.missingWorldbooks.length ? `
-              <div class="upp-card">
-                <div class="upp-card-head" style="flex-wrap:wrap;">
-                  <span class="upp-card-title">缺失世界书（${health.missingWorldbooks.length} 本）</span>
-                  <div class="upp-row-nowrap">
-                    ${hasOrg ? `<button type="button" class="upp-btn" id="upp-ma-open-wbo">打开整理面板</button>` : ''}
-                    <button type="button" class="upp-btn" data-ma-goto="worldbook">前往世界书页</button>
+              ` : ''}
+              ${health.missingWorldbooks.map(bk => {
+                const chosen = (d.bookRemap && d.bookRemap[bk]) || '__keep__';
+                return `
+                  <div class="upp-field">
+                    <label>缺失世界书：<strong>${escapeHtml(bk)}</strong></label>
+                    <select class="upp-select" data-ma-book-sel="${escapeHtml(bk)}" style="width:100%;">
+                      <option value="__keep__" ${chosen === '__keep__' ? 'selected' : ''}>暂不处理（应用时跳过此书）</option>
+                      <option value="__remove__" ${chosen === '__remove__' ? 'selected' : ''}>从本快照移除此书引用</option>
+                      ${state.worldbooks.map(liveBk => {
+                        const fmt = formatWorldbookDisplay(liveBk, org, charNameMap);
+                        const lbl = fmt.subtitle ? `${fmt.primary} (${fmt.subtitle})` : fmt.primary;
+                        return `<option value="${escapeHtml(liveBk)}" ${chosen === liveBk ? 'selected' : ''}>替换为：${escapeHtml(lbl)}</option>`;
+                      }).join('')}
+                    </select>
                   </div>
-                </div>
-                ${health.missingWorldbooks.map(bk => {
-                  const chosen = (d.bookRemap && d.bookRemap[bk]) || '__keep__';
-                  return `
-                    <div class="upp-field">
-                      <label>原世界书：<strong>${escapeHtml(bk)}</strong></label>
-                      <select class="upp-select" data-ma-book-sel="${escapeHtml(bk)}" style="width:100%;">
-                        <option value="__keep__" ${chosen === '__keep__' ? 'selected' : ''}>暂不处理（应用时跳过此书）</option>
-                        <option value="__remove__" ${chosen === '__remove__' ? 'selected' : ''}>从本快照移除此书引用</option>
-                        ${state.worldbooks.map(liveBk => {
-                          const fmt = formatWorldbookDisplay(liveBk, org, charNameMap);
-                          const lbl = fmt.subtitle ? `${fmt.primary} (${fmt.subtitle})` : fmt.primary;
-                          return `<option value="${escapeHtml(liveBk)}" ${chosen === liveBk ? 'selected' : ''}>替换为：${escapeHtml(lbl)}</option>`;
-                        }).join('')}
-                      </select>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            ` : ''}
-            ${health.missingPreset ? `
-              <div class="upp-card">
-                <div class="upp-card-head" style="flex-wrap:wrap;">
-                  <span class="upp-card-title">缺失预设：${escapeHtml(health.missingPreset)}</span>
-                  <div class="upp-row-nowrap">
-                    <button type="button" class="upp-btn primary" id="upp-ma-migrate-preset">批量迁移旧预设快照</button>
-                    <button type="button" class="upp-btn" data-ma-goto="preset">前往预设页</button>
-                  </div>
-                </div>
+                `;
+              }).join('')}
+              ${health.missingPreset ? `
                 <div class="upp-field">
-                  <label>替换为现有预设（可选）</label>
+                  <label>缺失预设（${escapeHtml(health.missingPreset)}）替换为：</label>
                   <select class="upp-select" id="upp-ma-preset-sel" style="width:100%;">
                     <option value="">暂不替换（应用时跳过预设）</option>
                     ${state.presets.map(pr => `<option value="${escapeHtml(pr)}" ${d.presetRemap === pr ? 'selected' : ''}>${escapeHtml(pr)}</option>`).join('')}
                   </select>
                 </div>
-              </div>
-            ` : ''}
-            ${health.missingApiProfile ? `
-              <div class="upp-card">
-                <div class="upp-card-head" style="flex-wrap:wrap;">
-                  <span class="upp-card-title">缺失 API 连接配置：${escapeHtml(health.missingApiProfile.profileName)}</span>
-                </div>
+              ` : ''}
+              ${health.missingApiProfile ? `
                 <div class="upp-field">
-                  <label>替换为现有连接配置（可选）</label>
+                  <label>缺失 API 连接配置（${escapeHtml(health.missingApiProfile.profileName)}）：</label>
+                  ${!cmEnabled ? `<div class="upp-card-meta">酒馆连接配置模块当前未启用，可选择清除旧绑定改用独立记录的来源与模型。</div>` : ''}
                   <select class="upp-select" id="upp-ma-api-sel" style="width:100%;">
-                    <option value="">暂不替换（应用时跳过 API）</option>
-                    ${(state.apiProfiles || []).map(pr => `<option value="${escapeHtml(pr.id)}" ${d.apiProfileRemap === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` (${escapeHtml(pr.model)})` : ''}</option>`).join('')}
+                    <option value="" ${!d.apiProfileRemap ? 'selected' : ''}>暂不替换（应用时跳过 API）</option>
+                    <option value="__clear_profile__" ${d.apiProfileRemap === '__clear_profile__' ? 'selected' : ''}>清除旧配置绑定（改用来源：${escapeHtml(snap.api?.source || '未记录')} / 模型：${escapeHtml(snap.api?.model || '未记录')}）</option>
+                    ${liveProfiles.map(pr => `<option value="${escapeHtml(pr.id)}" ${d.apiProfileRemap === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` (${escapeHtml(pr.model)})` : ''}</option>`).join('')}
                   </select>
                 </div>
+              ` : ''}
+            </section>
+
+            <section class="upp-section-block upp-ma-block" data-ma-block="nav">
+              <h4 class="upp-block-title">3. 前往对应模块处理</h4>
+              <div class="upp-row">
+                ${health.missingPersona ? `<button type="button" class="upp-btn secondary" data-ma-goto="user">前往 User 页</button>` : ''}
+                ${health.missingWorldbooks.length ? `<button type="button" class="upp-btn secondary" data-ma-goto="worldbook">前往世界书页</button>` : ''}
+                ${(health.missingWorldbooks.length && hasOrg) ? `<button type="button" class="upp-btn" id="upp-ma-open-wbo">打开整理面板</button>` : ''}
+                ${(health.missingPreset || driftRemoved > 0 || driftAdded > 0) ? `<button type="button" class="upp-btn primary" id="upp-ma-migrate-preset">批量迁移旧预设快照</button>` : ''}
+                ${health.missingPreset ? `<button type="button" class="upp-btn secondary" data-ma-goto="preset">前往预设页</button>` : ''}
               </div>
-            ` : ''}
+              ${!hasRepairableFields && !(driftRemoved > 0 || driftAdded > 0) ? `<div class="upp-card-meta">可直接跳过或返回对应标签页调整配置。</div>` : ''}
+            </section>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn ${hasRepairChoice ? '' : 'primary'}" id="upp-ma-skip-apply">跳过缺失项继续应用</button>
-            ${hasRepairChoice ? `<button class="upp-btn primary" id="upp-ma-repair-apply">保存弥补并应用</button>` : ''}
+            <button type="button" class="upp-btn" data-drawer-close>取消</button>
+            <button type="button" class="upp-btn ${hasRepairChoice ? '' : 'primary'}" id="upp-ma-skip-apply">跳过缺失项继续应用</button>
+            ${hasRepairChoice ? `<button type="button" class="upp-btn primary" id="upp-ma-repair-apply">保存弥补并应用</button>` : ''}
           </div>
         </div>
       `;
@@ -4189,14 +4978,14 @@ function initExtension() {
     }
 
     if (d.type === 'bookPicker') {
-      const hasOrg = !!getOrganizerSettings();
+      const hasOrg = hasActiveOrganizer();
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>选择世界书</span>
             <div class="upp-row-nowrap">
-              ${hasOrg ? `<button class="upp-btn" id="upp-open-wbo-in-drawer">整理分组</button>` : ''}
-              <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+              ${hasOrg ? `<button type="button" class="upp-btn" id="upp-open-wbo-in-drawer">整理分组</button>` : ''}
+              <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
             </div>
           </div>
           <div class="upp-drawer-body">
@@ -4209,34 +4998,7 @@ function initExtension() {
         </div>
       `;
       renderBookPickerList(d);
-      if (canAutoFocusDesktop()) window.setTimeout(() => shadow.getElementById('upp-book-search-input')?.focus(), 10);
-      return;
-    }
-
-    if (d.type === 'renamePersona') {
-      elDrawerMask.innerHTML = `
-        <div class="upp-drawer is-fixed-sm" style="width:min(420px,100%);">
-          <div class="upp-drawer-head">
-            <span>修改当前 User 名字</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
-          </div>
-          <div class="upp-drawer-body">
-            <div class="upp-field">
-              <label>新名字</label>
-              <div class="upp-row-nowrap">
-                <input type="text" class="upp-text-input" id="upp-rename-input" spellcheck="false" value="${escapeHtml(d.name || '')}" placeholder="输入新的 User 名字" />
-                <button type="button" class="upp-btn" id="upp-rename-clear-btn">清空</button>
-              </div>
-            </div>
-            <div class="upp-card-meta">直接在当前 User 槽位原地改名，聊天中的主角称呼会同步生效，不会多出新分身。</div>
-          </div>
-          <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-rename-confirm-btn">确认改名</button>
-          </div>
-        </div>
-      `;
-      if (canAutoFocusDesktop()) window.setTimeout(() => shadow.getElementById('upp-rename-input')?.focus(), 10);
+      if (canAutoFocusDesktop()) window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-book-search-input')), 10);
       return;
     }
 
@@ -4246,10 +5008,10 @@ function initExtension() {
         <div class="upp-drawer ${d.fullView ? 'is-full' : 'is-fixed-box'}">
           <div class="upp-drawer-head">
             <div class="upp-row-nowrap">
-              ${d.returnTo ? `<button class="upp-btn icon-only" data-drawer-close title="返回">${ICONS.back}</button>` : ''}
+              ${d.returnTo ? `<button type="button" class="upp-btn icon-only" data-drawer-close title="返回">${ICONS.back}</button>` : ''}
               <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(d.heading || '条目详情')}</span>
             </div>
-            ${!d.returnTo ? `<button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>` : ''}
+            ${!d.returnTo ? `<button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>` : ''}
           </div>
           <div class="upp-drawer-body">
             ${d.meta ? `<div class="upp-card-meta">${escapeHtml(d.meta)}</div>` : ''}
@@ -4283,8 +5045,8 @@ function initExtension() {
             </div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>${d.returnTo ? '返回' : '关闭'}</button>
-            ${!readOnly ? `<button class="upp-btn primary" id="upp-ed-save-btn">保存</button>` : ''}
+            <button type="button" class="upp-btn" data-drawer-close>${d.returnTo ? '返回' : '关闭'}</button>
+            ${!readOnly ? `<button type="button" class="upp-btn primary" id="upp-ed-save-btn">保存</button>` : ''}
           </div>
         </div>
       `;
@@ -4301,7 +5063,7 @@ function initExtension() {
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span>保存快照</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-field">
@@ -4338,47 +5100,21 @@ function initExtension() {
             </div>
             <div class="upp-field" id="upp-ss-books-wrap" ${d.scope.worldbooks ? '' : 'hidden'}>
               <label>记录条目开关的世界书 · 已选 ${selectedSet.size} 本</label>
-              <div class="upp-pop-list">
-                ${(() => {
-                  const { sections } = groupWorldbooksByOrganizer(state.worldbooks, getOrganizerSettings(), {
-                    pinned: state.store.settings.pinnedWorldbooks,
-                    globals: state.globalWorldbooks,
-                    charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
-                    chatBook: state.chatWorldbook,
-                    liveCharBookMap: buildLiveCharBookMap(),
-                  });
-                  return sections.map(sec => {
-                    const names = sec.items.map(it => it.name);
-                    const allChecked = names.length > 0 && names.every(n => selectedSet.has(n));
-                    const dotHtml = sec.color ? `<span class="upp-wb-dot" style="background:${escapeHtml(sec.color)};"></span>` : '';
-                    return `
-                      <div class="upp-wb-sec-head">
-                        <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span>${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}</span>
-                        <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
-                      </div>
-                      ${sec.items.map(it => {
-                        const sub = it.subtitle ? `<span class="upp-wb-sub">${escapeHtml(it.subtitle)}</span>` : '';
-                        return `
-                          <label class="upp-check-item" style="border:none;background:transparent;padding:4px 6px;">
-                            <input type="checkbox" data-ss-book="${escapeHtml(it.name)}" ${selectedSet.has(it.name) ? 'checked' : ''} />
-                            <span>${escapeHtml(it.displayTitle)}${sub}</span>
-                            ${it.isPinned ? '<span class="upp-badge warn" style="margin-left:auto;">置顶</span>' : ''}
-                          </label>
-                        `;
-                      }).join('')}
-                    `;
-                  }).join('');
-                })()}
+              <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+                ${ICONS.search}
+                <input type="text" id="upp-ss-book-search" spellcheck="false" placeholder="搜索世界书名称、角色名或分组…" value="${escapeHtml(d.bookQuery || '')}" />
               </div>
+              <div class="upp-pop-list" id="upp-ss-books-list"></div>
             </div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-ss-confirm-btn">保存快照</button>
+            <button type="button" class="upp-btn" data-drawer-close>取消</button>
+            <button type="button" class="upp-btn primary" id="upp-ss-confirm-btn">保存快照</button>
           </div>
         </div>
       `;
-      if (canAutoFocusDesktop()) window.setTimeout(() => shadow.getElementById('upp-ss-name')?.focus(), 10);
+      renderSaveSnapshotBooksList(d);
+      if (canAutoFocusDesktop()) window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-ss-name')), 10);
       return;
     }
 
@@ -4401,7 +5137,7 @@ function initExtension() {
         <div class="upp-drawer is-fixed-sm" style="width:min(440px,100%);">
           <div class="upp-drawer-head">
             <span>确认覆盖更新</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-card">
@@ -4414,8 +5150,8 @@ function initExtension() {
             <div class="upp-card-meta">覆盖后该快照内原有记录的开关状态将被替换为当前最新状态，请确认。</div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-confirm-overwrite-btn">确认覆盖更新</button>
+            <button type="button" class="upp-btn" data-drawer-close>取消</button>
+            <button type="button" class="upp-btn primary" id="upp-confirm-overwrite-btn">确认覆盖更新</button>
           </div>
         </div>
       `;
@@ -4435,11 +5171,11 @@ function initExtension() {
         <div class="upp-drawer is-fixed-box">
           <div class="upp-drawer-head">
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">绑定快照 · ${escapeHtml(s.name)}</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-tabs" style="padding:7px 14px;">
-            <button class="upp-tab ${tab === 'char' ? 'active' : ''}" data-bind-tab="char"><span>按角色绑定</span></button>
-            <button class="upp-tab ${tab === 'chat' ? 'active' : ''}" data-bind-tab="chat"><span>按角色扫描聊天档</span></button>
+            <button type="button" class="upp-tab ${tab === 'char' ? 'active' : ''}" data-bind-tab="char"><span>按角色绑定</span></button>
+            <button type="button" class="upp-tab ${tab === 'chat' ? 'active' : ''}" data-bind-tab="chat"><span>按角色扫描聊天档</span></button>
           </div>
           <div class="upp-drawer-body">
             ${(boundChats.length || boundChars.length) ? `
@@ -4464,11 +5200,13 @@ function initExtension() {
               </div>
               <div class="upp-pop-list is-fill" id="upp-bind-char-list"></div>
             ` : `
+              <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
+                ${ICONS.search}
+                <input type="text" id="upp-bind-chat-char-search" spellcheck="false" placeholder="搜索角色名称，快速定位下方角色…" value="${escapeHtml(d.chatCharQuery || '')}" />
+              </div>
+              <div class="upp-pill-strip" id="upp-bind-chat-char-picks" hidden></div>
               <div class="upp-row">
-                <select class="upp-select" id="upp-bind-chat-char-sel" style="flex:1;min-width:0;max-width:100%;">
-                  <option value="">选择角色扫描其聊天档…</option>
-                  ${(d.allChars || []).filter(c => c.avatar).map(c => `<option value="${escapeHtml(c.avatar)}" ${d.scanCharAvatar === c.avatar ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
-                </select>
+                <select class="upp-select" id="upp-bind-chat-char-sel" style="flex:1;min-width:0;max-width:100%;"></select>
                 <button type="button" class="upp-btn" id="upp-bind-rescan-btn" ${d.scanCharAvatar ? '' : 'disabled'}>${ICONS.refresh}<span>扫描</span></button>
               </div>
               <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
@@ -4479,157 +5217,12 @@ function initExtension() {
             `}
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn primary" data-drawer-close>完成</button>
+            <button type="button" class="upp-btn primary" data-drawer-close>完成</button>
           </div>
         </div>
       `;
       if (tab === 'char') renderBindCharList(d);
-      else renderBindChatList(d);
-      return;
-    }
-
-    if (d.type === 'savePersonaVersion') {
-      const p = state.currentPersona;
-      const existing = p ? (state.store.personaVersions[p.avatar_id] || []) : [];
-      elDrawerMask.innerHTML = `
-        <div class="upp-drawer is-fixed-box" style="width:min(480px,100%);">
-          <div class="upp-drawer-head">
-            <span>存为内部描述版本 · ${escapeHtml(p?.name || '')}</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
-          </div>
-          <div class="upp-drawer-body">
-            <div class="upp-field">
-              <label>版本名称</label>
-              <input type="text" class="upp-text-input" id="upp-pv-name" spellcheck="false" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
-            </div>
-            <div class="upp-field">
-              <label>切换时使用的 User 名字 · 剧情换姓直接填全名</label>
-              <div class="upp-row-nowrap">
-                <input type="text" class="upp-text-input" id="upp-pv-display-name" spellcheck="false" placeholder="留空则切换时不改当前名字" value="${escapeHtml(d.displayName !== undefined ? d.displayName : (p?.name || ''))}" />
-                <button type="button" class="upp-btn" id="upp-pv-dn-clear-btn">清空</button>
-              </div>
-            </div>
-            ${existing.length ? `
-              <div class="upp-field" style="flex:1;min-height:0;display:flex;flex-direction:column;">
-                <label>已有版本 · 点选同名可覆盖</label>
-                <div class="upp-pop-list is-fill">
-                  ${existing.map(v => `
-                    <div class="upp-row-nowrap" style="padding:3px 4px;">
-                      <button type="button" class="upp-detail-item" data-pv-fill-name="${escapeHtml(v.name)}" data-pv-fill-dn="${escapeHtml(v.displayName || '')}">
-                        <span>${escapeHtml(v.name)}${v.displayName ? ` <span class="upp-wb-sub">${escapeHtml(v.displayName)}</span>` : ''}</span>
-                        <span class="upp-card-meta">${formatTimeShort(v.updatedAt)}</span>
-                      </button>
-                      <button type="button" class="upp-btn icon-only danger" data-pv-del="${v.id}" title="删除版本">${ICONS.trash}</button>
-                    </div>
-                  `).join('')}
-                </div>
-              </div>
-            ` : ''}
-          </div>
-          <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-pv-save-btn">保存版本</button>
-          </div>
-        </div>
-      `;
-      if (canAutoFocusDesktop()) window.setTimeout(() => shadow.getElementById('upp-pv-name')?.focus(), 10);
-      return;
-    }
-
-    if (d.type === 'personaDiff') {
-      const p = state.currentPersona;
-      const list = p ? (state.store.personaVersions[p.avatar_id] || []) : [];
-      const choices = [{ id: '__live__', name: '当前实时正文', description: p ? p.description : '' }, ...list];
-      const leftId = d.leftId || (list[0]?.id || '__live__');
-      const rightId = d.rightId || '__live__';
-      const leftItem = choices.find(c => c.id === leftId) || choices[0];
-      const rightItem = choices.find(c => c.id === rightId) || choices[0];
-      const diffLines = computeLineDiff(leftItem?.description || '', rightItem?.description || '');
-
-      elDrawerMask.innerHTML = `
-        <div class="upp-drawer is-fixed-box">
-          <div class="upp-drawer-head">
-            <span>版本差异对比 · ${escapeHtml(p?.name || '')}</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
-          </div>
-          <div class="upp-drawer-body">
-            <div class="upp-row">
-              <select class="upp-select" id="upp-diff-left" style="flex:1;min-width:0;max-width:100%;">
-                ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === leftId ? 'selected' : ''}>旧：${escapeHtml(c.name)}</option>`).join('')}
-              </select>
-              <select class="upp-select" id="upp-diff-right" style="flex:1;min-width:0;max-width:100%;">
-                ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === rightId ? 'selected' : ''}>新：${escapeHtml(c.name)}</option>`).join('')}
-              </select>
-            </div>
-            <div class="upp-diff-box">
-              ${diffLines.length ? diffLines.map(ln => {
-                const prefix = ln.type === 'del' ? '- ' : ln.type === 'add' ? '+ ' : '  ';
-                return `<div class="upp-diff-line ${ln.type}">${escapeHtml(prefix + ln.text)}</div>`;
-              }).join('') : '<div class="upp-card-meta">两版正文完全一致</div>'}
-            </div>
-          </div>
-          <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>关闭</button>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    if (d.type === 'mergePersonas') {
-      const dupGroups = detectProliferatedPersonas(state.personas);
-      const keepId = d.keepId || (state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '');
-      const keepObj = state.personas.find(p => p.avatar_id === keepId);
-      const absorbSet = new Set(d.absorbIds || []);
-      const orphans = Array.isArray(d.orphanAvatars) ? d.orphanAvatars : [];
-      elDrawerMask.innerHTML = `
-        <div class="upp-drawer is-fixed-box">
-          <div class="upp-drawer-head">
-            <span>整理同名与换姓分身</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
-          </div>
-          <div class="upp-drawer-body">
-            ${orphans.length ? `
-              <div class="upp-bind-strip">
-                <span>检测到 ${orphans.length} 个未命名残留头像文件</span>
-                <button type="button" class="upp-btn danger" id="upp-clean-orphans-btn">一键清理</button>
-              </div>
-            ` : ''}
-            ${dupGroups.length ? `
-              <div class="upp-field">
-                <label>快速切到相似分身组</label>
-                <div class="upp-pill-strip">
-                  ${dupGroups.map((g, idx) => `<button type="button" class="upp-pill" data-merge-preset-group="${idx}">${escapeHtml(g.baseName)}（${g.items.length}）</button>`).join('')}
-                </div>
-              </div>
-            ` : ''}
-            <div class="upp-field">
-              <div class="upp-sec-title" style="margin:0;">
-                <span>保留的主 User · 勾选项会收进它的内部版本</span>
-                ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-merge-keep-preview-btn">${d.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
-              </div>
-              <select class="upp-select" id="upp-merge-keep" style="width:100%;">
-                ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}（${String(p.description || '').length} 字）</option>`).join('')}
-              </select>
-              ${keepObj && d.showKeepPreview ? `<pre class="upp-inline-pre" style="max-height:150px;">${escapeHtml(keepObj.description || '（主 User 暂无描述）')}</pre>` : ''}
-            </div>
-            <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
-              ${ICONS.search}
-              <input type="text" id="upp-merge-search" spellcheck="false" placeholder="筛选分身名称或正文关键词…" value="${escapeHtml(d.query || '')}" />
-            </div>
-            <div class="upp-pop-list is-fill" id="upp-merge-candidate-list" style="min-height:140px;"></div>
-            <label class="upp-check-item">
-              <input type="checkbox" id="upp-merge-delete-old" ${d.deleteOld ? 'checked' : ''} />
-              <span>收回后同时从酒馆删除已选中的旧分身</span>
-            </label>
-          </div>
-          <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-merge-run-btn" ${absorbSet.size ? '' : 'disabled'}>收回 ${absorbSet.size} 个分身</button>
-          </div>
-        </div>
-      `;
-      renderMergeCandidateList(d);
+      else { renderBindChatCharOptions(d); renderBindChatList(d); }
       return;
     }
 
@@ -4649,6 +5242,7 @@ function initExtension() {
       const allSnapsSelected = matchingSnaps.length > 0 && matchingSnaps.every(s => selSet.has(s.id));
       const ovPromptCount = Object.keys(d.forceOverridePrompts || {}).length;
       const ovGroupCount = Object.keys(d.forceOverrideGroups || {}).length;
+      const hasTargetGroups = Array.isArray(d.targetPresetNorm?.groups) && d.targetPresetNorm.groups.length > 0;
 
       elDrawerMask.innerHTML = `
         <div class="upp-drawer is-fixed-box">
@@ -4657,7 +5251,7 @@ function initExtension() {
               <span>预设升级与批量同步</span>
               <span class="upp-badge ${isUpgrade ? 'accent' : 'ok'}">${isUpgrade ? '跨版本迁移' : '同预设同步'}</span>
             </div>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             ${state.lastPresetSyncUndo ? `
@@ -4756,20 +5350,22 @@ function initExtension() {
               </div>
             </div>
 
-            <div class="upp-check-grid">
+            <div class="upp-check-grid" style="${hasTargetGroups ? '' : 'grid-template-columns:minmax(0, 1fr);'}">
               <label class="upp-check-item">
                 <input type="checkbox" id="upp-ps-clean-removed" ${d.cleanRemovedIds ? 'checked' : ''} />
                 <span>清理新预设已删除的旧条目残留</span>
               </label>
-              <label class="upp-check-item">
-                <input type="checkbox" id="upp-ps-sync-groups" ${d.syncNewGroups ? 'checked' : ''} />
-                <span>同步新预设的新增分组总开关</span>
-              </label>
+              ${hasTargetGroups ? `
+                <label class="upp-check-item">
+                  <input type="checkbox" id="upp-ps-sync-groups" ${d.syncNewGroups ? 'checked' : ''} />
+                  <span>同步新预设的新增分组总开关</span>
+                </label>
+              ` : ''}
             </div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>取消</button>
-            <button class="upp-btn primary" id="upp-ps-run-btn" ${selSet.size ? '' : 'disabled'}>${isUpgrade ? `迁移并同步 ${selSet.size} 份快照` : `同步到 ${selSet.size} 份快照`}</button>
+            <button type="button" class="upp-btn" data-drawer-close>取消</button>
+            <button type="button" class="upp-btn primary" id="upp-ps-run-btn" ${selSet.size ? '' : 'disabled'}>${isUpgrade ? `迁移并同步 ${selSet.size} 份快照` : `同步到 ${selSet.size} 份快照`}</button>
           </div>
         </div>
       `;
@@ -4782,18 +5378,18 @@ function initExtension() {
         <div class="upp-drawer is-fixed-sm" style="width:min(460px,100%);">
           <div class="upp-drawer-head">
             <span>快照与版本备份</span>
-            <button class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
+            <button type="button" class="upp-btn icon-only" data-drawer-close>${ICONS.close}</button>
           </div>
           <div class="upp-drawer-body">
             <div class="upp-row">
-              <button class="upp-btn primary" id="upp-export-json-btn">导出全部 JSON</button>
-              <button class="upp-btn" id="upp-import-json-btn">导入 JSON 备份</button>
+              <button type="button" class="upp-btn primary" id="upp-export-json-btn">导出全部 JSON</button>
+              <button type="button" class="upp-btn" id="upp-import-json-btn">导入 JSON 备份</button>
               <input type="file" id="upp-import-file" accept=".json,application/json" hidden />
             </div>
             <div class="upp-card-meta">包含所有快照、绑定关系及 User 内部描述版本，导入后将与当前列表合并更新。</div>
           </div>
           <div class="upp-drawer-foot">
-            <button class="upp-btn" data-drawer-close>关闭</button>
+            <button type="button" class="upp-btn" data-drawer-close>关闭</button>
           </div>
         </div>
       `;
@@ -4866,6 +5462,22 @@ function initExtension() {
     d.newPromptDecisions = nextDec;
     d.forceOverridePrompts = {};
     d.forceOverrideGroups = {};
+  }
+
+  function openExternalOrganizerPanel() {
+    if (!hasActiveOrganizer()) {
+      toast('未检测到已启用的世界书分组扩展，可直接使用当前面板管理世界书', 'info');
+      render();
+      return false;
+    }
+    emitWindowEvent('wbo:open-panel');
+    const overlay = typeof document !== 'undefined' ? document.getElementById('wbo-manager-overlay') : null;
+    if (overlay && !overlay.hidden) {
+      closeModal();
+      return true;
+    }
+    toast('未能唤起世界书分组面板，请确认该扩展已就绪', 'warning');
+    return false;
   }
 
   function openPresetSyncDrawer(opts = {}) {
@@ -4950,7 +5562,7 @@ function initExtension() {
     const presetNorm = (snap.scope.preset && snap.preset)
       ? Host.getPresetByNameNormalized(snap.preset.name)
       : null;
-    const regexDetails = (snap.scope.regex && snap.regex)
+    const regexDetails = (snap.scope.regex && snap.regex && isRegexModuleEnabled())
       ? {
           global: await Host.getRegexes('global'),
           character: await Host.getRegexes('character'),
@@ -4963,6 +5575,8 @@ function initExtension() {
       draft: structuredClone(snap),
       dirty: false,
       pendingAction: null,
+      editingMeta: false,
+      metaDraft: null,
       subTab: snap.scope.preset ? 'preset' : snap.scope.worldbooks ? 'worldbooks' : snap.scope.persona ? 'persona' : 'regex',
       search: '',
       onlyOn: false,
@@ -5121,8 +5735,6 @@ function initExtension() {
   // =========================
 
   shadow.getElementById('upp-close-btn').addEventListener('click', closeModal);
-  shadow.getElementById('upp-refresh-btn').addEventListener('click', () => { void refreshAll(true); });
-  elMiniBtn.addEventListener('click', toggleMiniWindow);
   elMinBtn.addEventListener('click', minimizeModal);
   elRestorePill.addEventListener('click', restoreModal);
 
@@ -5142,6 +5754,10 @@ function initExtension() {
     state.drawer = null;
     state.snapPendingDeleteId = '';
     state.wbAllOffConfirm = false;
+    if (next !== 'user') {
+      state.userView = 'main';
+      state.userInlineEditor = null;
+    }
     if (next === 'worldbook' && state.activeBook) await ensureBookEntries(state.activeBook, false);
     else if (next === 'regex') state.regexList = await Host.getRegexes(state.regexScope);
     else if (next === 'preset') {
@@ -5152,6 +5768,7 @@ function initExtension() {
       state.currentPersona = Host.getCurrentPersona();
     }
     render();
+    syncNativePersonaBar();
   });
 
   elToolbar.addEventListener('click', async ev => {
@@ -5183,16 +5800,52 @@ function initExtension() {
       renderUserToolbar(); renderUserBody(); return;
     }
     if (target.closest('#upp-persona-rename-btn') && state.currentPersona) {
-      state.drawer = { type: 'renamePersona', avatarId: state.currentPersona.avatar_id, name: state.currentPersona.name || '' };
-      renderDrawer(); return;
+      state.userView = 'main';
+      state.userSearch = '';
+      state.userInlineEditor = state.userInlineEditor === 'rename' ? null : 'rename';
+      renderUserToolbar(); renderUserBody();
+      if (state.userInlineEditor === 'rename' && canAutoFocusDesktop()) {
+        window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-rename-input')), 10);
+      }
+      return;
     }
     if (target.closest('#upp-persona-edit-btn') && state.currentPersona) {
-      state.drawer = { type: 'entryEditor', mode: 'editPersona', heading: `编辑 User 正文 · ${state.currentPersona.name}`, content: state.currentPersona.description || '' };
-      renderDrawer(); return;
+      state.userView = 'main';
+      state.userSearch = '';
+      state.userInlineEditor = state.userInlineEditor === 'body' ? null : 'body';
+      renderUserToolbar(); renderUserBody();
+      if (state.userInlineEditor === 'body' && canAutoFocusDesktop()) {
+        window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-user-body-ta')), 10);
+      }
+      return;
     }
-    if (target.closest('#upp-persona-savever-btn') && state.currentPersona) { state.drawer = { type: 'savePersonaVersion', name: '', displayName: state.currentPersona.name || '' }; renderDrawer(); return; }
-    if (target.closest('#upp-persona-diff-btn') && state.currentPersona) { state.drawer = { type: 'personaDiff' }; renderDrawer(); return; }
+    if (target.closest('#upp-persona-savever-btn') && state.currentPersona) {
+      state.userView = 'main';
+      state.userSearch = '';
+      state.userInlineEditor = state.userInlineEditor === 'savever' ? null : 'savever';
+      renderUserToolbar(); renderUserBody();
+      if (state.userInlineEditor === 'savever' && canAutoFocusDesktop()) {
+        window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-pv-name')), 10);
+      }
+      return;
+    }
+    if (target.closest('#upp-persona-diff-btn') && state.currentPersona) {
+      if (state.userView === 'diff') {
+        state.userView = 'main';
+      } else {
+        const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
+        state.userDiff = { leftId: list[0]?.id || '__live__', rightId: '__live__' };
+        state.userView = 'diff';
+        state.userInlineEditor = null;
+      }
+      renderUserToolbar(); renderUserBody(); return;
+    }
     if (target.closest('#upp-persona-merge-btn')) {
+      if (state.userView === 'merge') {
+        state.userView = 'main';
+        renderUserToolbar(); renderUserBody();
+        return;
+      }
       const dupGroups = detectProliferatedPersonas(state.personas);
       let keepId = state.currentPersona?.avatar_id || state.personas[0]?.avatar_id || '';
       let absorbIds = [];
@@ -5203,14 +5856,23 @@ function initExtension() {
         absorbIds = g.items.filter(x => x.avatar_id !== keepId).map(x => x.avatar_id);
       }
       const orphanAvatars = await Host.listOrphanAvatars();
-      state.drawer = { type: 'mergePersonas', keepId, absorbIds, deleteOld: false, orphanAvatars, query: '', previewIds: new Set(), showKeepPreview: false };
-      renderDrawer(); return;
+      state.userMerge = {
+        keepId,
+        absorbIds,
+        deleteOld: false,
+        orphanAvatars,
+        query: '',
+        previewIds: new Set(),
+        showKeepPreview: false,
+      };
+      state.userView = 'merge';
+      state.userInlineEditor = null;
+      renderUserToolbar(); renderUserBody(); return;
     }
 
     if (target.closest('#upp-book-picker-btn')) { state.drawer = { type: 'bookPicker', query: '', foldMap: {} }; renderDrawer(); return; }
     if (target.closest('#upp-open-wbo-btn')) {
-      closeModal();
-      emitWindowEvent('wbo:open-panel');
+      openExternalOrganizerPanel();
       return;
     }
     if (target.closest('#upp-pin-book-btn') && state.activeBook) {
@@ -5295,9 +5957,16 @@ function initExtension() {
     const id = targetEl.id;
     if (id === 'upp-snap-search') { state.snapSearch = targetEl.value; renderSnapshotsBody(); }
     else if (id === 'upp-user-search') {
+      if (state.userView !== 'main') return;
       state.userSearch = targetEl.value;
+      if (normalizeText(state.userSearch) && state.userInlineEditor) {
+        state.userInlineEditor = null;
+        shadow.getElementById('upp-persona-rename-btn')?.classList.remove('active');
+        shadow.getElementById('upp-persona-edit-btn')?.classList.remove('active');
+        shadow.getElementById('upp-persona-savever-btn')?.classList.remove('active');
+      }
       const clr = shadow.getElementById('upp-user-search-clear-btn');
-      if (clr) clr.hidden = !state.userSearch;
+      if (clr) clr.hidden = !state.userSearch || state.userView !== 'main';
       renderUserBody();
     }
     else if (id === 'upp-wb-search') { state.wbEntrySearch = targetEl.value; renderWorldbookBody(); }
@@ -5324,7 +5993,9 @@ function initExtension() {
       if (targetId) {
         await Host.switchPersona(targetId);
         state.currentPersona = Host.getCurrentPersona();
+        state.userInlineEditor = null;
         renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+        syncNativePersonaBar();
       }
       return;
     }
@@ -5337,6 +6008,76 @@ function initExtension() {
         state.expandedPresetIds.clear();
         renderPresetToolbar(); renderPresetBody(); renderFooter();
         toast('已切换预设：' + targetPreset, 'success');
+      }
+    }
+  });
+
+  function handleBodyInput(targetEl) {
+    if (!targetEl) return;
+    if (state.tab === 'user' && state.userView === 'merge' && targetEl.id === 'upp-merge-search') {
+      state.userMerge.query = targetEl.value;
+      renderMergeCandidateList(state.userMerge);
+    }
+  }
+  elBody.addEventListener('compositionstart', ev => {
+    if (ev.target) ev.target._uppComposing = true;
+  });
+  elBody.addEventListener('compositionend', ev => {
+    if (ev.target) {
+      ev.target._uppComposing = false;
+      handleBodyInput(ev.target);
+    }
+  });
+  elBody.addEventListener('input', ev => {
+    if (ev.isComposing || ev.target?._uppComposing) return;
+    handleBodyInput(ev.target);
+  });
+
+  elBody.addEventListener('change', ev => {
+    const t = ev.target;
+    if (state.tab === 'user' && state.userView === 'main' && t.id === 'upp-pv-overwrite-sel' && state.currentPersona) {
+      const aid = state.currentPersona.avatar_id;
+      const list = state.store.personaVersions[aid] || [];
+      const ver = list.find(v => v.id === t.value);
+      const nameInp = shadow.getElementById('upp-pv-name');
+      const dnInp = shadow.getElementById('upp-pv-display-name');
+      if (ver) {
+        if (nameInp) nameInp.value = ver.name || '';
+        if (dnInp) dnInp.value = ver.displayName || '';
+      }
+      return;
+    }
+    if (state.tab === 'user' && state.userView === 'diff') {
+      if (t.id === 'upp-diff-left') { state.userDiff.leftId = t.value; renderUserDiffView(); }
+      else if (t.id === 'upp-diff-right') { state.userDiff.rightId = t.value; renderUserDiffView(); }
+      return;
+    }
+    if (state.tab === 'user' && state.userView === 'merge') {
+      const m = state.userMerge;
+      if (t.id === 'upp-merge-keep') {
+        m.keepId = t.value;
+        m.absorbIds = (m.absorbIds || []).filter(id => id !== m.keepId);
+        renderUserMergeView();
+      } else if (t.hasAttribute('data-merge-absorb')) {
+        const aid = t.getAttribute('data-merge-absorb');
+        const set = new Set(m.absorbIds || []);
+        if (t.checked) set.add(aid); else set.delete(aid);
+        m.absorbIds = Array.from(set);
+        t.closest('.upp-merge-row')?.classList.toggle('is-checked', t.checked);
+        const keepObj = state.personas.find(p => p.avatar_id === m.keepId);
+        const existingVersions = keepObj ? (state.store.personaVersions[keepObj.avatar_id] || []) : [];
+        const plan = buildPersonaMergePlan(state.personas, m.keepId, m.absorbIds, existingVersions);
+        const listEl = shadow.getElementById('upp-merge-candidate-list');
+        const st = listEl ? listEl.scrollTop : 0;
+        renderMergeCandidateList(m, plan);
+        if (listEl) listEl.scrollTop = st;
+        renderUserMergePlanSection(m, plan);
+      } else if (t.id === 'upp-merge-delete-old') {
+        m.deleteOld = !!t.checked;
+        const keepObj = state.personas.find(p => p.avatar_id === m.keepId);
+        const existingVersions = keepObj ? (state.store.personaVersions[keepObj.avatar_id] || []) : [];
+        const plan = buildPersonaMergePlan(state.personas, m.keepId, m.absorbIds, existingVersions);
+        renderUserMergePlanSection(m, plan);
       }
     }
   });
@@ -5466,32 +6207,348 @@ function initExtension() {
         await Host.switchPersona(targetId);
         state.personas = Host.listPersonas();
         state.currentPersona = Host.getCurrentPersona();
+        state.userInlineEditor = null;
         renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+        syncNativePersonaBar();
         toast(`已切换 User：${state.currentPersona?.name || ''}`, 'success');
       }
       return;
     }
-    if (t.closest('#upp-persona-preview-box') && state.currentPersona) {
-      state.drawer = { type: 'entryEditor', mode: 'editPersona', heading: `编辑 User 正文 · ${state.currentPersona.name}`, content: state.currentPersona.description || '' };
-      renderDrawer(); return;
+
+    // User inline rename & body editing (R3: in-place, zero popup)
+    if (t.closest('#upp-rename-clear-btn')) {
+      const inp = shadow.getElementById('upp-rename-input');
+      if (inp) { inp.value = ''; focusDesktopSafe(inp); }
+      return;
     }
+    if (t.closest('#upp-rename-cancel-btn')) {
+      state.userInlineEditor = null;
+      renderUserToolbar(); renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-rename-confirm-btn, [data-user-rename-save]') && state.currentPersona) {
+      const nextName = (shadow.getElementById('upp-rename-input')?.value || '').trim();
+      if (!nextName) { toast('请输入新的 User 名字', 'warning'); return; }
+      try {
+        await Host.renamePersonaInPlace(state.currentPersona.avatar_id, nextName);
+        state.personas = Host.listPersonas();
+        state.currentPersona = Host.getCurrentPersona();
+        state.userInlineEditor = null;
+        render();
+        syncNativePersonaBar();
+        toast(`已将当前 User 改名为「${nextName}」`, 'success');
+      } catch (err) {
+        toast('改名失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+    if (t.closest('#upp-persona-preview-box') && state.currentPersona) {
+      state.userInlineEditor = 'body';
+      renderUserToolbar(); renderUserBody();
+      if (canAutoFocusDesktop()) {
+        window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-user-body-ta')), 10);
+      }
+      return;
+    }
+    if (t.closest('#upp-user-body-cancel-btn')) {
+      state.userInlineEditor = null;
+      renderUserToolbar(); renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-pv-dn-clear-btn')) {
+      const inp = shadow.getElementById('upp-pv-display-name');
+      if (inp) { inp.value = ''; focusDesktopSafe(inp); }
+      return;
+    }
+    if (t.closest('#upp-pv-cancel-btn')) {
+      state.userInlineEditor = null;
+      renderUserToolbar(); renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-pv-save-btn') && state.currentPersona) {
+      const vName = (shadow.getElementById('upp-pv-name')?.value || '').trim();
+      if (!vName) { toast('请填写版本名称', 'warning'); return; }
+      const vDisplayName = (shadow.getElementById('upp-pv-display-name')?.value || '').trim();
+      const aid = state.currentPersona.avatar_id;
+      const list = state.store.personaVersions[aid] || [];
+      const existingIdx = list.findIndex(v => v.name === vName);
+      const item = {
+        id: existingIdx >= 0 ? list[existingIdx].id : uid('pv'),
+        name: vName.slice(0, 60),
+        displayName: vDisplayName.slice(0, 60),
+        description: state.currentPersona.description || '',
+        lorebook: state.currentPersona.lorebook || '',
+        updatedAt: Date.now(),
+      };
+      if (existingIdx >= 0) list[existingIdx] = item; else list.unshift(item);
+      state.store.personaVersions[aid] = list;
+      persistStore(state.store);
+      state.userInlineEditor = null;
+      render();
+      syncNativePersonaBar();
+      toast(`已保存内部版本「${item.name}」`, 'success');
+      return;
+    }
+    if (t.closest('[data-user-body-save], [data-persona-body-save]') && state.currentPersona) {
+      const content = shadow.getElementById('upp-user-body-ta')?.value ?? '';
+      try {
+        await Host.updatePersonaInPlace(state.currentPersona.avatar_id, content);
+        state.personas = Host.listPersonas();
+        state.currentPersona = Host.getCurrentPersona();
+        state.userInlineEditor = null;
+        render();
+        syncNativePersonaBar();
+        toast('已保存 User 正文', 'success');
+      } catch (err) {
+        toast('保存失败：' + (err?.message || err), 'error');
+      }
+      return;
+    }
+
+    // User Diff & Merge subviews + Undo + Release-to-Native
+    if (t.closest('#upp-diff-back-btn') || t.closest('#upp-merge-back-btn') || t.closest('#upp-merge-cancel-btn')) {
+      state.userView = 'main';
+      renderUserToolbar(); renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-merge-keep-preview-btn') && state.userView === 'merge') {
+      state.userMerge.showKeepPreview = !state.userMerge.showKeepPreview;
+      renderUserMergeView();
+      return;
+    }
+    const mergePrevBtn = t.closest('[data-merge-preview]');
+    if (mergePrevBtn && state.userView === 'merge') {
+      const aid = mergePrevBtn.getAttribute('data-merge-preview');
+      if (aid) {
+        const m = state.userMerge;
+        if (!m.previewIds) m.previewIds = new Set();
+        const listEl = shadow.getElementById('upp-merge-candidate-list');
+        const st = listEl ? listEl.scrollTop : 0;
+        if (m.previewIds.has(aid)) m.previewIds.delete(aid);
+        else m.previewIds.add(aid);
+        renderMergeCandidateList(m);
+        if (listEl) listEl.scrollTop = st;
+      }
+      return;
+    }
+    if (t.closest('#upp-clean-orphans-btn') && state.userView === 'merge') {
+      const list = Array.isArray(state.userMerge.orphanAvatars) ? [...state.userMerge.orphanAvatars] : [];
+      let cleaned = 0;
+      for (const aid of list) {
+        try { if (await Host.deletePersonaById(aid)) cleaned++; } catch (_) {}
+      }
+      state.userMerge.orphanAvatars = await Host.listOrphanAvatars();
+      await refreshAll(false);
+      syncNativePersonaBar();
+      toast(`已彻底清理 ${cleaned} 个未命名残留头像`, 'success');
+      return;
+    }
+    const mergeGrpBtn = t.closest('[data-merge-preset-group]');
+    if (mergeGrpBtn && state.userView === 'merge') {
+      const g = detectProliferatedPersonas(state.personas)[Number(mergeGrpBtn.getAttribute('data-merge-preset-group'))];
+      if (g) {
+        state.userMerge.keepId = g.items[0].avatar_id;
+        state.userMerge.absorbIds = g.items.slice(1).map(x => x.avatar_id);
+        renderUserMergeView();
+      }
+      return;
+    }
+    if (t.closest('#upp-merge-run-btn') && state.userView === 'merge') {
+      const m = state.userMerge;
+      const existingVersions = state.store.personaVersions[m.keepId] || [];
+      const plan = buildPersonaMergePlan(state.personas, m.keepId, m.absorbIds, existingVersions);
+      if (!plan.keepPersona || !plan.candidates.length) return;
+      const versionsBackup = structuredClone(existingVersions);
+      const deletedPersonas = [];
+      let deleted = 0;
+      let deleteFailed = 0;
+      if (m.deleteOld) {
+        for (const c of plan.candidates) {
+          const avatarBlob = await Host.fetchPersonaAvatarBlob(c.avatar_id);
+          try {
+            const ok = await Host.deletePersonaById(c.avatar_id);
+            if (ok) {
+              deleted++;
+              deletedPersonas.push({
+                avatarId: c.avatar_id,
+                name: c.name,
+                versionName: c.versionName,
+                displayName: c.displayName,
+                description: c.description,
+                lorebook: c.lorebook,
+                avatarBlob,
+                wasDefaultPersona: power_user?.default_persona === c.avatar_id,
+                wasChatPersona: chat_metadata?.persona === c.avatar_id,
+              });
+            } else {
+              deleteFailed++;
+            }
+          } catch (_) {
+            deleteFailed++;
+          }
+        }
+      }
+      state.store.personaVersions[plan.keepPersona.avatar_id] = applyPersonaMergeToVersions(existingVersions, plan.candidates, {
+        keepPersona: plan.keepPersona,
+        includeKeepBackup: true,
+      });
+      if (deletedPersonas.some(dp => dp.avatarId === user_avatar) && power_user?.personas?.[plan.keepPersona.avatar_id]) {
+        try { await Host.switchPersona(plan.keepPersona.avatar_id); } catch (_) {}
+      }
+      state.lastPersonaMergeUndo = {
+        keepAvatarId: plan.keepPersona.avatar_id,
+        keepName: plan.keepPersona.name,
+        versionsBackup,
+        deletedPersonas,
+        absorbedCount: plan.candidates.length,
+        label: `「${plan.keepPersona.name}」收纳 ${plan.candidates.length} 个分身`,
+      };
+      persistStore(state.store);
+      state.userView = 'main';
+      await refreshAll(false);
+      syncNativePersonaBar();
+      if (deleteFailed > 0) {
+        toast(
+          deleted > 0
+            ? `已收纳 ${plan.candidates.length} 个分身并移除 ${deleted} 个旧 User（另有 ${deleteFailed} 个移出失败，已保留在原生列表）`
+            : `已收纳 ${plan.candidates.length} 个分身为内部版本，但 ${deleteFailed} 个旧 User 移出失败（已保留在原生列表）`,
+          'warning',
+        );
+      } else {
+        toast(deleted > 0 ? `已收纳 ${plan.candidates.length} 个分身并移除 ${deleted} 个旧 User（可随时撤销）` : `已收纳 ${plan.candidates.length} 个分身为「${plan.keepPersona.name}」的内部版本`, 'success');
+      }
+      return;
+    }
+    if (t.closest('#upp-merge-undo-btn') && state.lastPersonaMergeUndo) {
+      const undo = state.lastPersonaMergeUndo;
+      let restoredNative = 0;
+      const failedRestores = [];
+      for (const dp of (undo.deletedPersonas || [])) {
+        try {
+          const newId = await Host.createNativePersona({
+            name: dp.name,
+            description: dp.description,
+            lorebook: dp.lorebook,
+            avatarBlob: dp.avatarBlob,
+            overwriteName: dp.avatarId,
+          });
+          if (dp.wasDefaultPersona) power_user.default_persona = newId;
+          if (dp.wasChatPersona && chat_metadata) chat_metadata.persona = newId;
+          restoredNative++;
+        } catch (_) {
+          failedRestores.push(dp);
+        }
+      }
+      if (restoredNative > 0) saveSettingsDebounced();
+      const restoredVersions = restorePersonaMergeVersions(undo.versionsBackup);
+      if (failedRestores.length === 0) {
+        if (restoredVersions.length) {
+          state.store.personaVersions[undo.keepAvatarId] = restoredVersions;
+        } else {
+          delete state.store.personaVersions[undo.keepAvatarId];
+        }
+        state.lastPersonaMergeUndo = null;
+      } else {
+        state.store.personaVersions[undo.keepAvatarId] = applyPersonaMergeToVersions(
+          restoredVersions,
+          failedRestores.map(dp => ({
+            avatar_id: dp.avatarId,
+            name: dp.name,
+            versionName: dp.versionName || dp.name,
+            displayName: dp.displayName ?? dp.name,
+            description: dp.description,
+            lorebook: dp.lorebook,
+          })),
+          { includeKeepBackup: false },
+        );
+        state.lastPersonaMergeUndo = {
+          ...undo,
+          deletedPersonas: failedRestores,
+          label: `待恢复 ${failedRestores.length} 个原生 User（可重试撤销）`,
+        };
+      }
+      persistStore(state.store);
+      state.userView = 'main';
+      await refreshAll(false);
+      syncNativePersonaBar();
+      if (failedRestores.length > 0) {
+        toast(
+          restoredNative > 0
+            ? `已恢复 ${restoredNative} 个原生 User，仍有 ${failedRestores.length} 个恢复失败（已保留在内部版本中，可重试撤销）`
+            : `恢复原生 User 失败（${failedRestores.length} 个已保留在内部版本中，可重试撤销）`,
+          restoredNative > 0 ? 'warning' : 'error',
+        );
+      } else {
+        toast(restoredNative > 0 ? `已撤销最近整理并恢复 ${restoredNative} 个原生 User` : '已撤销最近一次整理', 'success');
+      }
+      return;
+    }
+
+    const pvRelease = t.closest('[data-pv-release]');
+    if (pvRelease && state.currentPersona) {
+      const vid = pvRelease.getAttribute('data-pv-release');
+      const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
+      const ver = list.find(v => v.id === vid);
+      if (ver) {
+        try {
+          const payload = buildReleaseVersionToNativePayload(ver, Host.listPersonas());
+          const avatarBlob = await Host.fetchPersonaAvatarBlob(state.currentPersona.avatar_id);
+          await Host.createNativePersona({ ...payload, avatarBlob });
+          state.personas = Host.listPersonas();
+          state.currentPersona = Host.getCurrentPersona();
+          renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+          syncNativePersonaBar();
+          toast(`已将「${ver.name}」放回原生 User 列表（${payload.name}）`, 'success');
+        } catch (err) {
+          toast('放回原生失败：' + (err?.message || err), 'error');
+        }
+      }
+      return;
+    }
+
     const pvView = t.closest('[data-pv-view]');
     if (pvView && state.currentPersona) {
-      const list = state.store.personaVersions[state.currentPersona.avatar_id] || [];
-      const ver = list.find(v => v.id === pvView.getAttribute('data-pv-view'));
-      if (ver) {
-        state.drawer = {
-          type: 'entryEditor',
-          mode: 'editPersonaVersion',
-          versionId: ver.id,
-          heading: `编辑内部版本 · ${state.currentPersona.name}`,
-          allowNameEdit: true,
-          allowDisplayName: true,
-          name: ver.name,
-          displayName: ver.displayName || '',
-          content: ver.description || '',
-        };
-        renderDrawer();
+      const vid = pvView.getAttribute('data-pv-view');
+      if (vid) {
+        const scrollTop = elBody.scrollTop;
+        if (state.expandedPvIds.has(vid)) state.expandedPvIds.delete(vid);
+        else state.expandedPvIds.add(vid);
+        renderUserBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const pvInlineClose = t.closest('[data-pv-inline-close]');
+    if (pvInlineClose) {
+      const vid = pvInlineClose.getAttribute('data-pv-inline-close');
+      if (vid) {
+        const scrollTop = elBody.scrollTop;
+        state.expandedPvIds.delete(vid);
+        renderUserBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const pvSave = t.closest('[data-pv-save]');
+    if (pvSave && state.currentPersona) {
+      const vid = pvSave.getAttribute('data-pv-save');
+      const panel = pvSave.closest('.upp-inline-panel');
+      const aid = state.currentPersona.avatar_id;
+      const ver = (state.store.personaVersions[aid] || []).find(v => v.id === vid);
+      if (ver && panel) {
+        const nextName = (panel.querySelector('[data-pv-inline-name]')?.value || '').trim().slice(0, 60);
+        const nextDn = (panel.querySelector('[data-pv-inline-dn]')?.value || '').trim().slice(0, 60);
+        const nextDesc = panel.querySelector('[data-pv-inline-desc]')?.value ?? '';
+        ver.name = nextName || ver.name;
+        ver.displayName = nextDn;
+        ver.description = nextDesc;
+        ver.updatedAt = Date.now();
+        persistStore(state.store);
+        const scrollTop = elBody.scrollTop;
+        renderUserToolbar(); renderUserBody();
+        elBody.scrollTop = scrollTop;
+        syncNativePersonaBar();
+        toast('已更新内部版本', 'success');
       }
       return;
     }
@@ -5510,15 +6567,20 @@ function initExtension() {
         state.personas = Host.listPersonas();
         state.currentPersona = Host.getCurrentPersona();
         renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
+        syncNativePersonaBar();
         toast(ver.displayName ? `已切换至「${ver.name}」（名字：${ver.displayName}）` : `已切换至「${ver.name}」`, 'success');
       }
       return;
     }
     const pvDelInline = t.closest('[data-pv-del-inline]');
     if (pvDelInline && state.currentPersona) {
+      const vid = pvDelInline.getAttribute('data-pv-del-inline');
       const aid = state.currentPersona.avatar_id;
-      state.store.personaVersions[aid] = (state.store.personaVersions[aid] || []).filter(v => v.id !== pvDelInline.getAttribute('data-pv-del-inline'));
-      persistStore(state.store); renderUserToolbar(); renderUserBody(); toast('已删除内部版本'); return;
+      state.expandedPvIds.delete(vid);
+      state.store.personaVersions[aid] = (state.store.personaVersions[aid] || []).filter(v => v.id !== vid);
+      persistStore(state.store); renderUserToolbar(); renderUserBody();
+      syncNativePersonaBar();
+      toast('已删除内部版本'); return;
     }
 
     if (t.closest('#upp-wb-all-off-cancel') && state.activeBook) {
@@ -5576,8 +6638,17 @@ function initExtension() {
       }
       state.expandedWbUids.add(uidKey);
       renderWorldbookBody();
-      const rowEl = elBody.querySelector(`[data-wb-wrap="${CSS.escape(uidKey)}"]`);
-      if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const escapedUid = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+        ? CSS.escape(uidKey)
+        : String(uidKey).split('\\').join('\\\\').split('"').join('\\"');
+      const rowEl = elBody.querySelector(`[data-wb-wrap="${escapedUid}"]`);
+      if (rowEl) {
+        // Scroll strictly inside elBody; never scroll SillyTavern outer viewport
+        const bodyRect = elBody.getBoundingClientRect();
+        const rowRect = rowEl.getBoundingClientRect();
+        const targetTop = Math.max(0, elBody.scrollTop + (rowRect.top - bodyRect.top) - Math.round(elBody.clientHeight * 0.25));
+        elBody.scrollTo({ top: targetTop, behavior: 'smooth' });
+      }
       const h = hygiene.byUid[uidKey];
       const detail = [
         h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
@@ -5759,22 +6830,99 @@ function initExtension() {
     }
     const rgOpen = t.closest('[data-rg-open]');
     if (rgOpen) {
-      const item = (state.regexList || []).find(r => r.id === rgOpen.getAttribute('data-rg-open'));
-      if (item) {
-        const scopeLabel = state.regexScope === 'character' ? '当前角色' : state.regexScope === 'preset' ? '当前预设' : '全局';
-        state.drawer = { type: 'entryEditor', heading: `正则详情 · ${item.script_name}`, content: `【查找正则】\n${item.find_regex}\n\n【替换为】\n${item.replace_string}`, readOnly: true, meta: `范围：${scopeLabel} · 状态：${item.enabled ? '开启' : '关闭'}` };
-        renderDrawer();
+      const rid = rgOpen.getAttribute('data-rg-open');
+      if (rid) {
+        const scrollTop = elBody.scrollTop;
+        if (state.expandedRegexIds.has(rid)) state.expandedRegexIds.delete(rid);
+        else state.expandedRegexIds.add(rid);
+        renderRegexBody();
+        elBody.scrollTop = scrollTop;
       }
+      return;
+    }
+    const rgInlineClose = t.closest('[data-rg-inline-close]');
+    if (rgInlineClose) {
+      const rid = rgInlineClose.getAttribute('data-rg-inline-close');
+      if (rid) {
+        const scrollTop = elBody.scrollTop;
+        state.expandedRegexIds.delete(rid);
+        renderRegexBody();
+        elBody.scrollTop = scrollTop;
+      }
+      return;
+    }
+    const rgInlineCopy = t.closest('[data-rg-inline-copy]');
+    if (rgInlineCopy) {
+      const rid = rgInlineCopy.getAttribute('data-rg-inline-copy');
+      const item = (state.regexList || []).find(r => r.id === rid);
+      if (item) {
+        const txt = `【查找正则】\n${item.find_regex || ''}\n\n【替换为】\n${item.replace_string || ''}`;
+        try { await navigator.clipboard.writeText(txt); toast('已复制正则规则', 'success'); }
+        catch (_) { toast('当前环境不支持自动复制', 'warning'); }
+      }
+      return;
     }
   });
+
+  function markViewSnapshotDirty(d) {
+    if (!d || d.type !== 'viewSnapshot') return;
+    const wasDirty = d.dirty;
+    d.dirty = true;
+    d.pendingAction = null;
+    if (!wasDirty) {
+      const saveBtn = shadow.getElementById('upp-sv-save-btn');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.classList.add('primary');
+        saveBtn.innerHTML = `${ICONS.save}<span>保存修改</span>`;
+      }
+      const applyBtn = shadow.getElementById('upp-sv-apply-btn');
+      if (applyBtn) applyBtn.classList.remove('primary');
+      const titleWrap = shadow.querySelector('.upp-drawer-head .upp-row-nowrap');
+      if (titleWrap && !titleWrap.querySelector('.upp-badge.warn')) {
+        const b = document.createElement('span');
+        b.className = 'upp-badge warn';
+        b.textContent = '未保存';
+        titleWrap.appendChild(b);
+      }
+    }
+  }
 
   // Drawer input/change/click
   function handleDrawerSearchInput(targetEl) {
     const d = state.drawer;
     if (!d || !targetEl) return;
-    if (d.type === 'viewSnapshot' && targetEl.id === 'upp-sv-search') {
-      d.search = targetEl.value;
-      renderViewSnapshotBody(d);
+    if (d.type === 'viewSnapshot') {
+      if (targetEl.id === 'upp-sv-search') {
+        d.search = targetEl.value;
+        renderViewSnapshotBody(d);
+        return;
+      }
+      if (targetEl.id === 'upp-sv-persona-name' && d.draft?.persona) {
+        d.draft.persona.name = targetEl.value.slice(0, 60);
+        d.draft.persona.versionId = '';
+        d.draft.persona.versionName = '';
+        markViewSnapshotDirty(d);
+        return;
+      }
+      if (targetEl.id === 'upp-sv-persona-desc' && d.draft?.persona) {
+        d.draft.persona.description = targetEl.value;
+        d.draft.persona.versionId = '';
+        d.draft.persona.versionName = '';
+        const lenEl = shadow.getElementById('upp-sv-persona-len');
+        if (lenEl) lenEl.textContent = `${targetEl.value.length} 字`;
+        markViewSnapshotDirty(d);
+        return;
+      }
+      if (d.editingMeta && d.metaDraft) {
+        if (targetEl.id === 'upp-em-name') { d.metaDraft.name = targetEl.value; return; }
+        if (targetEl.id === 'upp-em-group') { d.metaDraft.group = targetEl.value; return; }
+        if (targetEl.id === 'upp-em-note') { d.metaDraft.note = targetEl.value; return; }
+      }
+    }
+    if (d.type === 'saveSnapshot' && targetEl.id === 'upp-ss-book-search') {
+      d.bookQuery = targetEl.value;
+      renderSaveSnapshotBooksList(d);
       return;
     }
     if (d.type === 'bookPicker' && targetEl.id === 'upp-book-search-input') {
@@ -5782,13 +6930,9 @@ function initExtension() {
       renderBookPickerList(d);
       return;
     }
-    if (d.type === 'mergePersonas' && targetEl.id === 'upp-merge-search') {
-      d.query = targetEl.value;
-      renderMergeCandidateList(d);
-      return;
-    }
     if (d.type === 'bindSnapshot') {
       if (targetEl.id === 'upp-bind-char-search') { d.charQuery = targetEl.value; renderBindCharList(d); return; }
+      if (targetEl.id === 'upp-bind-chat-char-search') { d.chatCharQuery = targetEl.value; renderBindChatCharOptions(d); return; }
       if (targetEl.id === 'upp-bind-chat-search') { d.chatQuery = targetEl.value; renderBindChatList(d); return; }
     }
     if (d.type === 'presetSync' && targetEl.id === 'upp-ps-ov-search') {
@@ -5876,17 +7020,27 @@ function initExtension() {
       if (ev.target.id === 'upp-ps-sync-groups') { d.syncNewGroups = !!ev.target.checked; return; }
       return;
     }
-    if (d.type === 'viewSnapshot' && ev.target.id === 'upp-sv-api-profile-sel' && d.draft?.api) {
-      const pid = ev.target.value || '';
-      const prof = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === pid);
-      d.draft.api.profileId = prof ? prof.id : '';
-      d.draft.api.profileName = prof ? prof.name : '';
-      if (prof?.api) d.draft.api.source = prof.api;
-      if (prof?.model) d.draft.api.model = prof.model;
-      d.dirty = true;
-      d.pendingAction = null;
-      renderDrawer();
-      return;
+    if (d.type === 'viewSnapshot') {
+      if (ev.target.id === 'upp-sv-api-profile-sel' && d.draft?.api) {
+        const pid = ev.target.value || '';
+        const prof = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === pid);
+        d.draft.api.profileId = prof ? prof.id : '';
+        d.draft.api.profileName = prof ? prof.name : '';
+        if (prof?.api) d.draft.api.source = prof.api;
+        if (prof?.model) d.draft.api.model = prof.model;
+        d.dirty = true;
+        d.pendingAction = null;
+        renderDrawer();
+        return;
+      }
+      if (d.editingMeta && d.metaDraft) {
+        if (!d.metaDraft.scope) d.metaDraft.scope = {};
+        if (ev.target.id === 'upp-em-sc-persona') { d.metaDraft.scope.persona = !!ev.target.checked; return; }
+        if (ev.target.id === 'upp-em-sc-wb') { d.metaDraft.scope.worldbooks = !!ev.target.checked; return; }
+        if (ev.target.id === 'upp-em-sc-preset') { d.metaDraft.scope.preset = !!ev.target.checked; return; }
+        if (ev.target.id === 'upp-em-sc-api') { d.metaDraft.scope.api = !!ev.target.checked; return; }
+        if (ev.target.id === 'upp-em-sc-regex') { d.metaDraft.scope.regex = !!ev.target.checked; return; }
+      }
     }
     if (d.type === 'editSnapshotMeta') {
       if (!d.scope) d.scope = {};
@@ -5935,34 +7089,11 @@ function initExtension() {
       }
       return;
     }
-    if (d.type === 'personaDiff') {
-      if (ev.target.id === 'upp-diff-left') { d.leftId = ev.target.value; renderDrawer(); }
-      else if (ev.target.id === 'upp-diff-right') { d.rightId = ev.target.value; renderDrawer(); }
-      return;
-    }
     if (d.type === 'bindSnapshot' && ev.target.id === 'upp-bind-chat-char-sel') {
       const avatar = ev.target.value || '';
       const rescanBtn = shadow.getElementById('upp-bind-rescan-btn');
       if (rescanBtn) rescanBtn.disabled = !avatar;
       void scanChatsIntoBindDrawer(d, avatar);
-      return;
-    }
-    if (d.type === 'mergePersonas') {
-      if (ev.target.id === 'upp-merge-keep') {
-        d.keepId = ev.target.value;
-        d.absorbIds = (d.absorbIds || []).filter(id => id !== d.keepId);
-        renderDrawer();
-      } else if (ev.target.hasAttribute('data-merge-absorb')) {
-        const aid = ev.target.getAttribute('data-merge-absorb');
-        const set = new Set(d.absorbIds || []);
-        if (ev.target.checked) set.add(aid); else set.delete(aid);
-        d.absorbIds = Array.from(set);
-        ev.target.closest('.upp-merge-row')?.classList.toggle('is-checked', ev.target.checked);
-        const btn = shadow.getElementById('upp-merge-run-btn');
-        if (btn) { btn.disabled = !set.size; btn.textContent = `收回 ${set.size} 个分身`; }
-      } else if (ev.target.id === 'upp-merge-delete-old') {
-        d.deleteOld = ev.target.checked;
-      }
       return;
     }
     if (d.type === 'backup' && ev.target.id === 'upp-import-file') {
@@ -6007,28 +7138,39 @@ function initExtension() {
     }
 
     if (d.type === 'viewSnapshot') {
-      const markDraftDirty = () => {
-        const wasDirty = d.dirty;
-        d.dirty = true;
-        d.pendingAction = null;
-        if (!wasDirty) {
-          const saveBtn = shadow.getElementById('upp-sv-save-btn');
-          if (saveBtn) {
-            saveBtn.disabled = false;
-            saveBtn.classList.add('primary');
-            saveBtn.innerHTML = `${ICONS.save}<span>保存修改</span>`;
-          }
-          const applyBtn = shadow.getElementById('upp-sv-apply-btn');
-          if (applyBtn) applyBtn.classList.remove('primary');
-          const titleWrap = shadow.querySelector('.upp-drawer-head .upp-row-nowrap');
-          if (titleWrap && !titleWrap.querySelector('.upp-badge.warn')) {
-            const b = document.createElement('span');
-            b.className = 'upp-badge warn';
-            b.textContent = '未保存';
-            titleWrap.appendChild(b);
-          }
+      const markDraftDirty = () => markViewSnapshotDirty(d);
+
+      if (t.closest('#upp-sv-persona-name-clear') && d.draft?.persona) {
+        const inp = shadow.getElementById('upp-sv-persona-name');
+        if (inp) {
+          inp.value = '';
+          d.draft.persona.name = '';
+          d.draft.persona.versionId = '';
+          d.draft.persona.versionName = '';
+          markDraftDirty();
+          focusDesktopSafe(inp);
         }
-      };
+        return;
+      }
+      if (t.closest('#upp-sv-persona-copy') && d.draft?.persona) {
+        const desc = shadow.getElementById('upp-sv-persona-desc')?.value ?? d.draft.persona.description ?? '';
+        try { await navigator.clipboard.writeText(desc); toast('已复制人设正文', 'success'); }
+        catch (_) { toast('当前环境不支持自动复制', 'warning'); }
+        return;
+      }
+      if (t.closest('#upp-sv-persona-pull') && d.draft?.persona) {
+        const liveP = Host.getCurrentPersona();
+        if (!liveP) { toast('未读取到当前酒馆 User', 'warning'); return; }
+        d.draft.persona.name = liveP.name || d.draft.persona.name;
+        d.draft.persona.description = liveP.description || '';
+        d.draft.persona.lorebook = liveP.lorebook || '';
+        d.draft.persona.versionId = '';
+        d.draft.persona.versionName = '';
+        markDraftDirty();
+        renderViewSnapshotBody(d);
+        toast(`已拉取当前酒馆 User「${liveP.name}」，点右上角保存生效`, 'info');
+        return;
+      }
 
       if (t.closest('[data-sv-back]')) {
         if (d.dirty) { d.pendingAction = 'close'; renderDrawer(); }
@@ -6041,23 +7183,115 @@ function initExtension() {
         return;
       }
       if (t.closest('#upp-sv-edit-meta-btn')) {
-        const cur = d.draft || d.snapshot;
-        state.drawer = {
-          type: 'editSnapshotMeta',
-          snapshotId: d.snapshot.id,
-          name: cur.name || '',
-          group: cur.group || '',
-          note: cur.note || '',
-          scope: {
-            persona: !!cur.scope.persona,
-            worldbooks: !!cur.scope.worldbooks,
-            preset: !!cur.scope.preset,
-            regex: !!cur.scope.regex,
-            api: !!cur.scope.api,
-          },
-          returnTo: d,
-        };
+        d.editingMeta = !d.editingMeta;
+        if (d.editingMeta) {
+          const cur = d.draft || d.snapshot;
+          d.metaDraft = {
+            name: cur.name || '',
+            group: cur.group || '',
+            note: cur.note || '',
+            scope: {
+              persona: !!cur.scope.persona,
+              worldbooks: !!cur.scope.worldbooks,
+              preset: !!cur.scope.preset,
+              regex: !!cur.scope.regex,
+              api: !!cur.scope.api,
+            },
+          };
+        } else {
+          d.metaDraft = null;
+        }
         renderDrawer();
+        if (d.editingMeta && canAutoFocusDesktop()) {
+          window.setTimeout(() => focusDesktopSafe(shadow.getElementById('upp-em-name')), 10);
+        }
+        return;
+      }
+      if (t.closest('#upp-em-cancel-btn') || t.closest('#upp-em-cancel-btn-foot')) {
+        d.editingMeta = false;
+        d.metaDraft = null;
+        renderDrawer();
+        return;
+      }
+      if (d.editingMeta) {
+        if (t.closest('#upp-em-name-clear')) {
+          const inp = shadow.getElementById('upp-em-name');
+          if (inp) {
+            inp.value = '';
+            if (d.metaDraft) d.metaDraft.name = '';
+            focusDesktopSafe(inp);
+          }
+          return;
+        }
+        const fillEmGrp = t.closest('[data-em-fill-group]');
+        if (fillEmGrp) {
+          const inp = shadow.getElementById('upp-em-group');
+          const gVal = fillEmGrp.getAttribute('data-em-fill-group') || '';
+          if (inp) inp.value = gVal;
+          if (d.metaDraft) d.metaDraft.group = gVal;
+          return;
+        }
+        if (t.closest('#upp-em-save-btn') || t.closest('[data-sv-meta-save]')) {
+          const nextName = (shadow.getElementById('upp-em-name')?.value || '').trim().slice(0, 60);
+          if (!nextName) { toast('请填写快照名称', 'warning'); return; }
+          const nextGroup = (shadow.getElementById('upp-em-group')?.value || '').trim().slice(0, 30);
+          const nextNote = (shadow.getElementById('upp-em-note')?.value || '').trim().slice(0, 120);
+          const wantedScope = d.metaDraft?.scope || d.draft?.scope || d.snapshot.scope || {};
+          if (!wantedScope.persona && !wantedScope.worldbooks && !wantedScope.preset && !wantedScope.regex && !wantedScope.api) {
+            toast('请至少保留一项包含模块', 'warning'); return;
+          }
+          const target = state.store.snapshots.find(s => s.id === d.snapshot.id) || d.snapshot;
+          const needCapture = {
+            persona: !!wantedScope.persona && !target.persona,
+            worldbooks: !!wantedScope.worldbooks && !target.worldbooks,
+            preset: !!wantedScope.preset && !target.preset,
+            regex: !!wantedScope.regex && !target.regex,
+            api: !!wantedScope.api && !target.api,
+          };
+          const fresh = (needCapture.persona || needCapture.worldbooks || needCapture.preset || needCapture.regex || needCapture.api)
+            ? await captureLiveSnapshot({ name: nextName, group: nextGroup, note: nextNote, scope: needCapture }, state.store)
+            : null;
+          target.name = nextName;
+          target.group = nextGroup;
+          target.note = nextNote;
+          ['persona', 'worldbooks', 'preset', 'regex', 'api'].forEach(k => {
+            if (wantedScope[k]) {
+              if (!target[k] && fresh && fresh[k]) target[k] = fresh[k];
+              target.scope[k] = !!target[k];
+            } else {
+              target.scope[k] = false;
+              target[k] = null;
+            }
+          });
+          target.updatedAt = Date.now();
+          d.snapshot = target;
+          if (d.draft) {
+            d.draft.name = target.name;
+            d.draft.group = target.group;
+            d.draft.note = target.note;
+            d.draft.scope = structuredClone(target.scope);
+            ['persona', 'worldbooks', 'preset', 'regex', 'api'].forEach(k => {
+              if (!target.scope[k]) d.draft[k] = null;
+              else if (!d.draft[k] && target[k]) d.draft[k] = structuredClone(target[k]);
+            });
+          }
+          d.editingMeta = false;
+          d.metaDraft = null;
+          persistStore(state.store);
+          renderDrawer();
+          if (state.tab === 'snapshots') renderSnapshotsBody();
+          renderTabs();
+          renderFooter();
+          toast('已更新快照信息与包含模块', 'success');
+          return;
+        }
+      }
+      if (t.closest('#upp-sv-api-clear-profile') && d.draft?.api) {
+        d.draft.api.profileId = '';
+        d.draft.api.profileName = '';
+        markDraftDirty();
+        renderDrawer();
+        toast('已清除旧连接配置绑定，点右上角「保存修改」生效', 'info');
         return;
       }
       if (t.closest('#upp-sv-apply-btn')) {
@@ -6254,16 +7488,39 @@ function initExtension() {
         const sc = rgItem.getAttribute('data-view-snap-rg');
         const rid = rgItem.getAttribute('data-view-snap-rgid');
         const live = (d.regexDetails[sc] || []).find(r => String(r.id) === String(rid));
+        if (sc && rid && live) {
+          const expKey = `rg::${sc}::${rid}`;
+          if (!d.expandedIds) d.expandedIds = new Set();
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          if (d.expandedIds.has(expKey)) d.expandedIds.delete(expKey);
+          else d.expandedIds.add(expKey);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svRgClose = t.closest('[data-sv-rg-close]');
+      if (svRgClose) {
+        const expKey = svRgClose.getAttribute('data-sv-rg-close');
+        if (expKey && d.expandedIds) {
+          const bodyEl = shadow.getElementById('upp-snap-inspect-body');
+          const scrollTop = bodyEl ? bodyEl.scrollTop : 0;
+          d.expandedIds.delete(expKey);
+          renderViewSnapshotBody(d);
+          if (bodyEl) bodyEl.scrollTop = scrollTop;
+        }
+        return;
+      }
+      const svRgCopy = t.closest('[data-sv-rg-copy]');
+      if (svRgCopy) {
+        const sc = svRgCopy.getAttribute('data-sv-rg-copy');
+        const rid = svRgCopy.getAttribute('data-sv-rg-copy-id');
+        const live = (d.regexDetails[sc] || []).find(r => String(r.id) === String(rid));
         if (live) {
-          state.drawer = {
-            type: 'entryEditor',
-            fullView: true,
-            heading: `正则 · ${live.script_name}`,
-            content: `【查找正则】\n${live.find_regex}\n\n【替换为】\n${live.replace_string}`,
-            readOnly: true,
-            returnTo: d,
-          };
-          renderDrawer();
+          const txt = `【查找正则】\n${live.find_regex || ''}\n\n【替换为】\n${live.replace_string || ''}`;
+          try { await navigator.clipboard.writeText(txt); toast('已复制正则规则', 'success'); }
+          catch (_) { toast('当前环境不支持自动复制', 'warning'); }
         }
         return;
       }
@@ -6273,7 +7530,7 @@ function initExtension() {
     if (d.type === 'editSnapshotMeta') {
       if (t.closest('#upp-em-name-clear')) {
         const inp = shadow.getElementById('upp-em-name');
-        if (inp) { inp.value = ''; if (canAutoFocusDesktop()) inp.focus(); }
+        if (inp) { inp.value = ''; focusDesktopSafe(inp); }
         return;
       }
       const fillEmGrp = t.closest('[data-em-fill-group]');
@@ -6342,7 +7599,7 @@ function initExtension() {
 
     if (d.type === 'missingAudit') {
       if (t.closest('#upp-ma-migrate-preset')) {
-        openPresetSyncDrawer({ sourcePreset: d.health?.missingPreset, targetPreset: state.loadedPresetName });
+        openPresetSyncDrawer({ sourcePreset: d.health?.missingPreset || d.snapshot?.preset?.name, targetPreset: state.loadedPresetName });
         return;
       }
       const gotoBtn = t.closest('[data-ma-goto]');
@@ -6354,8 +7611,7 @@ function initExtension() {
         return;
       }
       if (t.closest('#upp-ma-open-wbo')) {
-        closeModal();
-        emitWindowEvent('wbo:open-panel');
+        openExternalOrganizerPanel();
         return;
       }
       if (t.closest('#upp-ma-skip-apply')) {
@@ -6385,13 +7641,23 @@ function initExtension() {
           repaired = true;
         }
         if (d.apiProfileRemap && snap.api) {
-          const pr = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === d.apiProfileRemap);
-          if (pr) {
-            snap.api.profileId = pr.id;
-            snap.api.profileName = pr.name;
-            if (pr.api) snap.api.source = pr.api;
-            if (pr.model) snap.api.model = pr.model;
+          if (d.apiProfileRemap === '__clear_profile__') {
+            snap.api.profileId = '';
+            snap.api.profileName = '';
+            if (!snap.api.source && !snap.api.model) {
+              snap.scope.api = false;
+              snap.api = null;
+            }
             repaired = true;
+          } else {
+            const pr = (state.apiProfiles || Host.listConnectionProfiles()).find(x => x.id === d.apiProfileRemap);
+            if (pr) {
+              snap.api.profileId = pr.id;
+              snap.api.profileName = pr.name;
+              if (pr.api) snap.api.source = pr.api;
+              if (pr.model) snap.api.model = pr.model;
+              repaired = true;
+            }
           }
         }
         if (d.bookRemap && snap.worldbooks) {
@@ -6453,8 +7719,7 @@ function initExtension() {
     }
 
     if (t.closest('#upp-open-wbo-in-drawer')) {
-      closeModal();
-      emitWindowEvent('wbo:open-panel');
+      openExternalOrganizerPanel();
       return;
     }
 
@@ -6482,32 +7747,9 @@ function initExtension() {
       render(); return;
     }
 
-    if (d.type === 'renamePersona') {
-      if (t.closest('#upp-rename-clear-btn')) {
-        const inp = shadow.getElementById('upp-rename-input');
-        if (inp) { inp.value = ''; if (canAutoFocusDesktop()) inp.focus(); }
-        return;
-      }
-      if (t.closest('#upp-rename-confirm-btn')) {
-        const nextName = (shadow.getElementById('upp-rename-input')?.value || '').trim();
-        if (!nextName) { toast('请输入新的 User 名字', 'warning'); return; }
-        try {
-          await Host.renamePersonaInPlace(d.avatarId, nextName);
-          state.personas = Host.listPersonas();
-          state.currentPersona = Host.getCurrentPersona();
-          state.drawer = null;
-          render();
-          toast(`已将当前 User 改名为「${nextName}」`, 'success');
-        } catch (err) {
-          toast('改名失败：' + (err?.message || err), 'error');
-        }
-        return;
-      }
-    }
-
     if (d.type === 'entryEditor' && t.closest('#upp-ed-dn-clear-btn')) {
       const inp = shadow.getElementById('upp-ed-display-name');
-      if (inp) { inp.value = ''; if (canAutoFocusDesktop()) inp.focus(); }
+      if (inp) { inp.value = ''; focusDesktopSafe(inp); }
       return;
     }
 
@@ -6580,7 +7822,7 @@ function initExtension() {
 
     if (d.type === 'saveSnapshot' && t.closest('#upp-ss-name-clear')) {
       const inp = shadow.getElementById('upp-ss-name');
-      if (inp) { inp.value = ''; if (canAutoFocusDesktop()) inp.focus(); }
+      if (inp) { inp.value = ''; focusDesktopSafe(inp); }
       return;
     }
     const fillName = t.closest('[data-ss-fill-name]');
@@ -6641,6 +7883,16 @@ function initExtension() {
         void scanChatsIntoBindDrawer(d, avatar);
         return;
       }
+      const pickChatCharBtn = t.closest('[data-bind-pick-chat-char]');
+      if (pickChatCharBtn) {
+        const avatar = pickChatCharBtn.getAttribute('data-bind-pick-chat-char') || '';
+        d.scanCharAvatar = avatar;
+        renderBindChatCharOptions(d);
+        const rescanBtn = shadow.getElementById('upp-bind-rescan-btn');
+        if (rescanBtn) rescanBtn.disabled = !avatar;
+        void scanChatsIntoBindDrawer(d, avatar);
+        return;
+      }
       if (t.closest('#upp-bind-rescan-btn') && d.scanCharAvatar) {
         void scanChatsIntoBindDrawer(d, d.scanCharAvatar);
         return;
@@ -6668,118 +7920,6 @@ function initExtension() {
         return;
       }
       return;
-    }
-
-    if (d.type === 'savePersonaVersion' && state.currentPersona) {
-      if (t.closest('#upp-pv-dn-clear-btn')) {
-        const inp = shadow.getElementById('upp-pv-display-name');
-        if (inp) { inp.value = ''; if (canAutoFocusDesktop()) inp.focus(); }
-        return;
-      }
-      const fillPv = t.closest('[data-pv-fill-name]');
-      if (fillPv) {
-        const inp = shadow.getElementById('upp-pv-name');
-        if (inp) inp.value = fillPv.getAttribute('data-pv-fill-name') || '';
-        const dnInp = shadow.getElementById('upp-pv-display-name');
-        const fillDn = fillPv.getAttribute('data-pv-fill-dn');
-        if (dnInp && fillDn) dnInp.value = fillDn;
-        return;
-      }
-      const delPv = t.closest('[data-pv-del]');
-      if (delPv) {
-        const aid = state.currentPersona.avatar_id;
-        state.store.personaVersions[aid] = (state.store.personaVersions[aid] || []).filter(v => v.id !== delPv.getAttribute('data-pv-del'));
-        persistStore(state.store); render(); return;
-      }
-      if (t.closest('#upp-pv-save-btn')) {
-        const vName = (shadow.getElementById('upp-pv-name')?.value || '').trim();
-        if (!vName) { toast('请填写版本名称', 'warning'); return; }
-        const vDisplayName = (shadow.getElementById('upp-pv-display-name')?.value || '').trim();
-        const aid = state.currentPersona.avatar_id;
-        const list = state.store.personaVersions[aid] || [];
-        const existingIdx = list.findIndex(v => v.name === vName);
-        const item = {
-          id: existingIdx >= 0 ? list[existingIdx].id : uid('pv'),
-          name: vName.slice(0, 60),
-          displayName: vDisplayName.slice(0, 60),
-          description: state.currentPersona.description || '',
-          lorebook: state.currentPersona.lorebook || '',
-          updatedAt: Date.now(),
-        };
-        if (existingIdx >= 0) list[existingIdx] = item; else list.unshift(item);
-        state.store.personaVersions[aid] = list;
-        persistStore(state.store);
-        state.drawer = null;
-        render();
-        toast(`已保存内部版本「${item.name}」`, 'success');
-        return;
-      }
-    }
-
-    if (d.type === 'mergePersonas') {
-      if (t.closest('#upp-merge-keep-preview-btn')) {
-        d.showKeepPreview = !d.showKeepPreview;
-        renderDrawer();
-        return;
-      }
-      const prevBtn = t.closest('[data-merge-preview]');
-      if (prevBtn) {
-        const aid = prevBtn.getAttribute('data-merge-preview');
-        if (aid) {
-          if (!d.previewIds) d.previewIds = new Set();
-          const listEl = shadow.getElementById('upp-merge-candidate-list');
-          const st = listEl ? listEl.scrollTop : 0;
-          if (d.previewIds.has(aid)) d.previewIds.delete(aid);
-          else d.previewIds.add(aid);
-          renderMergeCandidateList(d);
-          if (listEl) listEl.scrollTop = st;
-        }
-        return;
-      }
-      if (t.closest('#upp-clean-orphans-btn')) {
-        const list = Array.isArray(d.orphanAvatars) ? [...d.orphanAvatars] : [];
-        let cleaned = 0;
-        for (const aid of list) {
-          try { if (await Host.deletePersonaById(aid)) cleaned++; } catch (_) {}
-        }
-        d.orphanAvatars = await Host.listOrphanAvatars();
-        await refreshAll(false);
-        toast(`已彻底清理 ${cleaned} 个未命名残留头像`, 'success');
-        return;
-      }
-      const grpBtn = t.closest('[data-merge-preset-group]');
-      if (grpBtn) {
-        const g = detectProliferatedPersonas(state.personas)[Number(grpBtn.getAttribute('data-merge-preset-group'))];
-        if (g) { d.keepId = g.items[0].avatar_id; d.absorbIds = g.items.slice(1).map(x => x.avatar_id); renderDrawer(); }
-        return;
-      }
-      if (t.closest('#upp-merge-run-btn')) {
-        const keep = state.personas.find(p => p.avatar_id === d.keepId);
-        if (!keep) return;
-        const list = state.store.personaVersions[keep.avatar_id] || [];
-        if ((keep.description || '').trim() && !list.some(v => v.description === keep.description && (!v.displayName || v.displayName === keep.name))) {
-          list.unshift({ id: uid('pv'), name: '原主描述', displayName: keep.name, description: keep.description, lorebook: keep.lorebook || '', updatedAt: Date.now() });
-        }
-        let absorbed = 0; let deleted = 0;
-        for (const aid of (d.absorbIds || [])) {
-          const oldP = state.personas.find(p => p.avatar_id === aid);
-          if (!oldP) continue;
-          let label = oldP.name;
-          if (label.startsWith(keep.name) && label.length > keep.name.length) {
-            label = label.slice(keep.name.length).replace(/^[\s_\-·・/()（）【】\[\]]+/, '').replace(/[)）】\]]+$/, '') || oldP.name;
-          }
-          if (list.some(v => v.name === label)) label = `${label} (${absorbed + 1})`;
-          list.push({ id: uid('pv'), name: label.slice(0, 60), displayName: oldP.name, description: oldP.description || '', lorebook: oldP.lorebook || '', updatedAt: Date.now() });
-          absorbed++;
-          if (d.deleteOld) { try { if (await Host.deletePersonaById(oldP.avatar_id)) deleted++; } catch (_) {} }
-        }
-        state.store.personaVersions[keep.avatar_id] = list;
-        persistStore(state.store);
-        state.drawer = null;
-        await refreshAll(false);
-        toast(deleted > 0 ? `已收回 ${absorbed} 个分身并删除 ${deleted} 个旧 User` : `已收回 ${absorbed} 个分身为「${keep.name}」的内部版本`, 'success');
-        return;
-      }
     }
 
     if (d.type === 'presetSync') {
@@ -6886,7 +8026,7 @@ function initExtension() {
     state.store.settings.themeMode = elThemeSelect.value;
     persistStore(state.store);
     applyThemeAll();
-  });
+  }, { signal: ac.signal });
 
   // =========================
   // Floating Window Geometry, Drag, Resize & Minimize
@@ -6894,13 +8034,15 @@ function initExtension() {
 
   const modalGeo = {
     floating: false,
-    mini: false,
     resized: false,
     left: 0,
     top: 0,
     width: 0,
     height: 0,
-    normalRect: null,
+    baseLeft: 0,
+    baseTop: 0,
+    baseWidth: 0,
+    baseHeight: 0,
   };
   let dragState = null;
   let resizeState = null;
@@ -6914,39 +8056,36 @@ function initExtension() {
   }
 
   function isMobileViewport() {
-    return getViewportSize().vw <= 640;
+    return getViewportSize().vw <= 680;
   }
 
   function isMobileFullscreen() {
-    return isMobileViewport() && !modalGeo.mini;
-  }
-
-  function syncMiniBtnUi() {
-    if (!elMiniBtn) return;
-    elMiniBtn.innerHTML = modalGeo.mini ? ICONS.restoreSize : ICONS.miniWindow;
-    elMiniBtn.title = modalGeo.mini ? '还原尺寸' : '小窗对照';
-    elMiniBtn.setAttribute('aria-pressed', String(!!modalGeo.mini));
+    return isMobileViewport();
   }
 
   function syncModalLayoutClasses() {
     if (!elModal) return;
     const mobileFs = isMobileFullscreen();
     elModal.classList.toggle('is-floating', !!modalGeo.floating);
-    elModal.classList.toggle('is-mini', !!modalGeo.mini);
     elModal.classList.toggle('is-draggable', !mobileFs);
     elModal.classList.toggle('is-resizable', !mobileFs);
     let h = modalGeo.floating && modalGeo.height ? modalGeo.height : (elModal.getBoundingClientRect().height || 0);
     if (!h && state.open) h = getViewportSize().vh;
     elModal.classList.toggle('is-compact-h', h > 0 && h <= 330);
-    syncMiniBtnUi();
   }
 
-  function applyModalRect(rect) {
+  function applyModalRect(rect, updateBase = true) {
     if (!rect || !elModal) return;
     modalGeo.left = rect.left;
     modalGeo.top = rect.top;
     modalGeo.width = rect.width;
     modalGeo.height = rect.height;
+    if (updateBase) {
+      modalGeo.baseLeft = rect.left;
+      modalGeo.baseTop = rect.top;
+      modalGeo.baseWidth = rect.width;
+      modalGeo.baseHeight = rect.height;
+    }
     elModal.style.left = rect.left + 'px';
     elModal.style.top = rect.top + 'px';
     elModal.style.width = rect.width + 'px';
@@ -6954,15 +8093,47 @@ function initExtension() {
     syncModalLayoutClasses();
   }
 
+  function restorePersistedModalSize() {
+    if (isMobileFullscreen()) {
+      resetModalGeometry();
+      return;
+    }
+    const sw = Number(state.store?.settings?.modalWidth) || 0;
+    const sh = Number(state.store?.settings?.modalHeight) || 0;
+    if (sw > 0 && sh > 0) {
+      const { vw, vh } = getViewportSize();
+      const rawLeft = Math.round((vw - sw) / 2);
+      const rawTop = Math.round((vh - sh) / 2);
+      modalGeo.floating = true;
+      modalGeo.resized = true;
+      modalGeo.baseLeft = rawLeft;
+      modalGeo.baseTop = rawTop;
+      modalGeo.baseWidth = sw;
+      modalGeo.baseHeight = sh;
+      applyModalRect(clampModalRect({
+        left: rawLeft,
+        top: rawTop,
+        width: sw,
+        height: sh,
+        viewportWidth: vw,
+        viewportHeight: vh,
+      }), false);
+    } else {
+      resetModalGeometry();
+    }
+  }
+
   function resetModalGeometry() {
     modalGeo.floating = false;
-    modalGeo.mini = false;
     modalGeo.resized = false;
     modalGeo.left = 0;
     modalGeo.top = 0;
     modalGeo.width = 0;
     modalGeo.height = 0;
-    modalGeo.normalRect = null;
+    modalGeo.baseLeft = 0;
+    modalGeo.baseTop = 0;
+    modalGeo.baseWidth = 0;
+    modalGeo.baseHeight = 0;
     if (elModal) {
       elModal.style.removeProperty('left');
       elModal.style.removeProperty('top');
@@ -6990,54 +8161,21 @@ function initExtension() {
       return;
     }
     if (modalGeo.floating) {
-      if (modalGeo.mini && !modalGeo.resized) {
-        applyModalRect(computeMiniWindowRect({ viewportWidth: vw, viewportHeight: vh }));
-      } else {
-        applyModalRect(clampModalRect({
-          left: modalGeo.left,
-          top: modalGeo.top,
-          width: modalGeo.width,
-          height: modalGeo.height,
-          viewportWidth: vw,
-          viewportHeight: vh,
-        }));
-      }
+      const srcLeft = modalGeo.baseWidth ? modalGeo.baseLeft : modalGeo.left;
+      const srcTop = modalGeo.baseHeight ? modalGeo.baseTop : modalGeo.top;
+      const srcWidth = modalGeo.baseWidth || modalGeo.width;
+      const srcHeight = modalGeo.baseHeight || modalGeo.height;
+      applyModalRect(clampModalRect({
+        left: srcLeft,
+        top: srcTop,
+        width: srcWidth,
+        height: srcHeight,
+        viewportWidth: vw,
+        viewportHeight: vh,
+      }), false);
     } else {
       syncModalLayoutClasses();
     }
-  }
-
-  function toggleMiniWindow() {
-    if (!state.open || state.minimized) return;
-    const { vw, vh } = getViewportSize();
-    if (!modalGeo.mini) {
-      modalGeo.normalRect = modalGeo.floating
-        ? { left: modalGeo.left, top: modalGeo.top, width: modalGeo.width, height: modalGeo.height, resized: modalGeo.resized }
-        : null;
-      const miniRect = computeMiniWindowRect({ viewportWidth: vw, viewportHeight: vh });
-      modalGeo.mini = true;
-      modalGeo.floating = true;
-      modalGeo.resized = false;
-      applyModalRect(miniRect);
-      return;
-    }
-    if (modalGeo.normalRect && vw > 640) {
-      const prev = modalGeo.normalRect;
-      modalGeo.normalRect = null;
-      modalGeo.mini = false;
-      modalGeo.floating = true;
-      modalGeo.resized = !!prev.resized;
-      applyModalRect(clampModalRect({
-        left: prev.left,
-        top: prev.top,
-        width: prev.width,
-        height: prev.height,
-        viewportWidth: vw,
-        viewportHeight: vh,
-      }));
-      return;
-    }
-    resetModalGeometry();
   }
 
   function positionRestorePill() {
@@ -7104,15 +8242,19 @@ function initExtension() {
     if (state.open && state.minimized) {
       restoreModal();
       syncFabVisBtn();
+      render();
+      void refreshAll(false);
       return;
     }
     state.minimized = false;
     elBackdrop.classList.remove('is-minimized');
     elBackdrop.removeAttribute('aria-hidden');
     elRestorePill.hidden = true;
-    resetModalGeometry();
+    restorePersistedModalSize();
     state.open = true;
     state.drawer = null;
+    state.userView = 'main';
+    state.userInlineEditor = null;
     elBackdrop.hidden = false;
     syncModalLayoutClasses();
     syncFabVisBtn();
@@ -7191,6 +8333,8 @@ function initExtension() {
     });
     modalGeo.left = pos.left;
     modalGeo.top = pos.top;
+    modalGeo.baseLeft = pos.left;
+    modalGeo.baseTop = pos.top;
     elModal.style.left = pos.left + 'px';
     elModal.style.top = pos.top + 'px';
   }, { signal: ac.signal });
@@ -7204,72 +8348,190 @@ function initExtension() {
   elHeader.addEventListener('pointerup', finishModalDrag, { signal: ac.signal });
   elHeader.addEventListener('pointercancel', finishModalDrag, { signal: ac.signal });
 
-  // Unified PointerEvent Corner Resize on #upp-resize-handle
-  elResizeHandle.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
-    if (!state.open || state.minimized || isMobileFullscreen()) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    const { vw, vh } = getViewportSize();
-    const rect = elModal.getBoundingClientRect();
-    modalGeo.floating = true;
-    modalGeo.resized = true;
-    applyModalRect(clampModalRect({
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
-      viewportWidth: vw,
-      viewportHeight: vh,
-    }));
-    resizeState = {
-      pointerId: ev.pointerId,
-      startX: ev.clientX,
-      startY: ev.clientY,
-      origLeft: modalGeo.left,
-      origTop: modalGeo.top,
-      origWidth: modalGeo.width,
-      origHeight: modalGeo.height,
+  // Unified PointerEvent 8-Direction Resize on invisible edge + corner hotzones (.upp-rz)
+  shadow.querySelectorAll('.upp-rz[data-resize]').forEach(rzEl => {
+    const handle = rzEl.getAttribute('data-resize') || 'se';
+    rzEl.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+      if (!state.open || state.minimized || isMobileFullscreen()) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const { vw, vh } = getViewportSize();
+      const rect = elModal.getBoundingClientRect();
+      modalGeo.floating = true;
+      modalGeo.resized = true;
+      applyModalRect(clampModalRect({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: vw,
+        viewportHeight: vh,
+      }));
+      resizeState = {
+        pointerId: ev.pointerId,
+        handle,
+        el: rzEl,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        origLeft: modalGeo.left,
+        origTop: modalGeo.top,
+        origWidth: modalGeo.width,
+        origHeight: modalGeo.height,
+      };
+      elModal.classList.add('is-resizing');
+      try { rzEl.setPointerCapture(ev.pointerId); } catch (_) {}
+    }, { signal: ac.signal });
+
+    rzEl.addEventListener('pointermove', ev => {
+      if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
+      const { vw, vh } = getViewportSize();
+      const nextRect = computeResizedModalRect({
+        origLeft: resizeState.origLeft,
+        origTop: resizeState.origTop,
+        origWidth: resizeState.origWidth,
+        origHeight: resizeState.origHeight,
+        dx: ev.clientX - resizeState.startX,
+        dy: ev.clientY - resizeState.startY,
+        handle: resizeState.handle,
+        viewportWidth: vw,
+        viewportHeight: vh,
+      });
+      applyModalRect(nextRect, true);
+    }, { signal: ac.signal });
+
+    const finishResize = ev => {
+      if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
+      const savedW = Math.round(modalGeo.baseWidth || modalGeo.width || 0);
+      const savedH = Math.round(modalGeo.baseHeight || modalGeo.height || 0);
+      resizeState = null;
+      elModal.classList.remove('is-resizing');
+      try { rzEl.releasePointerCapture(ev.pointerId); } catch (_) {}
+      if (savedW >= 340 && savedH >= 280) {
+        state.store.settings.modalWidth = savedW;
+        state.store.settings.modalHeight = savedH;
+        persistStore(state.store);
+      }
     };
-    elModal.classList.add('is-resizing');
-    try { elResizeHandle.setPointerCapture(ev.pointerId); } catch (_) {}
-  }, { signal: ac.signal });
+    rzEl.addEventListener('pointerup', finishResize, { signal: ac.signal });
+    rzEl.addEventListener('pointercancel', finishResize, { signal: ac.signal });
+  });
 
-  elResizeHandle.addEventListener('pointermove', ev => {
-    if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
-    const { vw, vh } = getViewportSize();
-    const nextRect = computeResizedModalRect({
-      origLeft: resizeState.origLeft,
-      origTop: resizeState.origTop,
-      origWidth: resizeState.origWidth,
-      origHeight: resizeState.origHeight,
-      dx: ev.clientX - resizeState.startX,
-      dy: ev.clientY - resizeState.startY,
-      handle: 'se',
-      viewportWidth: vw,
-      viewportHeight: vh,
-    });
-    applyModalRect(nextRect);
-  }, { signal: ac.signal });
-
-  function finishModalResize(ev) {
-    if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
-    resizeState = null;
-    elModal.classList.remove('is-resizing');
-    try { elResizeHandle.releasePointerCapture(ev.pointerId); } catch (_) {}
+  function handleEscapeKey() {
+    if (fabPopOpen) { closeFabPop(); return true; }
+    if (state.open && !state.minimized) {
+      if (state.drawer) {
+        if (state.drawer.type === 'viewSnapshot' && state.drawer.dirty) {
+          state.drawer.pendingAction = 'close';
+          renderDrawer();
+          return true;
+        }
+        state.drawer = state.drawer.returnTo || null;
+        renderDrawer();
+        return true;
+      }
+      closeModal();
+      return true;
+    }
+    return false;
   }
-  elResizeHandle.addEventListener('pointerup', finishModalResize, { signal: ac.signal });
-  elResizeHandle.addEventListener('pointercancel', finishModalResize, { signal: ac.signal });
 
-  // Bubble-phase isolation on EVERY floating root (prevent collapsing ST .openDrawer)
+  const SCROLLABLE_ANCESTOR_SELECTOR = [
+    '.upp-body',
+    '.upp-drawer-body',
+    '.upp-pop-list',
+    '.upp-fab-pop-list',
+    '.upp-inline-pre',
+    '.upp-inline-textarea',
+    '.upp-textarea',
+    '.upp-persona-live-box',
+    '.upp-diff-box',
+    '.upp-merge-dest-list',
+    '.upp-sv-meta-panel',
+    '#upp-ps-ov-scroll',
+    '.upp-ps-ov-scroll',
+  ].join(', ');
+
+  function findScrollableInRoot(ev, boundaryEl) {
+    const path = typeof ev.composedPath === 'function' ? ev.composedPath() : [ev.target];
+    const candidates = [];
+    for (let i = 0; i < path.length; i++) {
+      const node = path[i];
+      if (!node || node === boundaryEl || node === shadow || node === document || node === window) break;
+      if (node.nodeType !== 1) continue;
+      const matchesKnown = typeof node.matches === 'function' && node.matches(SCROLLABLE_ANCESTOR_SELECTOR);
+      let hasScrollStyle = matchesKnown;
+      if (!hasScrollStyle) {
+        try {
+          const oy = window.getComputedStyle?.(node)?.overflowY || '';
+          hasScrollStyle = /(auto|scroll)/.test(oy);
+        } catch (_) {}
+      }
+      if (hasScrollStyle && (node.scrollHeight || 0) > (node.clientHeight || 0) + 1) {
+        candidates.push(node);
+      }
+    }
+    return candidates;
+  }
+
+  // Bubble-phase isolation on EVERY floating root (prevent collapsing ST .openDrawer or leaking shortcuts/scroll)
   function stopBubbleToHost(el) {
     if (!el) return;
     const stop = ev => { ev.stopPropagation(); };
     el.addEventListener('mousedown', stop, { signal: ac.signal });
+    el.addEventListener('pointerdown', stop, { signal: ac.signal });
+    el.addEventListener('mouseup', stop, { signal: ac.signal });
+    el.addEventListener('pointerup', stop, { signal: ac.signal });
     el.addEventListener('touchstart', stop, { signal: ac.signal, passive: true });
+    el.addEventListener('touchend', stop, { signal: ac.signal });
     el.addEventListener('click', stop, { signal: ac.signal });
+    el.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && handleEscapeKey()) {
+        ev.preventDefault();
+      }
+      ev.stopPropagation();
+    }, { signal: ac.signal });
+    el.addEventListener('keyup', stop, { signal: ac.signal });
+    el.addEventListener('keypress', stop, { signal: ac.signal });
   }
   [host, elModal, elDrawerMask, elRestorePill, elFabBtn, elFabPop].forEach(stopBubbleToHost);
+
+  [elModal, elDrawerMask, elFabPop, elFabBtn, elRestorePill].forEach(rootEl => {
+    if (!rootEl) return;
+    const isFixedButton = rootEl === elFabBtn || rootEl === elRestorePill;
+    rootEl.addEventListener('wheel', ev => {
+      ev.stopPropagation();
+      if (isFixedButton) {
+        if (ev.cancelable) ev.preventDefault();
+        return;
+      }
+      const scrollers = findScrollableInRoot(ev, rootEl);
+      if (!scrollers.length) {
+        if (ev.cancelable) ev.preventDefault();
+        return;
+      }
+      const dy = Number(ev.deltaY || 0);
+      if (dy !== 0) {
+        const canScroll = scrollers.some(s => (
+          (dy < 0 && (s.scrollTop || 0) > 0)
+          || (dy > 0 && ((s.scrollTop || 0) + (s.clientHeight || 0)) < ((s.scrollHeight || 0) - 1))
+        ));
+        if (!canScroll && ev.cancelable) ev.preventDefault();
+      }
+    }, { passive: false, signal: ac.signal });
+
+    rootEl.addEventListener('touchmove', ev => {
+      ev.stopPropagation();
+      if (isFixedButton) {
+        if (ev.cancelable) ev.preventDefault();
+        return;
+      }
+      const scrollers = findScrollableInRoot(ev, rootEl);
+      if (!scrollers.length && ev.cancelable) {
+        ev.preventDefault();
+      }
+    }, { passive: false, signal: ac.signal });
+  });
 
   elModal.addEventListener('pointerdown', () => { if (fabPopOpen) closeFabPop(); }, { signal: ac.signal });
   elRestorePill.addEventListener('pointerdown', () => { if (fabPopOpen) closeFabPop(); }, { signal: ac.signal });
@@ -7279,6 +8541,7 @@ function initExtension() {
   // =========================
 
   let fabPopOpen = false;
+  let fabSearchQuery = '';
   let fabDragging = false;
   let fabMoved = false;
   let fabStartX = 0;
@@ -7305,26 +8568,56 @@ function initExtension() {
   }
 
   function positionFabPop() {
-    const vw = window.innerWidth || 390;
-    const vh = window.innerHeight || 780;
+    // Use visualViewport when available so mobile soft-keyboard resize gently repositions without closing or losing focus!
+    const vv = window.visualViewport;
+    const vw = Math.round(vv?.width || window.innerWidth || 390);
+    const vh = Math.round(vv?.height || window.innerHeight || 780);
+    const vTop = Math.round(vv?.offsetTop || 0);
     const margin = 12;
     const rect = elFabBtn.getBoundingClientRect();
-    const popW = Math.min(elFabPop.offsetWidth || 296, vw - margin * 2);
-    const popH = Math.min(elFabPop.offsetHeight || Math.min(410, Math.round(vh * 0.72)), vh - margin * 2);
+    const maxPopH = Math.max(180, Math.min(430, vh - margin * 2));
+    elFabPop.style.maxHeight = `${maxPopH}px`;
+    const popW = Math.min(elFabPop.offsetWidth || 304, vw - margin * 2);
+    const popH = Math.min(elFabPop.offsetHeight || maxPopH, maxPopH);
     let left = (rect.left + rect.width / 2) > vw / 2 ? (rect.left - popW - 8) : (rect.right + 8);
     left = Math.min(vw - popW - margin, Math.max(margin, left));
-    let top = (rect.top + popH + margin > vh) ? (rect.bottom - popH) : (rect.top - 24);
-    top = Math.min(vh - popH - margin, Math.max(margin, top));
+    let top = (rect.top + popH + margin > vTop + vh) ? (vTop + vh - popH - margin) : (rect.top - 24);
+    top = Math.min(vTop + vh - popH - margin, Math.max(vTop + margin, top));
     elFabPop.style.left = Math.round(left) + 'px';
     elFabPop.style.top = Math.round(top) + 'px';
+  }
+
+  function renderFabPopList() {
+    const listEl = shadow.getElementById('upp-fab-pop-list');
+    if (!listEl) return;
+    const snaps = state.store.snapshots || [];
+    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
+    const q = normalizeText(fabSearchQuery);
+    const filtered = q
+      ? snaps.filter(s => normalizeText(`${s.name} ${s.group || ''} ${s.note || ''}`).includes(q))
+      : snaps;
+
+    listEl.innerHTML = filtered.length ? filtered.map(s => {
+      const isBound = bound && bound.snapshotId === s.id;
+      return `
+        <div class="upp-fab-snap-row ${isBound ? 'is-bound' : ''}">
+          <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="${escapeHtml(s.note ? `${s.name}：${s.note}` : '点击查看快照详情')}">
+            <div class="upp-fab-snap-top">
+              <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
+              ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+            </div>
+            ${s.note ? `<div class="upp-fab-snap-note">${escapeHtml(s.note)}</div>` : ''}
+          </button>
+          <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}">应用</button>
+        </div>
+      `;
+    }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">${snaps.length ? '没有匹配的快照' : '暂无快照，先保存一套吧'}</div>`;
   }
 
   function renderFabPop() {
     state.store = loadStore();
     state.charInfo = readCurrentCharInfo();
     state.chatId = readCurrentChatId();
-    const snaps = state.store.snapshots || [];
-    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
     const autoOn = !!state.store.settings.autoApplyBindings;
 
     elFabPop.innerHTML = `
@@ -7332,28 +8625,19 @@ function initExtension() {
         <span>快捷切换快照</span>
         <button type="button" class="upp-switch" id="upp-fab-auto-sw" role="switch" aria-checked="${autoOn}" title="切聊天自动切回"></button>
       </div>
-      <div class="upp-fab-pop-list">
-        ${snaps.length ? snaps.map(s => {
-          const isBound = bound && bound.snapshotId === s.id;
-          return `
-            <div class="upp-fab-snap-row ${isBound ? 'is-bound' : ''}">
-              <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="${escapeHtml(s.note ? `${s.name}：${s.note}` : '点击查看快照详情')}">
-                <div class="upp-fab-snap-top">
-                  <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
-                  ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
-                </div>
-                ${s.note ? `<div class="upp-fab-snap-note">${escapeHtml(s.note)}</div>` : ''}
-              </button>
-              <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}">应用</button>
-            </div>
-          `;
-        }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">暂无快照，先保存一套吧</div>`}
+      <div class="upp-fab-search-wrap">
+        <div class="upp-input-wrap">
+          ${ICONS.search}
+          <input type="text" id="upp-fab-search" spellcheck="false" placeholder="搜索快照名称、分组或备注…" value="${escapeHtml(fabSearchQuery)}" />
+        </div>
       </div>
+      <div class="upp-fab-pop-list" id="upp-fab-pop-list"></div>
       <div class="upp-fab-pop-foot">
         <button type="button" class="upp-btn primary" id="upp-fab-save-btn">${ICONS.plus}<span>保存快照</span></button>
         <button type="button" class="upp-btn" id="upp-fab-open-btn">完整面板</button>
       </div>
     `;
+    renderFabPopList();
   }
 
   function openFabPop() {
@@ -7396,7 +8680,7 @@ function initExtension() {
     fabOrigLeft = rect.left;
     fabOrigTop = rect.top;
     try { elFabBtn.setPointerCapture(ev.pointerId); } catch (_) {}
-  });
+  }, { signal: ac.signal });
 
   elFabBtn.addEventListener('pointermove', ev => {
     if (!fabDragging) return;
@@ -7415,7 +8699,7 @@ function initExtension() {
     const top = Math.min(vh - size - 12, Math.max(46, fabOrigTop + dy));
     elFabBtn.style.left = Math.round(left) + 'px';
     elFabBtn.style.top = Math.round(top) + 'px';
-  });
+  }, { signal: ac.signal });
 
   function finishFabPointer(ev) {
     if (!fabDragging) return;
@@ -7436,8 +8720,26 @@ function initExtension() {
       else openFabPop();
     }
   }
-  elFabBtn.addEventListener('pointerup', finishFabPointer);
-  elFabBtn.addEventListener('pointercancel', finishFabPointer);
+  elFabBtn.addEventListener('pointerup', finishFabPointer, { signal: ac.signal });
+  elFabBtn.addEventListener('pointercancel', finishFabPointer, { signal: ac.signal });
+
+  elFabPop.addEventListener('compositionstart', ev => {
+    if (ev.target) ev.target._uppComposing = true;
+  }, { signal: ac.signal });
+  elFabPop.addEventListener('compositionend', ev => {
+    if (ev.target && ev.target.id === 'upp-fab-search') {
+      ev.target._uppComposing = false;
+      fabSearchQuery = ev.target.value;
+      renderFabPopList();
+    }
+  }, { signal: ac.signal });
+  elFabPop.addEventListener('input', ev => {
+    if (ev.isComposing || ev.target?._uppComposing) return;
+    if (ev.target && ev.target.id === 'upp-fab-search') {
+      fabSearchQuery = ev.target.value;
+      renderFabPopList();
+    }
+  }, { signal: ac.signal });
 
   elFabPop.addEventListener('click', async ev => {
     const t = ev.target;
@@ -7481,7 +8783,7 @@ function initExtension() {
         await requestApplySnapshot(snap, { fromFab: true });
       }
     }
-  });
+  }, { signal: ac.signal });
 
   elFabVisBtn.addEventListener('click', () => {
     state.store = loadStore();
@@ -7491,14 +8793,20 @@ function initExtension() {
     syncExtSettingsCheckbox();
     if (state.open && state.minimized) positionRestorePill();
     toast(state.store.settings.showFloatingBall ? '已显示悬浮球' : '已隐藏悬浮球');
-  });
+  }, { signal: ac.signal });
 
   document.addEventListener('pointerdown', ev => {
     if (!fabPopOpen) return;
     const path = typeof ev.composedPath === 'function' ? ev.composedPath() : [];
     if (path.includes(elFabPop) || path.includes(elFabBtn)) return;
     closeFabPop();
-  }, { signal: ac.signal });
+  }, { capture: true, signal: ac.signal });
+
+  const handleSelect2Opening = () => { closeFabPop(); };
+  if (typeof window.jQuery === 'function') {
+    try { window.jQuery(document).on('select2:opening.upp', handleSelect2Opening); } catch (_) {}
+  }
+  document.addEventListener('select2:opening', handleSelect2Opening, { capture: true, signal: ac.signal });
 
   function handleViewportChange() {
     if (state.store.settings.showFloatingBall !== false) {
@@ -7517,20 +8825,7 @@ function initExtension() {
 
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {
-      if (fabPopOpen) { closeFabPop(); return; }
-      if (state.open && !state.minimized) {
-        if (state.drawer) {
-          if (state.drawer.type === 'viewSnapshot' && state.drawer.dirty) {
-            state.drawer.pendingAction = 'close';
-            renderDrawer();
-            return;
-          }
-          state.drawer = state.drawer.returnTo || null;
-          renderDrawer();
-        } else {
-          closeModal();
-        }
-      }
+      handleEscapeKey();
     }
   }, { signal: ac.signal });
 
@@ -7560,7 +8855,23 @@ function initExtension() {
     }, 350);
   }
 
+  let presetSyncTimer = null;
+  function handleHostPresetChanged() {
+    if (!state.open || state.minimized || isApplyingSnapshot) return;
+    if (presetSyncTimer) window.clearTimeout(presetSyncTimer);
+    presetSyncTimer = window.setTimeout(() => {
+      presetSyncTimer = null;
+      if (!state.open || isApplyingSnapshot) return;
+      state.presets = Host.listPresets();
+      state.loadedPresetName = Host.getLoadedPresetName();
+      state.livePresetNorm = Host.getLiveNormalizedPreset();
+      if (state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
+      renderFooter();
+    }, 250);
+  }
+
   eventSource.on(event_types.CHAT_CHANGED, scheduleAutoApply);
+  eventSource.on(event_types.OAI_PRESET_CHANGED_AFTER, handleHostPresetChanged);
 
   // Decoupled CustomEvent bridge with worldbook-organizer (rename / delete / live group refresh)
   window.addEventListener('wbo:worldbook-renamed', ev => {
@@ -7703,6 +9014,95 @@ function initExtension() {
     if (fabCb) fabCb.checked = st.showFloatingBall !== false;
     const foldCb = document.getElementById('upp-ext-fold-cb');
     if (foldCb) foldCb.checked = st.presetGroupsDefaultCollapsed !== false;
+    const nativeBarCb = document.getElementById('upp-ext-native-bar-cb');
+    if (nativeBarCb) nativeBarCb.checked = isNativePersonaBarEnabled();
+  }
+
+  function syncNativePersonaBar() {
+    if (typeof document === 'undefined') return;
+    const existing = document.getElementById(NATIVE_PERSONA_BAR_ID);
+    if (!isNativePersonaBarEnabled()) {
+      existing?.remove();
+      return;
+    }
+    const block = document.querySelector('#persona_management .persona_controls_buttons_block')
+      || document.querySelector('.persona_controls_buttons_block');
+    if (!block) {
+      existing?.remove();
+      return;
+    }
+    const curP = Host.getCurrentPersona();
+    const storeNow = state.store || loadStore();
+    const versions = curP ? (storeNow.personaVersions?.[curP.avatar_id] || []) : [];
+
+    let bar = existing;
+    if (!bar || bar.parentElement !== block) {
+      existing?.remove();
+      bar = document.createElement('div');
+      bar.id = NATIVE_PERSONA_BAR_ID;
+      bar.className = 'upp-native-persona-bar';
+      const stopNative = ev => { ev.stopPropagation(); };
+      bar.addEventListener('mousedown', stopNative, { signal: ac.signal });
+      bar.addEventListener('pointerdown', stopNative, { signal: ac.signal });
+      bar.addEventListener('touchstart', stopNative, { signal: ac.signal, passive: true });
+      bar.addEventListener('click', async ev => {
+        ev.stopPropagation();
+        const t = ev.target;
+        if (t.closest('#upp-native-open-btn')) {
+          state.tab = 'user';
+          state.userView = 'main';
+          state.userInlineEditor = null;
+          openModal();
+          return;
+        }
+        if (t.closest('#upp-native-apply-ver-btn')) {
+          const p = Host.getCurrentPersona();
+          const vid = bar.querySelector('#upp-native-ver-sel')?.value || '';
+          const st = loadStore();
+          const ver = p ? (st.personaVersions?.[p.avatar_id] || []).find(v => v.id === vid) : null;
+          if (!p || !ver) return;
+          autoBackupPersonaBeforeOverwrite(st, p);
+          persistStore(st);
+          if (ver.displayName && ver.displayName !== p.name) {
+            await Host.renamePersonaInPlace(p.avatar_id, ver.displayName);
+          }
+          await Host.updatePersonaInPlace(p.avatar_id, ver.description, ver.lorebook || undefined);
+          syncNativePersonaBar();
+          if (state.open) await refreshAll(false);
+          toast(`已切换至内部版本「${ver.name}」`, 'success');
+          return;
+        }
+        if (t.closest('#upp-native-release-ver-btn')) {
+          const p = Host.getCurrentPersona();
+          const vid = bar.querySelector('#upp-native-ver-sel')?.value || '';
+          const st = loadStore();
+          const ver = p ? (st.personaVersions?.[p.avatar_id] || []).find(v => v.id === vid) : null;
+          if (!p || !ver) return;
+          try {
+            const payload = buildReleaseVersionToNativePayload(ver, Host.listPersonas());
+            const avatarBlob = await Host.fetchPersonaAvatarBlob(p.avatar_id);
+            await Host.createNativePersona({ ...payload, avatarBlob });
+            syncNativePersonaBar();
+            if (state.open) await refreshAll(false);
+            toast(`已将「${ver.name}」放回原生 User 列表（${payload.name}）`, 'success');
+          } catch (err) {
+            toast('放回原生失败：' + (err?.message || err), 'error');
+          }
+        }
+      }, { signal: ac.signal });
+      block.appendChild(bar);
+    }
+
+    bar.innerHTML = `
+      <button type="button" class="menu_button upp-native-btn" id="upp-native-open-btn" title="打开快照管家 User 管理">快照管家 User</button>
+      ${versions.length ? `
+        <select class="upp-native-select" id="upp-native-ver-sel" title="当前 User 的内部版本">
+          ${versions.map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}${v.displayName ? ` (${escapeHtml(v.displayName)})` : ''}</option>`).join('')}
+        </select>
+        <button type="button" class="menu_button upp-native-btn" id="upp-native-apply-ver-btn">切版本</button>
+        <button type="button" class="menu_button upp-native-btn" id="upp-native-release-ver-btn">放回原生</button>
+      ` : ''}
+    `;
   }
 
   function mountExtSettings() {
@@ -7733,6 +9133,12 @@ function initExtension() {
           <label class="checkbox_label" for="upp-ext-fold-cb">
             <input id="upp-ext-fold-cb" type="checkbox" ${state.store.settings.presetGroupsDefaultCollapsed !== false ? 'checked' : ''} />
             <span>预设分组默认折叠</span>
+          </label>
+        </div>
+        <div class="upp-ext-settings-row">
+          <label class="checkbox_label" for="upp-ext-native-bar-cb">
+            <input id="upp-ext-native-bar-cb" type="checkbox" ${isNativePersonaBarEnabled() ? 'checked' : ''} />
+            <span>在酒馆 User 页面显示快捷版本栏</span>
           </label>
         </div>
         <div class="upp-ext-settings-row">
@@ -7772,6 +9178,10 @@ function initExtension() {
       state.presetFoldState = {};
       if (state.open && state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
     });
+    box.querySelector('#upp-ext-native-bar-cb')?.addEventListener('change', ev => {
+      setNativePersonaBarEnabled(!!ev.target.checked);
+      syncNativePersonaBar();
+    });
     box.querySelector('#upp-ext-theme-sel')?.addEventListener('change', ev => {
       state.store = loadStore();
       state.store.settings.themeMode = ev.target.value;
@@ -7784,10 +9194,12 @@ function initExtension() {
   syncFabUi();
   mountWandMenu();
   mountExtSettings();
+  syncNativePersonaBar();
   function onAppReady() {
     mountWandMenu();
     mountExtSettings();
     syncFabUi();
+    syncNativePersonaBar();
   }
   eventSource.on(event_types.APP_READY, onAppReady);
 
@@ -7796,16 +9208,23 @@ function initExtension() {
     dragState = null;
     resizeState = null;
     fabDragging = false;
+    document.getElementById(NATIVE_PERSONA_BAR_ID)?.remove();
     if (autoTimer) { window.clearTimeout(autoTimer); autoTimer = null; }
+    if (presetSyncTimer) { window.clearTimeout(presetSyncTimer); presetSyncTimer = null; }
     if (backfillIdleId !== null) {
       if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(backfillIdleId);
       else window.clearTimeout(backfillIdleId);
       backfillIdleId = null;
     }
     try {
+      if (typeof window.jQuery === 'function') {
+        window.jQuery(document).off('select2:opening.upp', handleSelect2Opening);
+      }
       eventSource.removeListener?.(event_types.CHAT_CHANGED, scheduleAutoApply);
+      eventSource.removeListener?.(event_types.OAI_PRESET_CHANGED_AFTER, handleHostPresetChanged);
       eventSource.removeListener?.(event_types.APP_READY, onAppReady);
       eventSource.off?.(event_types.CHAT_CHANGED, scheduleAutoApply);
+      eventSource.off?.(event_types.OAI_PRESET_CHANGED_AFTER, handleHostPresetChanged);
       eventSource.off?.(event_types.APP_READY, onAppReady);
     } catch (_) {}
     state.bookEntriesCache.clear();
