@@ -1829,7 +1829,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-entry-row.is-on { border-color: var(--accent-border); background: var(--surface-strong); }
 .upp-entry-row.is-off { opacity: 0.68; }
 .upp-entry-main {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; gap: 8px;
   background: none; border: none; padding: 0; text-align: left; color: inherit; cursor: pointer; font: inherit;
 }
 .upp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -1845,8 +1845,10 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-role-tag.placeholder { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
 .upp-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.upp-entry-title-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.upp-entry-name { font-size: 13px; font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-entry-title-row { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+.upp-entry-title-row .upp-badge { flex: 0 1 auto; min-width: 44px; }
+.upp-entry-title-row .upp-badge.upp-keep { flex-shrink: 0; min-width: 0; }
+.upp-entry-name { flex: 0 1 auto; font-size: 13px; font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-entry-preview { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-entry-wrap { display: flex; flex-direction: column; }
 .upp-entry-wrap.is-expanded > .upp-entry-row {
@@ -2759,7 +2761,7 @@ function initExtension() {
                     <div class="upp-entry-text">
                       <div class="upp-entry-title-row">
                         <span class="upp-entry-name">${escapeHtml(p.name)}</span>
-                        ${isCurP ? '<span class="upp-badge accent">当前 User</span>' : ''}
+                        ${isCurP ? '<span class="upp-badge accent upp-keep">当前 User</span>' : ''}
                       </div>
                       <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(p.description, state.userSearch))}</div>
                     </div>
@@ -2790,7 +2792,7 @@ function initExtension() {
                       <div class="upp-entry-title-row">
                         <span class="upp-entry-name">${escapeHtml(v.name)}</span>
                         ${dnTag}
-                        ${isCur ? '<span class="upp-badge accent">使用中</span>' : ''}
+                        ${isCur ? '<span class="upp-badge accent upp-keep">使用中</span>' : ''}
                       </div>
                       <div class="upp-entry-preview">${escapeHtml(makeMatchedSnippet(v.description, state.userSearch))}</div>
                     </div>
@@ -2844,7 +2846,7 @@ function initExtension() {
               <div class="upp-entry-title-row">
                 <span class="upp-entry-name">${escapeHtml(v.name)}</span>
                 ${dnTag}
-                ${isCur ? '<span class="upp-badge accent">使用中</span>' : ''}
+                ${isCur ? '<span class="upp-badge accent upp-keep">使用中</span>' : ''}
               </div>
               <div class="upp-entry-preview">${escapeHtml(snippet || '空描述')}</div>
             </div>
@@ -3195,7 +3197,7 @@ function initExtension() {
             <div class="upp-entry-text">
               <div class="upp-entry-title-row">
                 <span class="upp-entry-name">${escapeHtml(item.name || item.id)}</span>
-                ${item.statusNote ? `<span class="upp-badge warn">${escapeHtml(item.statusNote)}</span>` : ''}
+                ${item.statusNote ? `<span class="upp-badge warn upp-keep">${escapeHtml(item.statusNote)}</span>` : ''}
               </div>
               <div class="upp-entry-preview">${escapeHtml(snippet || '空正文')}</div>
             </div>
@@ -3587,8 +3589,8 @@ function initExtension() {
           <div class="upp-entry-text">
             <div class="upp-entry-title-row">
               <span class="upp-entry-name">${escapeHtml(ch.name)}</span>
-              ${isActive ? '<span class="upp-badge">当前角色</span>' : ''}
-              ${isThis ? '<span class="upp-badge ok">已绑此快照</span>' : ''}
+              ${isActive ? '<span class="upp-badge upp-keep">当前角色</span>' : ''}
+              ${isThis ? '<span class="upp-badge ok upp-keep">已绑此快照</span>' : ''}
               ${otherName ? `<span class="upp-badge warn">已绑: ${escapeHtml(otherName)}</span>` : ''}
             </div>
           </div>
@@ -3639,8 +3641,8 @@ function initExtension() {
           <div class="upp-entry-text">
             <div class="upp-entry-title-row">
               <span class="upp-entry-name">${escapeHtml(c.chatId)}</span>
-              ${isCur ? '<span class="upp-badge">当前聊天</span>' : ''}
-              ${isThis ? '<span class="upp-badge ok">已绑此快照</span>' : ''}
+              ${isCur ? '<span class="upp-badge upp-keep">当前聊天</span>' : ''}
+              ${isThis ? '<span class="upp-badge ok upp-keep">已绑此快照</span>' : ''}
               ${otherName ? `<span class="upp-badge warn">已绑: ${escapeHtml(otherName)}</span>` : ''}
             </div>
             <div class="upp-entry-preview">${escapeHtml(metaParts.join(' · ') || '聊天记录')}</div>

@@ -309,6 +309,19 @@ test('analyzeEntryTags & inspectTagHygiene ignore EJS/comments/void tags and fla
   const stray = analyzeEntryTags('<a>ok</a></多余>');
   assert.deepEqual(stray.unclosed, ['/多余']);
 
+  assert.deepEqual(analyzeEntryTags('<div data-x="a/>b">unclosed'), {
+    unclosed: ['div'],
+    topWrappers: ['div'],
+  });
+  assert.deepEqual(analyzeEntryTags('<tag attr=">"/>'), {
+    unclosed: [],
+    topWrappers: [],
+  });
+  assert.deepEqual(analyzeEntryTags('<自定义 />'), {
+    unclosed: [],
+    topWrappers: [],
+  });
+
   const hygiene = inspectTagHygiene([
     { uid: 1, enabled: true, content: '<设定块>甲</设定块>' },
     { uid: 2, enabled: true, content: '<设定块><未闭合>乙</设定块>' },
