@@ -543,7 +543,7 @@ const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'area', '
 export function analyzeEntryTags(content) {
   const raw = String(content || '');
   const cleaned = raw.replace(/<%[\s\S]*?%>/g, '').replace(/<!--[\s\S]*?-->/g, '');
-  const re = /<\s*(\/?)\s*([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*?)?(\/?)\s*>/g;
+  const re = /<(\/?)([a-zA-Z\u4e00-\u9fa5][a-zA-Z0-9_\-\u4e00-\u9fa5]*)(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*?)?(\/?)\s*>/g;
   const stack = [];
   const unclosed = [];
   const topWrappers = [];

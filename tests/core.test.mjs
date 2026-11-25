@@ -321,6 +321,14 @@ test('analyzeEntryTags & inspectTagHygiene ignore EJS/comments/void tags and fla
     unclosed: [],
     topWrappers: [],
   });
+  assert.deepEqual(analyzeEntryTags('a < b && c > d'), {
+    unclosed: [],
+    topWrappers: [],
+  });
+  assert.deepEqual(analyzeEntryTags('好感度 < 50 && 进度 > 10'), {
+    unclosed: [],
+    topWrappers: [],
+  });
 
   const hygiene = inspectTagHygiene([
     { uid: 1, enabled: true, content: '<设定块>甲</设定块>' },

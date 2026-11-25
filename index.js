@@ -1711,7 +1711,9 @@ const STYLE_CSS = `
 .upp-btn.danger:hover { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 .upp-btn.pinned { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
 
-.upp-select { padding: 0 24px 0 9px; cursor: pointer; max-width: 220px; outline: none; }
+.upp-select { padding: 0 24px 0 9px; cursor: pointer; min-width: 0; max-width: 100%; outline: none; }
+#upp-persona-select { max-width: 190px; }
+#upp-preset-select { max-width: 220px; }
 .upp-select:focus { border-color: var(--accent); }
 
 .upp-input-wrap {
@@ -1760,6 +1762,7 @@ const STYLE_CSS = `
   min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px;
   color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.upp-foot-status > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-foot-status strong { color: var(--text); font-weight: 600; }
 .upp-foot-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .upp-foot-actions .upp-btn { height: 32px; padding: 0 12px; }
@@ -1769,21 +1772,31 @@ const STYLE_CSS = `
 .upp-pill {
   height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer;
-  white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap; flex-shrink: 0; display: inline-block; line-height: 26px; vertical-align: middle;
+  max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+.upp-pill.is-closable {
+  display: inline-flex; align-items: center; gap: 4px; line-height: normal;
+}
+.upp-pill-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upp-pill-x { flex-shrink: 0; }
 .upp-pill:hover { color: var(--text); border-color: var(--border-strong); }
 .upp-pill.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border-strong); font-weight: 550; }
 
 .upp-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
   padding: 11px 13px; display: flex; flex-direction: column; gap: 8px;
+  min-width: 0; overflow: hidden;
 }
 .upp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.upp-card-head > .upp-row-nowrap { flex: 1; min-width: 0; }
+.upp-card-head > .upp-row-nowrap:first-child { flex: 1; min-width: 0; }
+.upp-card-head > .upp-row-nowrap:last-child:not(:first-child) { flex-shrink: 0; }
 .upp-card-head > .upp-card-meta { flex-shrink: 0; }
 .upp-card-head .upp-badge { max-width: 150px; }
 .upp-card-title { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upp-card-meta { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.upp-card-meta { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 
 .upp-badge {
   display: inline-block; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -1949,6 +1962,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 11px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
 }
+.upp-drawer-head > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-drawer-head > .upp-row-nowrap:first-child { flex: 1; min-width: 0; }
 .upp-drawer-head > .upp-row-nowrap:last-child:not(:first-child) { flex-shrink: 0; }
 .upp-drawer-toolbar {
@@ -1965,7 +1979,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 #upp-snap-inspect-meta .upp-badge { flex: 0 1 auto; min-width: 48px; }
 #upp-snap-inspect-meta .upp-badge.upp-keep { flex-shrink: 0; min-width: 0; }
 .upp-drawer-body {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 8px;
 }
 .upp-drawer-body > * { flex-shrink: 0; }
@@ -1974,7 +1988,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface);
 }
 
-.upp-field { display: flex; flex-direction: column; gap: 4px; }
+.upp-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .upp-field label { font-size: 12px; color: var(--muted); font-weight: 550; }
 .upp-text-input, .upp-textarea {
   width: 100%; border-radius: 9px; border: 1px solid var(--border-strong);
@@ -1988,11 +2002,12 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 
 .upp-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .upp-check-item {
-  display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 9px;
+  display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 9px; min-width: 0;
   border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 12px; user-select: none;
 }
-.upp-check-item input { accent-color: var(--accent); margin: 0; }
-.upp-check-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-check-item input { accent-color: var(--accent); margin: 0; flex-shrink: 0; }
+.upp-check-item > span:not(.upp-badge) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-check-item > .upp-badge { flex-shrink: 0; max-width: 110px; }
 
 .upp-pop-list {
   max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
@@ -2003,7 +2018,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   flex: 1; min-height: 0; max-height: none;
 }
 .upp-merge-row {
-  display: flex; flex-direction: column; gap: 5px; padding: 7px 9px;
+  display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; min-width: 0; overflow: hidden;
   border-radius: 9px; border: 1px solid var(--border); background: var(--surface-strong);
 }
 .upp-merge-row.is-checked { border-color: var(--accent); }
@@ -2013,8 +2028,9 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-merge-top label {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
 }
+.upp-merge-top > .upp-btn { flex-shrink: 0; }
 .upp-merge-name {
-  font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 600; color: var(--text); min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upp-merge-snippet {
   font-size: 11.5px; color: var(--muted); line-height: 1.45;
@@ -2030,7 +2046,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-diff-box {
   border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
-  max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
 }
 .upp-diff-line { padding: 1px 6px; border-radius: 4px; }
 .upp-diff-line.del { background: var(--danger-soft); color: var(--danger); }
@@ -2044,9 +2060,13 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-detail-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px;
   border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
-  cursor: pointer; font-size: 12px; color: var(--text); text-align: left; width: 100%;
+  cursor: pointer; font-size: 12px; color: var(--text); text-align: left; width: 100%; min-width: 0;
 }
+.upp-detail-item > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-detail-item > *:last-child:not(:first-child) { flex-shrink: 0; }
+.upp-row-nowrap > .upp-detail-item { flex: 1; min-width: 0; width: auto; }
 .upp-detail-item:hover { border-color: var(--accent); background: var(--surface-hover); }
+.upp-ps-inherit-sel { height: 26px; font-size: 11px; max-width: 165px; padding: 0 20px 0 6px; }
 
 @media (max-width: 640px) {
   .upp-backdrop { padding: 0; align-items: flex-end; }
@@ -2075,7 +2095,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-tb-search { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; }
   .upp-tb-row3 { grid-column: 1 / -1; grid-row: 3; width: 100%; }
   .upp-tb-u-primary { grid-column: 1 / -1; grid-row: 1; display: flex; gap: 5px; width: 100%; }
-  .upp-tb-u-primary .upp-select { flex: 1; max-width: none; min-width: 0; }
+  .upp-tb-u-primary .upp-select { flex: 1; max-width: 100%; min-width: 0; }
   .upp-tb-u-secondary { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 5px; width: 100%; }
   .upp-tb-u-secondary .upp-btn { flex: 1; min-width: 0; padding: 0 6px; }
   .upp-tb-u-search-row { grid-column: 1 / -1; grid-row: 3; display: flex; gap: 5px; width: 100%; }
@@ -2087,7 +2107,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-tb-wb-filters .upp-btn { flex: 1; min-width: 0; padding: 0 6px; }
   .upp-tb-wb-search { grid-column: 1 / -1; grid-row: 3; width: 100%; min-width: 0; }
   .upp-tb-pr-p1 { grid-column: 1 / -1; grid-row: 1; display: flex; gap: 5px; width: 100%; }
-  .upp-tb-pr-p1 .upp-select { flex: 1; max-width: none; min-width: 0; }
+  .upp-tb-pr-p1 .upp-select { flex: 1; max-width: 100%; min-width: 0; }
   .upp-tb-pr-onlyon { grid-column: 1; grid-row: 2; justify-self: start; }
   .upp-tb-pr-fold { grid-column: 2; grid-row: 2; justify-self: end; display: flex; gap: 5px; }
   .upp-tb-pr-search { grid-column: 1 / -1; grid-row: 3; width: 100%; min-width: 0; }
@@ -2114,7 +2134,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-bind-strip.is-confirm { flex-wrap: wrap; }
   .upp-bind-strip.is-confirm > span:first-child { flex: 1 1 220px; }
   .upp-bind-strip.is-confirm > .upp-row-nowrap { margin-left: auto; }
-  .upp-check-grid { grid-template-columns: 1fr; }
+  .upp-check-grid { grid-template-columns: minmax(0, 1fr); }
+  .upp-ps-inherit-sel { max-width: 115px; }
 }
 
 /* Floating Quick-Switch Ball & Popover (inherits theme palette from .upp-fab-root) */
@@ -2127,7 +2148,13 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   font-size: 11.5px;
   font-weight: 600;
   color: var(--muted);
+  min-width: 0;
 }
+.upp-wb-sec-head > .upp-row-nowrap { flex: 1; min-width: 0; }
+.upp-wb-sec-head > .upp-row-nowrap > span:not(.upp-wb-dot):not(.upp-badge) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upp-wb-sec-head > .upp-pill { flex-shrink: 0; }
 .upp-wb-dot {
   width: 7px;
   height: 7px;
@@ -2690,7 +2717,7 @@ function initExtension() {
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-user-top">
         <div class="upp-tb-u-primary">
-          <select class="upp-select" id="upp-persona-select" title="切换当前 User" style="max-width:190px;">${personaOptions || '<option value="">无可用 User</option>'}</select>
+          <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
           <button class="upp-btn" id="upp-persona-rename-btn" ${curP ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
           <button class="upp-btn" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
         </div>
@@ -3405,7 +3432,7 @@ function initExtension() {
           ${profiles.length ? `
             <div class="upp-field">
               <label>切换此快照使用的连接配置，点右上角保存修改生效</label>
-              <select class="upp-select" id="upp-sv-api-profile-sel" style="max-width:none;width:100%;">
+              <select class="upp-select" id="upp-sv-api-profile-sel" style="width:100%;">
                 <option value="">不使用连接配置，沿用原始来源与模型</option>
                 ${profiles.map(pr => `<option value="${escapeHtml(pr.id)}" ${s.api.profileId === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` · ${escapeHtml(pr.model)}` : ''}</option>`).join('')}
               </select>
@@ -3902,13 +3929,13 @@ function initExtension() {
             <div class="upp-card-meta">快照本身已完整保留，不会被删除。你可以直接选择替代项修复，或先前往对应模块处理，也可以跳过缺失项继续应用其余正常部分。</div>
             ${health.missingPersona ? `
               <div class="upp-card">
-                <div class="upp-card-head">
+                <div class="upp-card-head" style="flex-wrap:wrap;">
                   <span class="upp-card-title">缺失 User 人设：${escapeHtml(health.missingPersona.name)}</span>
                   <button type="button" class="upp-btn" data-ma-goto="user">前往 User 页</button>
                 </div>
                 <div class="upp-field">
                   <label>替换为现有 User（可选）</label>
-                  <select class="upp-select" id="upp-ma-persona-sel" style="max-width:none;width:100%;">
+                  <select class="upp-select" id="upp-ma-persona-sel" style="width:100%;">
                     <option value="">暂不替换（应用时跳过 User）</option>
                     ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${d.personaRemap === p.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
                   </select>
@@ -3917,7 +3944,7 @@ function initExtension() {
             ` : ''}
             ${health.missingWorldbooks.length ? `
               <div class="upp-card">
-                <div class="upp-card-head">
+                <div class="upp-card-head" style="flex-wrap:wrap;">
                   <span class="upp-card-title">缺失世界书（${health.missingWorldbooks.length} 本）</span>
                   <div class="upp-row-nowrap">
                     ${hasOrg ? `<button type="button" class="upp-btn" id="upp-ma-open-wbo">打开整理面板</button>` : ''}
@@ -3929,7 +3956,7 @@ function initExtension() {
                   return `
                     <div class="upp-field">
                       <label>原世界书：<strong>${escapeHtml(bk)}</strong></label>
-                      <select class="upp-select" data-ma-book-sel="${escapeHtml(bk)}" style="max-width:none;width:100%;">
+                      <select class="upp-select" data-ma-book-sel="${escapeHtml(bk)}" style="width:100%;">
                         <option value="__keep__" ${chosen === '__keep__' ? 'selected' : ''}>暂不处理（应用时跳过此书）</option>
                         <option value="__remove__" ${chosen === '__remove__' ? 'selected' : ''}>从本快照移除此书引用</option>
                         ${state.worldbooks.map(liveBk => {
@@ -3945,7 +3972,7 @@ function initExtension() {
             ` : ''}
             ${health.missingPreset ? `
               <div class="upp-card">
-                <div class="upp-card-head">
+                <div class="upp-card-head" style="flex-wrap:wrap;">
                   <span class="upp-card-title">缺失预设：${escapeHtml(health.missingPreset)}</span>
                   <div class="upp-row-nowrap">
                     <button type="button" class="upp-btn primary" id="upp-ma-migrate-preset">批量迁移旧预设快照</button>
@@ -3954,7 +3981,7 @@ function initExtension() {
                 </div>
                 <div class="upp-field">
                   <label>替换为现有预设（可选）</label>
-                  <select class="upp-select" id="upp-ma-preset-sel" style="max-width:none;width:100%;">
+                  <select class="upp-select" id="upp-ma-preset-sel" style="width:100%;">
                     <option value="">暂不替换（应用时跳过预设）</option>
                     ${state.presets.map(pr => `<option value="${escapeHtml(pr)}" ${d.presetRemap === pr ? 'selected' : ''}>${escapeHtml(pr)}</option>`).join('')}
                   </select>
@@ -3963,12 +3990,12 @@ function initExtension() {
             ` : ''}
             ${health.missingApiProfile ? `
               <div class="upp-card">
-                <div class="upp-card-head">
+                <div class="upp-card-head" style="flex-wrap:wrap;">
                   <span class="upp-card-title">缺失 API 连接配置：${escapeHtml(health.missingApiProfile.profileName)}</span>
                 </div>
                 <div class="upp-field">
                   <label>替换为现有连接配置（可选）</label>
-                  <select class="upp-select" id="upp-ma-api-sel" style="max-width:none;width:100%;">
+                  <select class="upp-select" id="upp-ma-api-sel" style="width:100%;">
                     <option value="">暂不替换（应用时跳过 API）</option>
                     ${(state.apiProfiles || []).map(pr => `<option value="${escapeHtml(pr.id)}" ${d.apiProfileRemap === pr.id ? 'selected' : ''}>${escapeHtml(pr.name)}${pr.model ? ` (${escapeHtml(pr.model)})` : ''}</option>`).join('')}
                   </select>
@@ -4069,7 +4096,7 @@ function initExtension() {
             ${d.showStrategy ? `
               <div class="upp-field">
                 <label>激活方式</label>
-                <select class="upp-select" id="upp-ed-strategy" style="max-width:none;width:100%;">
+                <select class="upp-select" id="upp-ed-strategy" style="width:100%;">
                   <option value="constant" ${d.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
                   <option value="selective" ${d.strategyType === 'selective' ? 'selected' : ''}>绿灯关键字触发</option>
                 </select>
@@ -4244,8 +4271,8 @@ function initExtension() {
               <div class="upp-card" style="padding:8px 10px;gap:6px;">
                 <div class="upp-sec-title" style="margin:0;"><span>此快照已绑定（点 × 快速解绑）</span><span>${boundChars.length + boundChats.length} 项</span></div>
                 <div class="upp-row">
-                  ${boundChars.map(cid => `<button type="button" class="upp-pill active" data-bind-toggle-char="${escapeHtml(cid)}" title="点击解绑该角色">角色: ${escapeHtml(charNameById.get(cid) || cid)} ×</button>`).join('')}
-                  ${boundChats.map(chatId => `<button type="button" class="upp-pill active" data-bind-toggle-chat="${escapeHtml(chatId)}" title="点击解绑该聊天档">聊天: ${escapeHtml(chatId)} ×</button>`).join('')}
+                  ${boundChars.map(cid => `<button type="button" class="upp-pill active is-closable" data-bind-toggle-char="${escapeHtml(cid)}" title="点击解绑该角色"><span class="upp-pill-text">角色: ${escapeHtml(charNameById.get(cid) || cid)}</span><span class="upp-pill-x">×</span></button>`).join('')}
+                  ${boundChats.map(chatId => `<button type="button" class="upp-pill active is-closable" data-bind-toggle-chat="${escapeHtml(chatId)}" title="点击解绑该聊天档"><span class="upp-pill-text">聊天: ${escapeHtml(chatId)}</span><span class="upp-pill-x">×</span></button>`).join('')}
                 </div>
               </div>
             ` : ''}
@@ -4263,7 +4290,7 @@ function initExtension() {
               <div class="upp-pop-list is-fill" id="upp-bind-char-list"></div>
             ` : `
               <div class="upp-row">
-                <select class="upp-select" id="upp-bind-chat-char-sel" style="flex:1;max-width:none;">
+                <select class="upp-select" id="upp-bind-chat-char-sel" style="flex:1;min-width:0;max-width:100%;">
                   <option value="">选择角色扫描其聊天档…</option>
                   ${(d.allChars || []).filter(c => c.avatar).map(c => `<option value="${escapeHtml(c.avatar)}" ${d.scanCharAvatar === c.avatar ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
                 </select>
@@ -4352,10 +4379,10 @@ function initExtension() {
           </div>
           <div class="upp-drawer-body">
             <div class="upp-row">
-              <select class="upp-select" id="upp-diff-left" style="flex:1;max-width:none;">
+              <select class="upp-select" id="upp-diff-left" style="flex:1;min-width:0;max-width:100%;">
                 ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === leftId ? 'selected' : ''}>旧：${escapeHtml(c.name)}</option>`).join('')}
               </select>
-              <select class="upp-select" id="upp-diff-right" style="flex:1;max-width:none;">
+              <select class="upp-select" id="upp-diff-right" style="flex:1;min-width:0;max-width:100%;">
                 ${choices.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === rightId ? 'selected' : ''}>新：${escapeHtml(c.name)}</option>`).join('')}
               </select>
             </div>
@@ -4406,7 +4433,7 @@ function initExtension() {
                 <span>保留的主 User · 勾选项会收进它的内部版本</span>
                 ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-merge-keep-preview-btn">${d.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
               </div>
-              <select class="upp-select" id="upp-merge-keep" style="max-width:none;width:100%;">
+              <select class="upp-select" id="upp-merge-keep" style="width:100%;">
                 ${state.personas.map(p => `<option value="${escapeHtml(p.avatar_id)}" ${p.avatar_id === keepId ? 'selected' : ''}>${escapeHtml(p.name)}（${String(p.description || '').length} 字）</option>`).join('')}
               </select>
               ${keepObj && d.showKeepPreview ? `<pre class="upp-inline-pre" style="max-height:150px;">${escapeHtml(keepObj.description || '（主 User 暂无描述）')}</pre>` : ''}
@@ -4467,13 +4494,13 @@ function initExtension() {
             <div class="upp-check-grid">
               <div class="upp-field">
                 <label>源预设 · 旧快照记录的预设</label>
-                <select class="upp-select" id="upp-ps-source-sel" style="max-width:none;width:100%;">
+                <select class="upp-select" id="upp-ps-source-sel" style="width:100%;">
                   ${snapPresetNames.map(n => `<option value="${escapeHtml(n)}" ${n === d.sourcePreset ? 'selected' : ''}>${escapeHtml(n)}${livePresetSet.has(n) ? '' : '（已不在酒馆中）'}</option>`).join('')}
                 </select>
               </div>
               <div class="upp-field">
                 <label>目标预设 · 同步或升级到的新预设</label>
-                <select class="upp-select" id="upp-ps-target-sel" style="max-width:none;width:100%;">
+                <select class="upp-select" id="upp-ps-target-sel" style="width:100%;">
                   ${state.presets.map(n => `<option value="${escapeHtml(n)}" ${n === d.targetPreset ? 'selected' : ''}>${escapeHtml(n)}${n === state.loadedPresetName ? '（当前激活）' : ''}</option>`).join('')}
                 </select>
               </div>
@@ -4513,7 +4540,7 @@ function initExtension() {
                     const isPh = np.marker;
                     const roleShort = isPh ? '占位' : (np.role === 'user' ? 'USR' : np.role === 'assistant' ? 'AST' : 'SYS');
                     const pairingHtml = ana.unmatchedOldPrompts.length ? `
-                      <select class="upp-select" data-ps-new-inherit="${escapeHtml(np.id)}" style="height:26px;font-size:11px;max-width:165px;padding:0 6px;" title="若新旧条目名称不同，可手动指定沿用哪个旧条目的开关">
+                      <select class="upp-select upp-ps-inherit-sel" data-ps-new-inherit="${escapeHtml(np.id)}" title="若新旧条目名称不同，可手动指定沿用哪个旧条目的开关">
                         <option value="">按右侧开关写入</option>
                         ${ana.unmatchedOldPrompts.map(op => `<option value="${escapeHtml(op.id)}" ${dec.inheritFromOldId === op.id ? 'selected' : ''}>继承：${escapeHtml(op.name)}</option>`).join('')}
                       </select>
