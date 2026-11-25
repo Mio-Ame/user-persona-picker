@@ -1718,7 +1718,7 @@ const STYLE_CSS = `
 
 .upp-toolbar {
   flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  padding: 9px 16px; border-bottom: 1px solid var(--border);
   height: 88px; justify-content: center; overflow: hidden;
 }
 .upp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1769,7 +1769,7 @@ const STYLE_CSS = `
 }
 .upp-input-wrap svg { color: var(--muted); flex-shrink: 0; }
 .upp-input-wrap input {
-  width: 100%; border: none; background: transparent; color: var(--text); font-size: 12px; font-family: inherit; outline: none;
+  width: 100%; height: 100%; min-height: 0; border: none; background: transparent; color: var(--text); font-size: 12px; font-family: inherit; outline: none;
 }
 .upp-input-wrap input::placeholder { color: var(--muted); }
 
@@ -2145,13 +2145,38 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-detail-item:hover { border-color: var(--accent); background: var(--surface-hover); }
 .upp-ps-inherit-sel { height: 26px; font-size: 11px; max-width: 165px; padding: 0 20px 0 6px; }
 
+.upp-modal.is-compact-h .upp-header { padding: 5px 10px; }
+.upp-modal.is-compact-h .upp-tabs { padding: 4px 10px; }
+.upp-modal.is-compact-h .upp-tab { height: 26px; min-height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar { padding: 4px 10px; gap: 4px; height: 70px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-row,
+.upp-modal.is-compact-h .upp-toolbar .upp-tb-row3,
+.upp-modal.is-compact-h .upp-tb-split,
+.upp-modal.is-compact-h .upp-tb-user-top,
+.upp-modal.is-compact-h .upp-tb-wb-row1,
+.upp-modal.is-compact-h .upp-tb-wb-row2,
+.upp-modal.is-compact-h .upp-tb-pr-row1,
+.upp-modal.is-compact-h .upp-tb-pr-row2,
+.upp-modal.is-compact-h .upp-tb-rg-row1,
+.upp-modal.is-compact-h .upp-tb-rg-row2 { min-height: 26px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-pill-strip { padding-bottom: 0; }
+.upp-modal.is-compact-h .upp-toolbar .upp-pill { height: 26px; line-height: 24px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-btn,
+.upp-modal.is-compact-h .upp-toolbar .upp-select,
+.upp-modal.is-compact-h .upp-toolbar .upp-input-wrap,
+.upp-modal.is-compact-h .upp-toolbar .upp-switch-label { height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-btn.icon-only { width: 26px; }
+.upp-modal.is-compact-h .upp-footer { flex-direction: row; align-items: center; padding: 5px 10px; gap: 6px; }
+.upp-modal.is-compact-h.is-resizable .upp-footer { padding-right: 30px; }
+.upp-modal.is-compact-h .upp-foot-actions .upp-btn { height: 28px; font-size: 11.5px; }
+
 @container plugin-win (max-width: 560px) {
   .upp-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: 30px 30px 30px;
     gap: 6px;
-    padding: 8px 12px;
+    padding: 7px 12px;
     height: 118px;
     align-items: center;
   }
@@ -2209,7 +2234,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-modal.is-compact-h .upp-toolbar {
     grid-template-rows: 26px 26px 26px;
     gap: 4px;
-    padding: 4px 10px;
+    padding: 3px 10px;
     height: 94px;
   }
   .upp-modal.is-compact-h .upp-foot-status {
@@ -2236,18 +2261,6 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   #upp-fab-vis-btn { padding: 0 5px; font-size: 10.5px; }
   .upp-header .upp-btn.icon-only { width: 24px; height: 24px; }
 }
-
-.upp-modal.is-compact-h .upp-header { padding: 5px 10px; }
-.upp-modal.is-compact-h .upp-tabs { padding: 4px 10px; }
-.upp-modal.is-compact-h .upp-tab { height: 26px; min-height: 26px; font-size: 11.5px; }
-.upp-modal.is-compact-h .upp-toolbar { padding: 4px 10px; gap: 4px; height: 70px; }
-.upp-modal.is-compact-h .upp-toolbar .upp-btn,
-.upp-modal.is-compact-h .upp-toolbar .upp-select,
-.upp-modal.is-compact-h .upp-toolbar .upp-input-wrap,
-.upp-modal.is-compact-h .upp-toolbar .upp-switch-label { height: 26px; font-size: 11.5px; }
-.upp-modal.is-compact-h .upp-footer { flex-direction: row; align-items: center; padding: 5px 10px; gap: 6px; }
-.upp-modal.is-compact-h.is-resizable .upp-footer { padding-right: 30px; }
-.upp-modal.is-compact-h .upp-foot-actions .upp-btn { height: 28px; font-size: 11.5px; }
 
 @media (max-width: 640px) {
   .upp-backdrop { padding: 0; align-items: flex-end; }
