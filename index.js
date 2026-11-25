@@ -182,7 +182,7 @@ function applyThemeToElement(el, mode) {
   [
     '--bg', '--surface', '--surface-strong', '--border', '--border-strong',
     '--text', '--accent', '--accent-soft', '--accent-border', '--accent-border-strong',
-    '--accent-text', '--modal-blur',
+    '--accent-text',
   ].forEach(k => {
     el.style.removeProperty(k);
   });
@@ -191,7 +191,6 @@ function applyThemeToElement(el, mode) {
     el.dataset.theme = hv.isLight ? 'paper' : 'glass-dark';
     const solidBg = hv.blurBg ? toOpaqueColor(hv.blurBg, hv.isLight ? '#f6f6f3' : '#191a1d') : '';
     if (solidBg) el.style.setProperty('--bg', solidBg);
-    el.style.setProperty('--modal-blur', '0px');
     if (hv.bodyColor) el.style.setProperty('--text', hv.bodyColor);
     if (hv.borderCol) {
       el.style.setProperty('--border', hv.borderCol);
@@ -1526,7 +1525,6 @@ const STYLE_CSS = `
   --danger-soft: rgba(165, 60, 60, 0.11);
   --switch-off: #d2d2cc;
   --shadow: 0 18px 46px rgba(24, 24, 24, 0.14);
-  --modal-blur: 0px;
 }
 
 .upp-backdrop[data-theme="ink"],
@@ -1608,7 +1606,6 @@ const STYLE_CSS = `
   --danger-soft: rgba(224, 108, 108, 0.16);
   --switch-off: rgba(255, 255, 255, 0.2);
   --shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  --modal-blur: 0px;
 }
 
 .upp-backdrop {
@@ -1642,8 +1639,6 @@ const STYLE_CSS = `
   width: min(780px, calc(100vw - 24px));
   height: min(690px, 88dvh);
   background: var(--bg);
-  backdrop-filter: blur(var(--modal-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--modal-blur)) saturate(140%);
   border: 1px solid var(--border-strong);
   border-radius: 16px;
   box-shadow: var(--shadow);
@@ -2312,11 +2307,9 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--accent);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
   box-shadow: var(--shadow);
   display: flex;
   align-items: center;
@@ -2344,9 +2337,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   width: min(296px, calc(100vw - 24px));
   max-height: min(410px, 72dvh, calc(100dvh - 24px));
   background: var(--bg);
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 15px;
   box-shadow: var(--shadow);
   display: flex;
@@ -2745,7 +2736,7 @@ function initExtension() {
       <div class="upp-row upp-tb-split">
         <div class="upp-input-wrap upp-tb-search">
           ${ICONS.search}
-          <input type="text" id="upp-snap-search" placeholder="搜索快照名称或分组…" value="${escapeHtml(state.snapSearch)}" />
+          <input type="text" id="upp-snap-search" spellcheck="false" placeholder="搜索快照名称或分组…" value="${escapeHtml(state.snapSearch)}" />
         </div>
         <div class="upp-tb-actions">
           <label class="upp-switch-label" title="切换聊天或角色时自动切回绑定快照">
@@ -2914,7 +2905,7 @@ function initExtension() {
       <div class="upp-row upp-tb-u-search-row">
         <div class="upp-input-wrap">
           ${ICONS.search}
-          <input type="text" id="upp-user-search" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" />
+          <input type="text" id="upp-user-search" spellcheck="false" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" />
         </div>
         <button class="upp-btn" id="upp-user-search-clear-btn" ${state.userSearch ? '' : 'hidden'}>清空</button>
       </div>
@@ -3101,7 +3092,7 @@ function initExtension() {
       <div class="upp-row upp-tb-wb-row2">
         <div class="upp-input-wrap upp-tb-wb-search">
           ${ICONS.search}
-          <input type="text" id="upp-wb-search" placeholder="搜索条目标题或正文…" value="${escapeHtml(state.wbEntrySearch)}" />
+          <input type="text" id="upp-wb-search" spellcheck="false" placeholder="搜索条目标题或正文…" value="${escapeHtml(state.wbEntrySearch)}" />
         </div>
         <div class="upp-tb-wb-filters">
           <button class="upp-btn ${state.wbOnlyOn ? 'active' : ''}" id="upp-wb-only-on-btn">只看已开</button>
@@ -3191,13 +3182,13 @@ function initExtension() {
                 ${warnList.length ? `<span class="upp-badge warn">${ICONS.warn} ${escapeHtml(warnList.join('；'))}</span>` : ''}
               </div>
               <div class="upp-row">
-                <input type="text" class="upp-text-input" style="flex:1;min-width:140px;" data-wb-inline-name="${escapeHtml(uidKey)}" value="${escapeHtml(e.name || '')}" placeholder="条目名称" />
+                <input type="text" class="upp-text-input" spellcheck="false" style="flex:1;min-width:140px;" data-wb-inline-name="${escapeHtml(uidKey)}" value="${escapeHtml(e.name || '')}" placeholder="条目名称" />
                 <select class="upp-select" data-wb-inline-strategy="${escapeHtml(uidKey)}" style="max-width:140px;">
                   <option value="constant" ${e.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
                   <option value="selective" ${e.strategyType === 'selective' ? 'selected' : ''}>绿灯触发</option>
                 </select>
               </div>
-              <textarea class="upp-inline-textarea" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
+              <textarea class="upp-inline-textarea" spellcheck="false" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
               <div class="upp-inline-foot">
                 <button type="button" class="upp-btn" data-wb-inline-copy="${escapeHtml(uidKey)}">${ICONS.copy}<span>复制</span></button>
                 <button type="button" class="upp-btn" data-wb-inline-close="${escapeHtml(uidKey)}">收起</button>
@@ -3250,7 +3241,7 @@ function initExtension() {
       <div class="upp-row upp-tb-pr-row2">
         <div class="upp-input-wrap upp-tb-pr-search">
           ${ICONS.search}
-          <input type="text" id="upp-preset-search" placeholder="搜索分组、提示词或正文…" value="${escapeHtml(state.presetSearch)}" />
+          <input type="text" id="upp-preset-search" spellcheck="false" placeholder="搜索分组、提示词或正文…" value="${escapeHtml(state.presetSearch)}" />
         </div>
         <div class="upp-tb-pr-onlyon">
           <button class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
@@ -3285,8 +3276,8 @@ function initExtension() {
               <span>角色：${roleLabel}</span>
               <span>${String(p.content || '').length} 字</span>
             </div>
-            <input type="text" class="upp-text-input" data-pr-inline-name="${pid}" value="${escapeHtml(p.name || '')}" placeholder="条目名称" />
-            <textarea class="upp-inline-textarea" data-pr-inline-content="${pid}">${escapeHtml(p.content || '')}</textarea>
+            <input type="text" class="upp-text-input" spellcheck="false" data-pr-inline-name="${pid}" value="${escapeHtml(p.name || '')}" placeholder="条目名称" />
+            <textarea class="upp-inline-textarea" spellcheck="false" data-pr-inline-content="${pid}">${escapeHtml(p.content || '')}</textarea>
             <div class="upp-inline-foot">
               <button type="button" class="upp-btn" data-pr-inline-copy="${pid}">${ICONS.copy}<span>复制</span></button>
               <button type="button" class="upp-btn" data-pr-inline-close="${pid}">收起</button>
@@ -3347,7 +3338,7 @@ function initExtension() {
       <div class="upp-row upp-tb-rg-row2">
         <div class="upp-input-wrap upp-tb-rg-search">
           ${ICONS.search}
-          <input type="text" id="upp-rg-search" placeholder="搜索正则名称或规则…" value="${escapeHtml(state.regexSearch)}" />
+          <input type="text" id="upp-rg-search" spellcheck="false" placeholder="搜索正则名称或规则…" value="${escapeHtml(state.regexSearch)}" />
         </div>
         <div class="upp-tb-rg-onlyon">
           <button class="upp-btn ${state.regexOnlyOn ? 'active' : ''}" id="upp-rg-only-on-btn">只看已开</button>
@@ -4028,7 +4019,7 @@ function initExtension() {
               <div class="upp-row">
                 <div class="upp-input-wrap">
                   ${ICONS.search}
-                  <input type="text" id="upp-sv-search" placeholder="搜索分组、名称或正文…" value="${escapeHtml(d.search || '')}" />
+                  <input type="text" id="upp-sv-search" spellcheck="false" placeholder="搜索分组、名称或正文…" value="${escapeHtml(d.search || '')}" />
                 </div>
                 <button class="upp-btn ${d.onlyOn ? 'active' : ''}" id="upp-sv-only-on">只看已开</button>
                 ${showFoldAll ? `<button class="upp-btn" id="upp-sv-fold-all">${d.allExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
@@ -4056,18 +4047,18 @@ function initExtension() {
             <div class="upp-field">
               <label>快照名称</label>
               <div class="upp-row-nowrap">
-                <input class="upp-text-input" id="upp-em-name" value="${escapeHtml(d.name || '')}" placeholder="输入快照名称" />
+                <input type="text" class="upp-text-input" id="upp-em-name" spellcheck="false" value="${escapeHtml(d.name || '')}" placeholder="输入快照名称" />
                 <button type="button" class="upp-btn" id="upp-em-name-clear">清空</button>
               </div>
             </div>
             <div class="upp-field">
               <label>分组</label>
-              <input class="upp-text-input" id="upp-em-group" value="${escapeHtml(d.group || '')}" placeholder="可选，例如：日常 / 现代 / 角色名" />
+              <input type="text" class="upp-text-input" id="upp-em-group" spellcheck="false" value="${escapeHtml(d.group || '')}" placeholder="可选，例如：日常 / 现代 / 角色名" />
               ${existingGroups.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${existingGroups.map(g => `<button type="button" class="upp-pill" data-em-fill-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}</div>` : ''}
             </div>
             <div class="upp-field">
               <label>说明备注</label>
-              <textarea class="upp-inline-textarea" id="upp-em-note" style="min-height:80px;" placeholder="可选简短说明，最多 120 字">${escapeHtml(d.note || '')}</textarea>
+              <textarea class="upp-inline-textarea" id="upp-em-note" spellcheck="false" style="min-height:80px;" placeholder="可选简短说明，最多 120 字">${escapeHtml(d.note || '')}</textarea>
             </div>
             <div class="upp-field">
               <label>包含模块 · 新勾上的模块会自动采录当前状态</label>
@@ -4211,7 +4202,7 @@ function initExtension() {
           <div class="upp-drawer-body">
             <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
               ${ICONS.search}
-              <input type="text" id="upp-book-search-input" placeholder="输入世界书名称、角色名、别名或分组名筛选…" value="${escapeHtml(d.query || '')}" />
+              <input type="text" id="upp-book-search-input" spellcheck="false" placeholder="输入世界书名称、角色名、别名或分组名筛选…" value="${escapeHtml(d.query || '')}" />
             </div>
             <div class="upp-pop-list is-fill" id="upp-book-picker-list"></div>
           </div>
@@ -4233,7 +4224,7 @@ function initExtension() {
             <div class="upp-field">
               <label>新名字</label>
               <div class="upp-row-nowrap">
-                <input class="upp-text-input" id="upp-rename-input" value="${escapeHtml(d.name || '')}" placeholder="输入新的 User 名字" />
+                <input type="text" class="upp-text-input" id="upp-rename-input" spellcheck="false" value="${escapeHtml(d.name || '')}" placeholder="输入新的 User 名字" />
                 <button type="button" class="upp-btn" id="upp-rename-clear-btn">清空</button>
               </div>
             </div>
@@ -4265,14 +4256,14 @@ function initExtension() {
             ${d.allowNameEdit ? `
               <div class="upp-field">
                 <label>标题</label>
-                <input class="upp-text-input" id="upp-ed-name" value="${escapeHtml(d.name || '')}" ${readOnly ? 'readonly' : ''} />
+                <input type="text" class="upp-text-input" id="upp-ed-name" spellcheck="false" value="${escapeHtml(d.name || '')}" ${readOnly ? 'readonly' : ''} />
               </div>
             ` : ''}
             ${d.allowDisplayName ? `
               <div class="upp-field">
                 <label>切换时使用的 User 名字 · 留空沿用当前名字</label>
                 <div class="upp-row-nowrap">
-                  <input class="upp-text-input" id="upp-ed-display-name" value="${escapeHtml(d.displayName || '')}" placeholder="例如按剧情换姓后的全名" />
+                  <input type="text" class="upp-text-input" id="upp-ed-display-name" spellcheck="false" value="${escapeHtml(d.displayName || '')}" placeholder="例如按剧情换姓后的全名" />
                   <button type="button" class="upp-btn" id="upp-ed-dn-clear-btn">清空</button>
                 </div>
               </div>
@@ -4288,7 +4279,7 @@ function initExtension() {
             ` : ''}
             <div class="upp-field" style="flex:1;display:flex;flex-direction:column;">
               <label>正文</label>
-              <textarea class="upp-textarea" id="upp-ed-content" style="flex:1;min-height:120px;" ${readOnly ? 'readonly' : ''}>${escapeHtml(d.content || '')}</textarea>
+              <textarea class="upp-textarea" id="upp-ed-content" spellcheck="false" style="flex:1;min-height:120px;" ${readOnly ? 'readonly' : ''}>${escapeHtml(d.content || '')}</textarea>
             </div>
           </div>
           <div class="upp-drawer-foot">
@@ -4316,14 +4307,14 @@ function initExtension() {
             <div class="upp-field">
               <label>快照名称</label>
               <div class="upp-row-nowrap">
-                <input class="upp-text-input" id="upp-ss-name" placeholder="例如：角色名 · 日常线" value="${escapeHtml(d.name || '')}" />
+                <input type="text" class="upp-text-input" id="upp-ss-name" spellcheck="false" placeholder="例如：角色名 · 日常线" value="${escapeHtml(d.name || '')}" />
                 <button type="button" class="upp-btn" id="upp-ss-name-clear">清空</button>
               </div>
               ${nameSuggestions.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${nameSuggestions.map(nm => `<button type="button" class="upp-pill" data-ss-fill-name="${escapeHtml(nm)}">${escapeHtml(nm)}</button>`).join('')}</div>` : ''}
             </div>
             <div class="upp-field">
               <label>分组</label>
-              <input class="upp-text-input" id="upp-ss-group" placeholder="可选，例如：日常 / 现代 / 角色名" value="${escapeHtml(d.group || '')}" />
+              <input type="text" class="upp-text-input" id="upp-ss-group" spellcheck="false" placeholder="可选，例如：日常 / 现代 / 角色名" value="${escapeHtml(d.group || '')}" />
               ${(existingGroups.length || state.charInfo.name) ? `
                 <div class="upp-pill-strip" style="margin-top:4px;">
                   ${state.charInfo.name && !existingGroups.includes(state.charInfo.name) ? `<button type="button" class="upp-pill" data-ss-fill-group="${escapeHtml(state.charInfo.name)}">角色：${escapeHtml(state.charInfo.name)}</button>` : ''}
@@ -4333,7 +4324,7 @@ function initExtension() {
             </div>
             <div class="upp-field">
               <label>备注</label>
-              <input class="upp-text-input" id="upp-ss-note" placeholder="可选简短说明，悬浮球中会直接展示" value="${escapeHtml(d.note || '')}" />
+              <input type="text" class="upp-text-input" id="upp-ss-note" spellcheck="false" placeholder="可选简短说明，悬浮球中会直接展示" value="${escapeHtml(d.note || '')}" />
             </div>
             <div class="upp-field">
               <label>包含内容 · 勾选习惯会自动记住</label>
@@ -4469,7 +4460,7 @@ function initExtension() {
             ${tab === 'char' ? `
               <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
                 ${ICONS.search}
-                <input type="text" id="upp-bind-char-search" placeholder="搜索角色名称，可绑定角色默认或点击扫聊天档…" value="${escapeHtml(d.charQuery || '')}" />
+                <input type="text" id="upp-bind-char-search" spellcheck="false" placeholder="搜索角色名称，可绑定角色默认或点击扫聊天档…" value="${escapeHtml(d.charQuery || '')}" />
               </div>
               <div class="upp-pop-list is-fill" id="upp-bind-char-list"></div>
             ` : `
@@ -4482,7 +4473,7 @@ function initExtension() {
               </div>
               <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
                 ${ICONS.search}
-                <input type="text" id="upp-bind-chat-search" placeholder="筛选聊天档名称或消息片段…" value="${escapeHtml(d.chatQuery || '')}" />
+                <input type="text" id="upp-bind-chat-search" spellcheck="false" placeholder="筛选聊天档名称或消息片段…" value="${escapeHtml(d.chatQuery || '')}" />
               </div>
               <div class="upp-pop-list is-fill" id="upp-bind-chat-list"></div>
             `}
@@ -4509,12 +4500,12 @@ function initExtension() {
           <div class="upp-drawer-body">
             <div class="upp-field">
               <label>版本名称</label>
-              <input class="upp-text-input" id="upp-pv-name" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
+              <input type="text" class="upp-text-input" id="upp-pv-name" spellcheck="false" placeholder="例如：默认 / 现代日常 / 古风线" value="${escapeHtml(d.name || '')}" />
             </div>
             <div class="upp-field">
               <label>切换时使用的 User 名字 · 剧情换姓直接填全名</label>
               <div class="upp-row-nowrap">
-                <input class="upp-text-input" id="upp-pv-display-name" placeholder="留空则切换时不改当前名字" value="${escapeHtml(d.displayName !== undefined ? d.displayName : (p?.name || ''))}" />
+                <input type="text" class="upp-text-input" id="upp-pv-display-name" spellcheck="false" placeholder="留空则切换时不改当前名字" value="${escapeHtml(d.displayName !== undefined ? d.displayName : (p?.name || ''))}" />
                 <button type="button" class="upp-btn" id="upp-pv-dn-clear-btn">清空</button>
               </div>
             </div>
@@ -4624,7 +4615,7 @@ function initExtension() {
             </div>
             <div class="upp-input-wrap" style="width:100%;flex:0 0 auto;">
               ${ICONS.search}
-              <input type="text" id="upp-merge-search" placeholder="筛选分身名称或正文关键词…" value="${escapeHtml(d.query || '')}" />
+              <input type="text" id="upp-merge-search" spellcheck="false" placeholder="筛选分身名称或正文关键词…" value="${escapeHtml(d.query || '')}" />
             </div>
             <div class="upp-pop-list is-fill" id="upp-merge-candidate-list" style="min-height:140px;"></div>
             <label class="upp-check-item">
@@ -4759,7 +4750,7 @@ function initExtension() {
               <div class="upp-group-items">
                 <div class="upp-input-wrap" style="width:100%;">
                   ${ICONS.search}
-                  <input type="text" id="upp-ps-ov-search" placeholder="筛选要批量覆盖的已有分组或条目…" value="${escapeHtml(d.overrideSearch || '')}" />
+                  <input type="text" id="upp-ps-ov-search" spellcheck="false" placeholder="筛选要批量覆盖的已有分组或条目…" value="${escapeHtml(d.overrideSearch || '')}" />
                 </div>
                 <div id="upp-ps-ov-list"></div>
               </div>
