@@ -250,7 +250,7 @@ export function parseImportJson(rawText) {
 }
 
 // =========================
-// Native SillyTavern Preset & BaiBai Group Normalization
+// Native SillyTavern Preset & Prompt Group Normalization
 // =========================
 
 export function pickActivePromptOrder(promptOrderArr) {
@@ -261,11 +261,28 @@ export function pickActivePromptOrder(promptOrderArr) {
   return block ? block.order : [];
 }
 
-export function extractBaiBaiGroups(rawPreset, runtimeState, fallbackPreset) {
+function findPresetPromptGroups(presetObj) {
+  const exts = presetObj && typeof presetObj === 'object' ? presetObj.extensions : null;
+  if (!exts || typeof exts !== 'object') return null;
+  if (exts.presetPromptGroups && typeof exts.presetPromptGroups === 'object' && Array.isArray(exts.presetPromptGroups.groups)) {
+    return exts.presetPromptGroups;
+  }
+  const vals = Object.values(exts);
+  for (let i = 0; i < vals.length; i++) {
+    const v = vals[i];
+    const pg = v && typeof v === 'object' ? v.presetPromptGroups : null;
+    if (pg && typeof pg === 'object' && Array.isArray(pg.groups)) {
+      return pg;
+    }
+  }
+  return null;
+}
+
+export function extractPresetGroups(rawPreset, runtimeState, fallbackPreset) {
   const candidates = [
     runtimeState,
-    rawPreset?.extensions?.baibaiToolkit?.presetPromptGroups,
-    fallbackPreset?.extensions?.baibaiToolkit?.presetPromptGroups,
+    findPresetPromptGroups(rawPreset),
+    findPresetPromptGroups(fallbackPreset),
   ];
   const src = candidates.find(c => c && typeof c === 'object' && Array.isArray(c.groups) && c.groups.length) || null;
 
@@ -301,7 +318,7 @@ export function extractBaiBaiGroups(rawPreset, runtimeState, fallbackPreset) {
 }
 
 // Convert native SillyTavern oai_settings / completion preset JSON into unified model
-export function normalizeNativePreset(rawPreset, runtimeBaiBaiState, fallbackDiskPreset) {
+export function normalizeNativePreset(rawPreset, runtimeGroupState, fallbackDiskPreset) {
   if (!rawPreset || typeof rawPreset !== 'object') {
     return { prompts: [], groups: [], groupsById: {}, promptGroupMap: {} };
   }
@@ -351,11 +368,11 @@ export function normalizeNativePreset(rawPreset, runtimeBaiBaiState, fallbackDis
     });
   }
 
-  const { groups, groupsById, promptGroupMap } = extractBaiBaiGroups(rawPreset, runtimeBaiBaiState, fallbackDiskPreset);
+  const { groups, groupsById, promptGroupMap } = extractPresetGroups(rawPreset, runtimeGroupState, fallbackDiskPreset);
   return { prompts, groups, groupsById, promptGroupMap };
 }
 
-// Render each BaiBai group once at its first member's real order; ungrouped prompts stay inline
+// Render each preset group once at its first member's real order; ungrouped prompts stay inline
 export function buildPresetRenderNodes(normalizedPreset, opts) {
   const prompts = normalizedPreset && Array.isArray(normalizedPreset.prompts) ? normalizedPreset.prompts : [];
   const groups = normalizedPreset && Array.isArray(normalizedPreset.groups) ? normalizedPreset.groups : [];
@@ -738,12 +755,66 @@ export function formatTimeShort(ts) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function inferThemeFromTextColor(colorStr, hasIgLight) {
-  if (hasIgLight) return 'light';
-  const m = String(colorStr || '').match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (!m) return 'light';
-  const r = Number(m[1]), g = Number(m[2]), b = Number(m[3]);
-  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+function parseColorRgb(colorStr) {
+  const s = String(colorStr || '').trim();
+  if (!s || /^transparent$/i.test(s)) return null;
+  const rgbMatch = s.match(/^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
+  if (rgbMatch) {
+    const r = Math.min(255, Math.max(0, Number(rgbMatch[1])));
+    const g = Math.min(255, Math.max(0, Number(rgbMatch[2])));
+    const b = Math.min(255, Math.max(0, Number(rgbMatch[3])));
+    let a = 1;
+    if (rgbMatch[4] !== undefined) {
+      const rawA = rgbMatch[4];
+      a = rawA.endsWith('%') ? Number(rawA.slice(0, -1)) / 100 : Number(rawA);
+      if (!Number.isFinite(a)) a = 1;
+      a = Math.min(1, Math.max(0, a));
+    }
+    return { r, g, b, a };
+  }
+  const hexMatch = s.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hexMatch) {
+    let h = hexMatch[1];
+    if (h.length === 3 || h.length === 4) {
+      h = h.split('').map(c => c + c).join('');
+    }
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+    return { r, g, b, a };
+  }
+  return null;
+}
+
+export function toOpaqueColor(colorStr, fallbackHex = '#191a1d') {
+  const base = parseColorRgb(fallbackHex) || { r: 25, g: 26, b: 29, a: 1 };
+  const parsed = parseColorRgb(colorStr);
+  if (!parsed || parsed.a <= 0) {
+    return `rgb(${Math.round(base.r)}, ${Math.round(base.g)}, ${Math.round(base.b)})`;
+  }
+  if (parsed.a >= 0.999) {
+    return `rgb(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)})`;
+  }
+  const a = parsed.a;
+  const r = Math.round(parsed.r * a + base.r * (1 - a));
+  const g = Math.round(parsed.g * a + base.g * (1 - a));
+  const b = Math.round(parsed.b * a + base.b * (1 - a));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+export function inferThemeFromTextColor(colorStr, bgColorOrLightHint) {
+  if (bgColorOrLightHint === true) return 'light';
+  if (typeof bgColorOrLightHint === 'string' && bgColorOrLightHint.trim()) {
+    const bg = parseColorRgb(bgColorOrLightHint);
+    if (bg && bg.a >= 0.35) {
+      const bgLum = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+      return bgLum >= 150 ? 'light' : 'dark';
+    }
+  }
+  const fg = parseColorRgb(colorStr);
+  if (!fg) return 'light';
+  const lum = 0.299 * fg.r + 0.587 * fg.g + 0.114 * fg.b;
   return lum < 140 ? 'light' : 'dark';
 }
 
@@ -1057,6 +1128,17 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
         if (bk && !liveBooks.has(bk)) missingSet.add(bk);
       });
     }
+    if (snap.worldbooks.char?.primary && !liveBooks.has(snap.worldbooks.char.primary)) {
+      missingSet.add(snap.worldbooks.char.primary);
+    }
+    if (Array.isArray(snap.worldbooks.char?.additional)) {
+      snap.worldbooks.char.additional.forEach(bk => {
+        if (bk && !liveBooks.has(bk)) missingSet.add(bk);
+      });
+    }
+    if (snap.worldbooks.chat && !liveBooks.has(snap.worldbooks.chat)) {
+      missingSet.add(snap.worldbooks.chat);
+    }
     const entriesMap = snap.worldbooks.entries && typeof snap.worldbooks.entries === 'object'
       ? snap.worldbooks.entries
       : {};
@@ -1142,7 +1224,7 @@ export function normalizePresetLabel(label) {
     .trim();
 }
 
-// Analyze how a set of snapshots maps onto a target normalized preset (supports same-preset sync AND 0.17 -> 0.18 upgrades, even if old preset was deleted!)
+// Analyze how a set of snapshots maps onto a target normalized preset (supports same-preset sync and cross-version preset upgrades, even if old preset was deleted)
 export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPresetNorm) {
   const snaps = (Array.isArray(snapshots) ? snapshots : []).filter(s => s && s.scope?.preset && s.preset);
   const targetPrompts = Array.isArray(targetPresetNorm?.prompts) ? targetPresetNorm.prompts : [];
@@ -1235,7 +1317,7 @@ export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPreset
 
   const unmatchedOldPrompts = Array.from(allOldPromptIds)
     .filter(id => !usedOldPromptIds.has(id))
-    .map(id => ({ id, name: oldPromptNameById.get(id) || `未知名条目 (${id.slice(0, 8)})` }));
+    .map(id => ({ id, name: oldPromptNameById.get(id) || '未命名旧条目' }));
 
   const matchedGroups = [];
   const newGroups = [];
@@ -1260,7 +1342,7 @@ export function analyzePresetMigration(snapshots, sourcePresetNorm, targetPreset
 
   const unmatchedOldGroups = Array.from(allOldGroupIds)
     .filter(id => !usedOldGroupIds.has(id))
-    .map(id => ({ id, name: oldGroupNameById.get(id) || `未知名分组 (${id.slice(0, 8)})` }));
+    .map(id => ({ id, name: oldGroupNameById.get(id) || '未命名旧分组' }));
 
   return {
     matchedById,
