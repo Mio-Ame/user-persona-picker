@@ -104,6 +104,10 @@ export function sanitizeStore(raw) {
   base.settings.fabSide = st.fabSide === 'left' ? 'left' : 'right';
   const yNum = Number(st.fabY);
   base.settings.fabY = Number.isFinite(yNum) ? Math.min(0.92, Math.max(0.08, yNum)) : 0.68;
+  if (Array.isArray(st.fabPosition) && st.fabPosition.length === 2
+    && st.fabPosition.every(n => Number.isFinite(n) && n >= 0 && n <= 1)) {
+    base.settings.fabPosition = st.fabPosition.slice();
+  }
   const mwNum = Math.round(Number(st.modalWidth));
   const mhNum = Math.round(Number(st.modalHeight));
   base.settings.modalWidth = Number.isFinite(mwNum) && mwNum >= 310 && mwNum <= 2400 ? mwNum : 0;
@@ -1283,7 +1287,8 @@ export function inspectSnapshotHealth(snap, liveEnv = {}) {
 
 // Suggest clean, human-readable snapshot names from active character / persona / preset context
 export function suggestSnapshotNames(ctx = {}) {
-  const charName = String(ctx.charName || '').trim();
+  const character = String(ctx.charName || '').trim();
+  const charName = normalizeText(character) === normalizeText(ctx.group) ? '' : character;
   const personaName = String(ctx.personaName || '').trim();
   const presetName = String(ctx.presetName || '').trim();
   const shortPreset = presetName.length > 18 ? presetName.slice(0, 18) : presetName;
@@ -1301,7 +1306,8 @@ export function suggestSnapshotNames(ctx = {}) {
   const dedupName = base => {
     if (!existing.has(base)) return base;
     for (let i = 2; i <= 99; i++) {
-      const next = `${base} #${i}`.slice(0, 60);
+      const suffix = ` #${i}`;
+      const next = base.slice(0, 60 - suffix.length) + suffix;
       if (!existing.has(next)) return next;
     }
     return base;
@@ -1312,6 +1318,25 @@ export function suggestSnapshotNames(ctx = {}) {
     primary,
     suggestions: unique.slice(0, 4).map(dedupName),
   };
+}
+
+export const SNAPSHOT_ROUTES = Object.freeze([
+  '现代版', '古代版', '骨科线', '穿越线', '高中线', 'if线', '结婚线', '分手线', '爱豆线', '网恋线',
+]);
+
+export function splitSnapshotRoute(name) {
+  const title = String(name ?? '').trim();
+  const route = SNAPSHOT_ROUTES.find(item => (
+    title.toLowerCase() === item || title.toLowerCase().endsWith(`·${item}`)
+    || title.toLowerCase().endsWith(`· ${item}`)
+  )) || '';
+  const base = route ? title.slice(0, -route.length).replace(/\s*·\s*$/, '').trimEnd() : title;
+  return { base, route };
+}
+
+export function nameWithSnapshotRoute(base, route) {
+  const separator = base && route ? ' · ' : '';
+  return base.slice(0, 60 - separator.length - route.length) + separator + route;
 }
 
 // =========================

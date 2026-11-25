@@ -292,8 +292,8 @@ function createDefaultPresetData() {
             { id: 'grp_core', name: '核心设定组', enabled: true, collapsed: false },
           ],
           prompts: {
-            p1: 'grp_core',
-            p2: 'grp_core',
+            p1: { groupId: 'grp_core' },
+            p2: { groupId: 'grp_core' },
           },
         },
       },
@@ -322,9 +322,9 @@ function createDefaultPresetData() {
             { id: 'grp_new', name: '新增规则组', enabled: true, collapsed: false },
           ],
           prompts: {
-            p1: 'grp_core',
-            p2: 'grp_core',
-            p4: 'grp_new',
+            p1: { groupId: 'grp_core' },
+            p2: { groupId: 'grp_core' },
+            p4: { groupId: 'grp_new' },
           },
         },
       },
@@ -2864,6 +2864,25 @@ test('Tier 2 [Mobile & Soft-Keyboard]: <=680px breakpoint, pointer:coarse zero a
     cleanup();
   }
 
+  const phone = await mountExtension({
+    domOpts: { innerWidth: 390, innerHeight: 844, pointerCoarse: true,
+      computedVars: { '--SmartThemeBlurTintColor': 'rgba(12, 20, 30, 0.25)' } },
+    hostOverrides: {
+      extension_settings: { user_persona_snapshot: { version: 7, settings: { themeMode: 'host' }, snapshots: [] } },
+    },
+  });
+  try {
+    await phone.openModal();
+    const modal = phone.shadow.querySelector('.upp-modal');
+    assert.match(modal.style.backgroundColor, /^rgb\(\d+, \d+, \d+\)$/, '390px host theme must paint an opaque modal surface');
+    assert.doesNotMatch(phone.shadow.querySelector('.upp-backdrop').style.backgroundColor || '', /^rgb\(/);
+    phone.shadow.getElementById('upp-close-btn').click();
+    triggerFabTap(phone.dom, phone.shadow);
+    assert.equal(phone.shadow.getElementById('upp-fab-pop').style.backgroundColor, modal.style.backgroundColor);
+  } finally {
+    phone.cleanup();
+  }
+
   // Desktop soft-keyboard / visualViewport height shrink must NOT mutate persisted modalHeight
   const desktopMount = await mountExtension({
     domOpts: { innerWidth: 1024, innerHeight: 760, pointerCoarse: false },
@@ -3093,7 +3112,7 @@ test('Tier 2 [Boundary]: Large preset (55 entries across 5 groups) preserves #up
     const pid = `lp_${i}`;
     prompts.push({ identifier: pid, name: `Prompt Item ${i}`, role: 'system', content: `Content ${i}`, marker: false });
     order.push({ identifier: pid, enabled: i % 2 === 0 });
-    if (i <= 50) groupPrompts[pid] = `grp_${((i - 1) % 5) + 1}`;
+    if (i <= 50) groupPrompts[pid] = { groupId: `grp_${((i - 1) % 5) + 1}` };
   }
   const bigPresets = {
     BigPreset: {
@@ -3109,7 +3128,7 @@ test('Tier 2 [Boundary]: Large preset (55 entries across 5 groups) preserves #up
     note: '',
     updatedAt: Date.now(),
     scope: { persona: false, worldbooks: false, preset: true, regex: false, api: false },
-    preset: { name: 'BigPreset', prompts: { lp_1: true }, groups: { grp_1: true } },
+    preset: { name: 'BigPreset', prompts: Object.fromEntries(prompts.map(p => [p.identifier, true])), groups: { grp_1: true } },
   };
   const { dom, shadow, openModal, cleanup } = await mountExtension({
     hostOverrides: {
@@ -3576,6 +3595,82 @@ test('Tier 4 [Real-World Workflow]: Capture snapshot -> switch persona -> edit W
 
     assert.equal(dom.outerScrollCalls.length, 0, 'Entire multi-step workflow must cause 0 outer ST scroll calls');
     assert.equal(dom.scrollIntoViewCalls.length, 0, 'Entire multi-step workflow must cause 0 scrollIntoView calls');
+  } finally {
+    cleanup();
+  }
+});
+
+test('M4b: floating ball keeps its drop point, filters by group, and saves without the main panel', async () => {
+  const snap = (id, group, preset) => ({
+    id, name: id, group, note: 'Fixture note', updatedAt: Date.now(),
+    scope: { persona: true, preset: true, worldbooks: true, regex: true },
+    persona: { avatarId: 'u_main.png', name: 'Fixture User' },
+    preset: { name: preset, prompts: {} },
+    worldbooks: { global: ['BookGlobal'], entries: {} },
+    regex: { global: { sample: true } },
+  });
+  const { dom, shadow, cleanup } = await mountExtension({
+    hostOverrides: {
+      loadedPresetName: 'PresetA',
+      extension_settings: { user_persona_snapshot: {
+        version: 7, settings: {}, personaVersions: {},
+        snapshots: [snap('Other', 'Group B', 'PresetB'), snap('Preset match', 'Group A', 'PresetA'), snap('Bound', 'Group A', 'PresetB')],
+        bindings: { chats: {}, characters: { 'CharAlpha.png': 'Bound' } },
+      } },
+    },
+  });
+  try {
+    const ball = shadow.getElementById('upp-fab-btn');
+    const pointer = (type, x, y) => ball.dispatchEvent(new dom.MockEvent(type, {
+      bubbles: true, cancelable: true, button: 0, pointerType: 'mouse', pointerId: 1, clientX: x, clientY: y,
+    }));
+    pointer('pointerdown', 350, 500);
+    pointer('pointermove', 260, 440);
+    const drop = [ball.style.left, ball.style.top];
+    pointer('pointerup', 260, 440);
+    assert.deepEqual([ball.style.left, ball.style.top], drop);
+    pointer('pointerdown', 260, 440);
+    pointer('pointerup', 260, 440);
+    const pop = shadow.getElementById('upp-fab-pop');
+    assert.equal(pop.hidden, false);
+    let rows = [...pop.querySelectorAll('[data-fab-apply]')];
+    assert.deepEqual(rows.map(el => el.getAttribute('data-fab-apply')), ['Bound', 'Preset match', 'Other']);
+    assert.match(pop.textContent, /Fixture User/);
+    assert.match(pop.textContent, /PresetA/);
+    assert.match(pop.textContent, /BookGlobal/);
+    assert.match(pop.textContent, /Fixture note/);
+    assert.doesNotMatch(pop.textContent, /正则|完整面板/);
+    assert.equal(globalThis.document.getElementById('user-persona-picker-ext-settings'), null);
+
+    const groups = shadow.getElementById('upp-fab-group');
+    groups.value = 'Group B';
+    groups.dispatchEvent(new dom.MockEvent('change', { bubbles: true }));
+    assert.equal(pop.querySelectorAll('[data-fab-apply]').length, 1);
+    assert.equal(shadow.getElementById('upp-fab-group'), groups);
+
+    shadow.getElementById('upp-fab-save-btn').click();
+    const name = shadow.getElementById('upp-fab-save-name');
+    assert.ok(name);
+    const original = name.value;
+    pop.querySelector('[data-snapshot-route="高中线"]').click();
+    assert.equal(name.value, original + ' · 高中线');
+    pop.querySelector('[data-snapshot-route="if线"]').click();
+    assert.equal(name.value, original + ' · if线');
+    pop.querySelector('[data-snapshot-route="if线"]').click();
+    assert.equal(name.value, original);
+    const group = shadow.getElementById('upp-fab-save-group');
+    group.value = 'CharAlpha';
+    group.dispatchEvent(new dom.MockEvent('input', { bubbles: true }));
+    assert.doesNotMatch(name.value, /CharAlpha/);
+    name.value = '';
+    shadow.getElementById('upp-fab-save-confirm').click();
+    await flushAsync();
+    const saved = mockHost.extension_settings.user_persona_snapshot.snapshots[0];
+    assert.equal(saved.group, 'CharAlpha');
+    assert.ok(saved.name);
+    assert.doesNotMatch(saved.name, /CharAlpha/);
+    assert.equal(shadow.querySelector('.upp-backdrop').hidden, true);
+    assert.equal(pop.hidden, false);
   } finally {
     cleanup();
   }

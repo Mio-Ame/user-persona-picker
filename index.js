@@ -36,6 +36,7 @@ import {
   buildCleanCopyText,
   buildPersonaMergePlan,
   buildPresetRenderNodes,
+  buildPresetSyncOverrideTree,
   buildReleaseVersionToNativePayload,
   buildSnapshotPresetInspectModel,
   canUseExternalOrganizer,
@@ -66,6 +67,9 @@ import {
   restorePersonaMergeVersions,
   sanitizeStore,
   suggestSnapshotNames,
+  SNAPSHOT_ROUTES,
+  splitSnapshotRoute,
+  nameWithSnapshotRoute,
   toOpaqueColor,
   uid,
 } from './core.js';
@@ -193,6 +197,10 @@ function readHostThemeVars() {
   }
 }
 
+const PANEL_BACKGROUNDS = Object.freeze({
+  paper: '#f1f1ec', ink: '#ebf0f3', warm: '#f1ece2', sakura: '#f6edf0', 'glass-dark': '#17181c',
+});
+
 function applyThemeToElement(el, mode) {
   if (!el) return;
   const resolvedMode = THEME_MODES.includes(mode) ? mode : 'paper';
@@ -207,8 +215,8 @@ function applyThemeToElement(el, mode) {
   if (resolvedMode === 'host') {
     const hv = readHostThemeVars();
     el.dataset.theme = hv.isLight ? 'paper' : 'glass-dark';
-    const solidBg = hv.blurBg ? toOpaqueColor(hv.blurBg, hv.isLight ? '#f6f6f3' : '#191a1d') : '';
-    if (solidBg) el.style.setProperty('--bg', solidBg);
+    const solidBg = toOpaqueColor(hv.blurBg, PANEL_BACKGROUNDS[el.dataset.theme]);
+    el.style.setProperty('--bg', solidBg);
     if (hv.bodyColor) el.style.setProperty('--text', hv.bodyColor);
     if (hv.borderCol) {
       el.style.setProperty('--border', hv.borderCol);
@@ -220,9 +228,10 @@ function applyThemeToElement(el, mode) {
       el.style.setProperty('--accent-border', `color-mix(in srgb, ${hv.emCol} 30%, var(--border))`);
       el.style.setProperty('--accent-border-strong', `color-mix(in srgb, ${hv.emCol} 42%, var(--border))`);
     }
-  } else {
-    el.dataset.theme = resolvedMode;
+    return solidBg;
   }
+  el.dataset.theme = resolvedMode;
+  return PANEL_BACKGROUNDS[resolvedMode];
 }
 
 function getDisabledExtensions() {
@@ -321,14 +330,6 @@ function isNativePersonaBarEnabled() {
   const raw = extension_settings?.[EXT_KEY];
   if (raw && typeof raw.showNativePersonaBar === 'boolean') return raw.showNativePersonaBar;
   return true;
-}
-
-function setNativePersonaBarEnabled(enabled) {
-  if (!extension_settings[EXT_KEY] || typeof extension_settings[EXT_KEY] !== 'object') {
-    extension_settings[EXT_KEY] = sanitizeStore(createEmptyStore());
-  }
-  extension_settings[EXT_KEY].showNativePersonaBar = !!enabled;
-  try { saveSettingsDebounced(); } catch (_) {}
 }
 
 function loadStore() {
@@ -732,6 +733,9 @@ const Host = {
       content: String(e.content || ''),
       strategyType: e.vectorized ? 'vectorized' : (e.constant ? 'constant' : 'selective'),
       order: Number(e.order ?? 100),
+      keys: Array.isArray(e.key) ? e.key.map(String) : [],
+      position: Number(e.position ?? 1),
+      depth: Number(e.depth ?? 4),
     })).sort((a, b) => a.order - b.order || Number(a.uid) - Number(b.uid));
   },
   async getWorldbookToggleStates(bookName) {
@@ -772,7 +776,7 @@ const Host = {
     if (changed > 0) await saveWorldInfo(bookName, data, true);
     return { changed, skipped };
   },
-  async updateWorldbookEntry(bookName, uidNum, name, content, strategyType) {
+  async updateWorldbookEntry(bookName, uidNum, name, content, strategyType, metadata = {}) {
     const data = await loadWorldInfo(bookName);
     if (!data?.entries) throw new Error('世界书读取失败');
     const key = String(uidNum);
@@ -782,6 +786,10 @@ const Host = {
     entry.content = content;
     if (strategyType === 'constant') { entry.constant = true; entry.vectorized = false; }
     else if (strategyType === 'selective') { entry.constant = false; entry.vectorized = false; }
+    else if (strategyType === 'vectorized') { entry.constant = false; entry.vectorized = true; }
+    if (Array.isArray(metadata.keys)) entry.key = metadata.keys;
+    if (Number.isInteger(metadata.position) && metadata.position >= 0) entry.position = metadata.position;
+    if (Number.isInteger(metadata.depth) && metadata.depth >= 0) entry.depth = metadata.depth;
     await saveWorldInfo(bookName, data, true);
   },
   async createWorldbookEntry(bookName, { name, content, strategyType }) {
@@ -824,6 +832,7 @@ const Host = {
       delay: 0,
     };
     await saveWorldInfo(bookName, data, true);
+    return String(nextUid);
   },
 
   // --- Presets (Native + on-disk preset + runtime group sync) ---
@@ -1663,7 +1672,7 @@ const STYLE_CSS = `
 .upp-backdrop,
 .upp-fab-root,
 .upp-restore-pill {
-  --bg: #f1f1ec;
+  --bg: ${PANEL_BACKGROUNDS.paper};
   --chrome: #e5e5de;
   --surface: #e9e9e3;
   --surface-strong: #ffffff;
@@ -1693,7 +1702,7 @@ const STYLE_CSS = `
 .upp-backdrop[data-theme="ink"],
 .upp-fab-root[data-theme="ink"],
 .upp-restore-pill[data-theme="ink"] {
-  --bg: #ebf0f3;
+  --bg: ${PANEL_BACKGROUNDS.ink};
   --chrome: #dde5ea;
   --surface: #e2eaef;
   --surface-strong: #ffffff;
@@ -1713,7 +1722,7 @@ const STYLE_CSS = `
 .upp-backdrop[data-theme="warm"],
 .upp-fab-root[data-theme="warm"],
 .upp-restore-pill[data-theme="warm"] {
-  --bg: #f1ece2;
+  --bg: ${PANEL_BACKGROUNDS.warm};
   --chrome: #e5ddd0;
   --surface: #e9e2d6;
   --surface-strong: #fffdf9;
@@ -1733,7 +1742,7 @@ const STYLE_CSS = `
 .upp-backdrop[data-theme="sakura"],
 .upp-fab-root[data-theme="sakura"],
 .upp-restore-pill[data-theme="sakura"] {
-  --bg: #f6edf0;
+  --bg: ${PANEL_BACKGROUNDS.sakura};
   --chrome: #ecdfe4;
   --surface: #f0e4e8;
   --surface-strong: #ffffff;
@@ -1753,7 +1762,7 @@ const STYLE_CSS = `
 .upp-backdrop[data-theme="glass-dark"],
 .upp-fab-root[data-theme="glass-dark"],
 .upp-restore-pill[data-theme="glass-dark"] {
-  --bg: #17181c;
+  --bg: ${PANEL_BACKGROUNDS['glass-dark']};
   --chrome: #111216;
   --surface: #202228;
   --surface-strong: #292c34;
@@ -2048,7 +2057,15 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   display: flex; flex-direction: column; gap: 5px; padding: 6px 8px 8px; border-top: 1px solid var(--border);
 }
 .upp-group-items > * { flex-shrink: 0; }
-.upp-group-box.is-collapsed .upp-group-items { display: none; }
+.upp-group-box.is-collapsed > .upp-group-items { display: none; }
+
+.upp-ps-ov-box { overflow: visible; }
+.upp-ps-ov-head { position: sticky; top: 0; z-index: 1; border-radius: 9px; background: var(--bg); }
+.upp-ps-ov-scroll { max-height: min(34dvh, 280px); overflow-y: auto; overscroll-behavior: contain; }
+#upp-ps-ov-list { display: grid; gap: 5px; }
+.upp-ps-ov-master, .upp-ps-ov-prompt { padding: 4px 6px; }
+.upp-ps-ov-prompt > .upp-badge { margin-left: auto; }
+.upp-ps-sync-options { flex: 0 0 auto; padding: 6px 14px; border-top: 1px solid var(--border); background: var(--surface); }
 
 .upp-entry-list { display: flex; flex-direction: column; gap: 5px; }
 .upp-entry-list > * { flex-shrink: 0; }
@@ -2057,6 +2074,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   border-radius: 10px; border: 1px solid var(--border); background: var(--surface-strong);
   transition: background 0.12s, border-color 0.12s;
 }
+[data-wb-row], [data-wb-panel] { contain: layout style; }
 .upp-entry-row:hover { background: var(--surface-strong); border-color: var(--border-strong); }
 .upp-entry-row.is-on { border-color: var(--accent-border-strong); background: var(--surface-strong); }
 .upp-entry-row.is-off { opacity: 0.68; }
@@ -2122,6 +2140,9 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   font-size: 12px; line-height: 1.55; padding: 8px 10px; outline: none;
   overscroll-behavior: contain;
 }
+[data-wb-inline-content].is-tall { min-height: max(280px, 45dvh); max-height: none; }
+[data-wb-wrap].is-highlighted > [data-wb-row] { outline: 2px solid var(--accent); outline-offset: -2px; }
+#upp-pin-book-btn { margin-inline-start: auto; }
 .upp-inline-textarea:focus { border-color: var(--accent); }
 .upp-inline-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .upp-wb-sub { color: var(--muted); font-size: 11px; margin-left: 4px; font-weight: 400; }
@@ -2518,6 +2539,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-fab {
   position: fixed;
+  pointer-events: auto;
   z-index: 29990;
   width: 42px;
   height: 42px;
@@ -2548,9 +2570,11 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-fab-pop {
   position: fixed;
+  pointer-events: auto;
   z-index: 30001;
   width: min(304px, calc(100dvw - 24px));
-  max-height: min(430px, 74dvh, calc(100dvh - 24px));
+  height: 352px;
+  max-height: calc(100dvh - 24px);
   background: var(--bg);
   border: 1.5px solid var(--border-strong);
   border-radius: 15px;
@@ -2585,6 +2609,18 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   height: 28px;
   min-width: 0;
 }
+.upp-fab-search-wrap select { max-width: 100px; }
+.upp-fab-pop-head label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.upp-fab-pop-head label input { margin: 0; }
+.upp-fab-save-body { display: grid; align-content: start; gap: 8px; padding: 10px; }
+.upp-fab-save-body .upp-text-input { min-height: 36px; font-size: 16px; }
+.upp-fab-snap-meta { display: grid; gap: 2px; color: var(--muted); font-size: 11px; }
+.upp-fab-snap-meta span { min-width: 0; overflow-wrap: anywhere; }
+.upp-fab-snap-row { flex-shrink: 0; }
+.upp-pill-strip.upp-snapshot-routes {
+  flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-block: 2px;
+}
+.upp-snapshot-routes .upp-pill { flex: 0 0 auto; white-space: nowrap; }
 .upp-fab-pop-list {
   flex: 1;
   min-height: 0;
@@ -2623,7 +2659,6 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   color: var(--text);
   font: inherit;
   font-size: 12px;
-  cursor: pointer;
   text-align: left;
 }
 .upp-fab-snap-top {
@@ -2637,10 +2672,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   font-size: 11px;
   color: var(--muted);
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 .upp-fab-apply-btn {
@@ -2882,7 +2915,7 @@ function initExtension() {
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `<style>${STYLE_CSS}</style>
 <div class="upp-fab-root" id="upp-fab-root">
-  <button type="button" class="upp-fab" id="upp-fab-btn" title="快捷切换快照" aria-label="快捷切换快照">
+  <button type="button" class="upp-fab" id="upp-fab-btn" title="快照" aria-label="快照" aria-expanded="false" aria-controls="upp-fab-pop">
     ${ICONS.camera}
     <span class="upp-fab-dot" id="upp-fab-dot" hidden></span>
   </button>
@@ -3651,9 +3684,9 @@ function initExtension() {
             <span>${escapeHtml(bookLabel)}</span>
             ${ICONS.chevron}
           </button>
-          <button type="button" class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
           <button type="button" class="upp-btn ${isGlobal ? 'active' : ''}" id="upp-global-book-btn" title="开启后对所有角色和聊天生效" ${activeBook ? '' : 'disabled'}>${isGlobal ? '已全局启用' : '全局启用'}</button>
           ${hasOrg ? `<button type="button" class="upp-btn" id="upp-open-wbo-btn" title="直达世界书整理面板">整理分组</button>` : ''}
+          <button type="button" class="upp-btn icon-only ${isPinned ? 'pinned' : ''}" id="upp-pin-book-btn" title="${isPinned ? '取消置顶' : '置顶常用世界书'}" ${activeBook ? '' : 'disabled'}>${isPinned ? ICONS.starFill : ICONS.star}</button>
         </div>
         <div class="upp-spacer"></div>
         <div class="upp-tb-wb-p2">
@@ -3674,7 +3707,7 @@ function initExtension() {
     `;
   }
 
-  function renderWorldbookBody() {
+  function renderWorldbookBody({ preservePanels = false } = {}) {
     const activeBook = state.activeBook;
     if (!activeBook) { elBody.innerHTML = `<div class="upp-empty">酒馆中暂无世界书</div>`; return; }
 
@@ -3750,7 +3783,7 @@ function initExtension() {
           ${isExpanded ? `
             <div class="upp-inline-panel" data-wb-panel="${escapeHtml(uidKey)}">
               <div class="upp-inline-meta">
-                <span>顺序 ${e.order} · ${String(e.content || '').length} 字</span>
+                <span>顺序 ${e.order} · 约 ${Math.ceil(e.content.replace(/[\x00-\x7f]+/g, text => 'x'.repeat(Math.ceil(text.length / 4))).length)} tokens</span>
                 ${warnList.length ? `<span class="upp-badge warn">${ICONS.warn} ${escapeHtml(warnList.join('；'))}</span>` : ''}
               </div>
               <div class="upp-row">
@@ -3758,10 +3791,23 @@ function initExtension() {
                 <select class="upp-select" data-wb-inline-strategy="${escapeHtml(uidKey)}" style="max-width:140px;">
                   <option value="constant" ${e.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
                   <option value="selective" ${e.strategyType === 'selective' ? 'selected' : ''}>绿灯触发</option>
+                  <option value="vectorized" ${e.strategyType === 'vectorized' ? 'selected' : ''}>向量</option>
                 </select>
               </div>
               <textarea class="upp-inline-textarea" spellcheck="false" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
+              <details>
+                <summary>触发词、位置与深度</summary>
+                <div class="upp-field">
+                  <label>触发词<input type="text" class="upp-text-input" spellcheck="false" data-wb-inline-key="${escapeHtml(uidKey)}" value="${escapeHtml(e.keys.join(', '))}" /></label>
+                  <label>位置<select class="upp-select" data-wb-inline-position="${escapeHtml(uidKey)}">
+                    ${['角色前', '角色后', '作者注释前', '作者注释后', '聊天深度', '示例对话前', '示例对话后', 'Outlet'].map((name, pos) => `<option value="${pos}" ${e.position === pos ? 'selected' : ''}>${name}</option>`).join('')}
+                    ${e.position > 7 ? `<option value="${e.position}" selected>位置 ${e.position}</option>` : ''}
+                  </select></label>
+                  <label>深度<input type="number" min="0" step="1" class="upp-text-input" data-wb-inline-depth="${escapeHtml(uidKey)}" value="${e.depth}" /></label>
+                </div>
+              </details>
               <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-wb-inline-tall aria-pressed="false">加高</button>
                 <button type="button" class="upp-btn" data-wb-inline-copy="${escapeHtml(uidKey)}">${ICONS.copy}<span>复制</span></button>
                 <button type="button" class="upp-btn" data-wb-inline-close="${escapeHtml(uidKey)}">收起</button>
                 <button type="button" class="upp-btn primary" data-wb-inline-save="${escapeHtml(uidKey)}">保存</button>
@@ -3772,7 +3818,27 @@ function initExtension() {
       `;
     }).join('') + `</div>`;
 
+    const panels = preservePanels ? [...elBody.querySelectorAll('[data-wb-panel]')] : [];
     elBody.innerHTML = html;
+    const newPanels = new Map([...elBody.querySelectorAll('[data-wb-panel]')].map(panel => [panel.dataset.wbPanel, panel]));
+    for (const panel of panels) {
+      const replacement = newPanels.get(panel.dataset.wbPanel);
+      if (!replacement) continue;
+      const row = replacement.parentNode;
+      replacement.remove();
+      row.appendChild(panel);
+    }
+  }
+
+  function locateWorldbookRow(uid, highlight = false) {
+    const row = [...elBody.querySelectorAll('[data-wb-wrap]')].find(el => el.dataset.wbWrap === uid);
+    if (!row) return;
+    const top = Math.max(0, elBody.scrollTop + row.getBoundingClientRect().top - elBody.getBoundingClientRect().top - Math.round(elBody.clientHeight * 0.25));
+    elBody.scrollTo({ top, behavior: 'smooth' });
+    if (highlight) {
+      row.classList.add('is-highlighted');
+      window.setTimeout(() => row.classList.remove('is-highlighted'), 1200);
+    }
   }
 
   function isPresetGroupCollapsed(group) {
@@ -3972,7 +4038,7 @@ function initExtension() {
                 ${dest ? `<span>作用：${escapeHtml(dest)}</span>` : ''}
               </div>
               <pre class="upp-inline-pre">${escapeHtml(detailText)}</pre>
-              <div class="upp-inline-foot">
++
                 <button type="button" class="upp-btn" data-rg-inline-copy="${rid}">${ICONS.copy}<span>复制规则</span></button>
                 <button type="button" class="upp-btn" data-rg-inline-close="${rid}">收起</button>
               </div>
@@ -4165,7 +4231,7 @@ function initExtension() {
                           <span>顺序 ${live.order} · ${String(live.content || '').length} 字</span>
                         </div>
                         <pre class="upp-inline-pre">${escapeHtml(live.content || '')}</pre>
-                        <div class="upp-inline-foot">
+          +
                           <button type="button" class="upp-btn" data-sv-wb-copy="${escapeHtml(bk)}" data-sv-wb-copy-uid="${escapeHtml(u)}">${ICONS.copy}<span>复制</span></button>
                           <button type="button" class="upp-btn" data-sv-wb-close="${escapeHtml(expKey)}">收起</button>
                         </div>
@@ -4321,7 +4387,7 @@ function initExtension() {
                           <span>${sc.label} · 快照中${on ? '开启' : '关闭'}</span>
                         </div>
                         <pre class="upp-inline-pre">${escapeHtml(detailText)}</pre>
-                        <div class="upp-inline-foot">
+          +
                           <button type="button" class="upp-btn" data-sv-rg-copy="${sc.key}" data-sv-rg-copy-id="${escapeHtml(id)}">${ICONS.copy}<span>复制规则</span></button>
                           <button type="button" class="upp-btn" data-sv-rg-close="${escapeHtml(expKey)}">收起</button>
                         </div>
@@ -4637,60 +4703,54 @@ function initExtension() {
     }).join('');
   }
 
+  function syncPresetOverrideCount(d) {
+    const badge = shadow.getElementById('upp-ps-ov-count-badge');
+    if (!badge) return;
+    const total = Object.keys(d.forceOverridePrompts).length + Object.keys(d.forceOverrideGroups).length;
+    badge.hidden = total === 0;
+    badge.textContent = `已选 ${total}`;
+  }
+
   function renderPresetSyncOverrideList(d) {
-    const listEl = shadow.getElementById('upp-ps-ov-list');
-    const badgeEl = shadow.getElementById('upp-ps-ov-count-badge');
-    const ovPromptCount = Object.keys(d.forceOverridePrompts || {}).length;
-    const ovGroupCount = Object.keys(d.forceOverrideGroups || {}).length;
-    const ovTotal = ovPromptCount + ovGroupCount;
-    if (badgeEl) {
-      badgeEl.hidden = ovTotal === 0;
-      badgeEl.textContent = `已选 ${ovTotal}`;
+    const list = shadow.getElementById('upp-ps-ov-list');
+    if (!list) return;
+    const scroller = shadow.getElementById('upp-ps-ov-scroll');
+    const scrollTop = scroller.scrollTop;
+    const { nodes } = buildPresetSyncOverrideTree(d.targetPresetNorm, d.analysis?.newPrompts, { search: d.overrideSearch });
+    const visibleGroupIds = new Set(nodes.filter(node => node.type === 'group').map(node => node.group.id));
+    const query = normalizeText(d.overrideSearch);
+    for (const group of d.targetPresetNorm?.groups || []) {
+      if (!visibleGroupIds.has(group.id) && normalizeText(group.name).includes(query)) {
+        nodes.push({ type: 'group', group, items: [] });
+      }
     }
-    if (!listEl) return;
-    const ana = d.analysis || { newPrompts: [] };
-    const tgtNorm = d.targetPresetNorm || { prompts: [], groups: [] };
-    const ovQ = normalizeText(d.overrideSearch || '');
-    const existingTargetPrompts = (tgtNorm.prompts || []).filter(p => {
-      if ((ana.newPrompts || []).some(np => np.id === p.id)) return false;
-      if (ovQ && !normalizeText((p.name || '') + ' ' + p.id).includes(ovQ)) return false;
-      return true;
-    });
-    const existingTargetGroups = (tgtNorm.groups || []).filter(g => {
-      if (ovQ && !normalizeText(g.name || '').includes(ovQ)) return false;
-      return true;
-    });
-    let html = '';
-    if (existingTargetGroups.length) {
-      html += `<div class="upp-wb-sec-head"><span>分组总开关 · 勾选后强制同步当前状态</span></div>`;
-      html += existingTargetGroups.map(g => {
-        const checked = Object.prototype.hasOwnProperty.call(d.forceOverrideGroups, g.id);
-        return `
-          <label class="upp-check-item" style="border:none;background:transparent;padding:3px 6px;">
-            <input type="checkbox" data-ps-ov-grp="${escapeHtml(g.id)}" ${checked ? 'checked' : ''} />
-            <span>[分组] ${escapeHtml(g.name)}</span>
-            <span class="upp-badge ${g.enabled ? 'ok' : ''}" style="margin-left:auto;">${g.enabled ? '当前: 开' : '当前: 关'}</span>
-          </label>
-        `;
-      }).join('');
-    }
-    if (existingTargetPrompts.length) {
-      html += `<div class="upp-wb-sec-head"><span>已有提示词 · 仅勾选的条目会被统一覆盖</span></div>`;
-      html += existingTargetPrompts.map(p => {
-        const checked = Object.prototype.hasOwnProperty.call(d.forceOverridePrompts, p.id);
-        return `
-          <label class="upp-check-item" style="border:none;background:transparent;padding:3px 6px;">
-            <input type="checkbox" data-ps-ov-pr="${escapeHtml(p.id)}" ${checked ? 'checked' : ''} />
-            <span>${escapeHtml(p.name || p.id)}</span>
-            <span class="upp-badge ${p.enabled ? 'ok' : ''}" style="margin-left:auto;">${p.enabled ? '当前: 开' : '当前: 关'}</span>
-          </label>
-        `;
-      }).join('');
-    }
-    if (!html) {
-      html = `<div class="upp-card-meta" style="padding:8px 6px;">没有匹配的分组或提示词</div>`;
-    }
-    listEl.innerHTML = html;
+    const liveState = on => `<span class="upp-badge ${on ? 'ok' : ''}">${on ? '当前：开' : '当前：关'}</span>`;
+    const promptRow = p => `
+      <label class="upp-check-item upp-ps-ov-prompt">
+        <input type="checkbox" data-ps-ov-pr="${escapeHtml(p.id)}" ${Object.prototype.hasOwnProperty.call(d.forceOverridePrompts, p.id) ? 'checked' : ''} />
+        <span>${escapeHtml(p.name || p.id)}</span>${liveState(p.enabled)}
+      </label>`;
+    list.innerHTML = nodes.map(node => {
+      if (node.type === 'prompt') return promptRow(node.prompt);
+      const { group, items, forceExpand } = node;
+      const id = escapeHtml(group.id);
+      const collapsed = !forceExpand && d.overrideCollapsed.has(group.id);
+      return `
+        <div class="upp-group-box ${collapsed ? 'is-collapsed' : ''}">
+          <div class="upp-group-head">
+            ${items.length ? `<button type="button" class="upp-group-toggle-btn" data-ps-ov-fold="${id}" aria-expanded="${!collapsed}">
+              <span class="upp-group-chev">${ICONS.chevron}</span>
+              <span class="upp-group-name">${escapeHtml(group.name)}</span>
+            </button>` : `<span class="upp-group-name">${escapeHtml(group.name)}</span>`}
+            <label class="upp-check-item upp-ps-ov-master">
+              <input type="checkbox" data-ps-ov-grp="${id}" ${Object.prototype.hasOwnProperty.call(d.forceOverrideGroups, group.id) ? 'checked' : ''} />
+              <span>总开关</span>${liveState(group.enabled)}
+            </label>
+          </div>
+          ${items.length ? `<div class="upp-group-items">${items.map(promptRow).join('')}</div>` : ''}
+        </div>`;
+    }).join('') || '<div class="upp-card-meta">没有匹配的分组或条目</div>';
+    scroller.scrollTop = scrollTop;
   }
 
   const NON_BLOCKING_DRAWERS = new Set(['bookPicker', 'bindSnapshot', 'presetSync', 'backup']);
@@ -4775,7 +4835,7 @@ function initExtension() {
                 <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-api" ${mSc.api ? 'checked' : ''} /><span>API / 连接配置</span></label>
                 <label class="upp-check-item"><input type="checkbox" id="upp-em-sc-regex" ${mSc.regex ? 'checked' : ''} /><span>正则开关</span></label>
               </div>
-              <div class="upp-inline-foot">
++
                 <button type="button" class="upp-btn" id="upp-em-cancel-btn-foot">取消</button>
                 <button type="button" class="upp-btn primary" id="upp-em-save-btn" data-sv-meta-save>保存修改</button>
               </div>
@@ -5072,7 +5132,8 @@ function initExtension() {
                 <input type="text" class="upp-text-input" id="upp-ss-name" spellcheck="false" placeholder="例如：角色名 · 日常线" value="${escapeHtml(d.name || '')}" />
                 <button type="button" class="upp-btn" id="upp-ss-name-clear">清空</button>
               </div>
-              ${nameSuggestions.length ? `<div class="upp-pill-strip" style="margin-top:4px;">${nameSuggestions.map(nm => `<button type="button" class="upp-pill" data-ss-fill-name="${escapeHtml(nm)}">${escapeHtml(nm)}</button>`).join('')}</div>` : ''}
+              <div class="upp-pill-strip" id="upp-ss-name-suggestions">${renderSnapshotNameSuggestions(nameSuggestions)}</div>
+              ${renderSnapshotRoutes(d.name)}
             </div>
             <div class="upp-field">
               <label>分组</label>
@@ -5333,11 +5394,11 @@ function initExtension() {
               <div class="upp-card-meta">目标预设中暂无未记录的新增条目；${isUpgrade ? '老条目开关将自动无损继承。' : '如需把某些已有开关统一推给多份快照，请展开下方定向覆盖。'}</div>
             `}
 
-            <div class="upp-group-box ${d.overrideExpanded ? '' : 'is-collapsed'}">
-              <div class="upp-group-head">
-                <button type="button" class="upp-group-toggle-btn" id="upp-ps-ov-toggle">
+            <div class="upp-group-box upp-ps-ov-box ${d.overrideExpanded ? '' : 'is-collapsed'}">
+              <div class="upp-group-head upp-ps-ov-head">
+                <button type="button" class="upp-group-toggle-btn" id="upp-ps-ov-toggle" aria-expanded="${d.overrideExpanded}">
                   <span class="upp-group-chev">${ICONS.chevron}</span>
-                  <span class="upp-group-name">可选：把目标预设的指定已有开关批量覆盖到选中快照</span>
+                  <span class="upp-group-name">可选：批量覆盖已有开关</span>
                   <span class="upp-badge accent" id="upp-ps-ov-count-badge" ${ovPromptCount + ovGroupCount ? '' : 'hidden'}>已选 ${ovPromptCount + ovGroupCount}</span>
                 </button>
               </div>
@@ -5346,22 +5407,22 @@ function initExtension() {
                   ${ICONS.search}
                   <input type="text" id="upp-ps-ov-search" spellcheck="false" placeholder="筛选要批量覆盖的已有分组或条目…" value="${escapeHtml(d.overrideSearch || '')}" />
                 </div>
-                <div id="upp-ps-ov-list"></div>
+                <div class="upp-ps-ov-scroll" id="upp-ps-ov-scroll"><div id="upp-ps-ov-list"></div></div>
               </div>
             </div>
 
-            <div class="upp-check-grid" style="${hasTargetGroups ? '' : 'grid-template-columns:minmax(0, 1fr);'}">
+          </div>
+          <div class="upp-check-grid upp-ps-sync-options" style="${hasTargetGroups ? '' : 'grid-template-columns:minmax(0, 1fr);'}">
+            <label class="upp-check-item">
+              <input type="checkbox" id="upp-ps-clean-removed" ${d.cleanRemovedIds ? 'checked' : ''} />
+              <span>清理新预设已删除的旧条目残留</span>
+            </label>
+            ${hasTargetGroups ? `
               <label class="upp-check-item">
-                <input type="checkbox" id="upp-ps-clean-removed" ${d.cleanRemovedIds ? 'checked' : ''} />
-                <span>清理新预设已删除的旧条目残留</span>
+                <input type="checkbox" id="upp-ps-sync-groups" ${d.syncNewGroups ? 'checked' : ''} />
+                <span>同步新预设的新增分组总开关</span>
               </label>
-              ${hasTargetGroups ? `
-                <label class="upp-check-item">
-                  <input type="checkbox" id="upp-ps-sync-groups" ${d.syncNewGroups ? 'checked' : ''} />
-                  <span>同步新预设的新增分组总开关</span>
-                </label>
-              ` : ''}
-            </div>
+            ` : ''}
           </div>
           <div class="upp-drawer-foot">
             <button type="button" class="upp-btn" data-drawer-close>取消</button>
@@ -5437,7 +5498,7 @@ function initExtension() {
   function recomputePresetSyncAnalysis(d) {
     const sourceSnaps = (state.store.snapshots || []).filter(s => s.scope?.preset && s.preset?.name === d.sourcePreset);
     const validIds = new Set(sourceSnaps.map(s => s.id));
-    if (!Array.isArray(d.selectedSnapIds) || !d.selectedSnapIds.some(id => validIds.has(id))) {
+    if (!Array.isArray(d.selectedSnapIds)) {
       d.selectedSnapIds = sourceSnaps.map(s => s.id);
     } else {
       d.selectedSnapIds = d.selectedSnapIds.filter(id => validIds.has(id));
@@ -5460,8 +5521,16 @@ function initExtension() {
       else nextDec[np.id] = { include: true, enabled: !!np.enabled, inheritFromOldId: '' };
     });
     d.newPromptDecisions = nextDec;
-    d.forceOverridePrompts = {};
-    d.forceOverrideGroups = {};
+    const newPromptIds = new Set(d.analysis.newPrompts.map(prompt => prompt.id));
+    for (const prompt of tgtNorm?.prompts || []) {
+      if (newPromptIds.has(prompt.id)) delete d.forceOverridePrompts[prompt.id];
+    }
+  }
+
+  function resetPresetOverrides(d) {
+    d.forceOverridePrompts = Object.create(null);
+    d.forceOverrideGroups = Object.create(null);
+    d.overrideCollapsed = new Set();
   }
 
   function openExternalOrganizerPanel() {
@@ -5513,41 +5582,83 @@ function initExtension() {
       targetPresetNorm: null,
       analysis: null,
       newPromptDecisions: {},
-      forceOverridePrompts: {},
-      forceOverrideGroups: {},
       overrideExpanded: false,
       overrideSearch: '',
       cleanRemovedIds: true,
       syncNewGroups: true,
     };
+    resetPresetOverrides(d);
     recomputePresetSyncAnalysis(d);
     state.drawer = d;
     renderDrawer();
   }
 
+  function snapshotNames(context, group) {
+    return suggestSnapshotNames({ ...context, group, existingNames: state.store.snapshots.map(s => s.name) });
+  }
+
+  function buildSnapshotDraft(group, context) {
+    const { primary, suggestions } = snapshotNames(context, group);
+    return {
+      type: 'saveSnapshot',
+      name: primary,
+      autoName: primary,
+      nameSuggestions: suggestions,
+      namingContext: context,
+      group,
+      note: '',
+      scope: { ...state.store.settings.defaultSnapshotScope },
+    };
+  }
+
+  function renderSnapshotNameSuggestions(names) {
+    return names.map(name => `<button type="button" class="upp-pill" data-ss-fill-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join('');
+  }
+
+  function renderSnapshotRoutes(name) {
+    const activeRoute = splitSnapshotRoute(name).route;
+    return `<div class="upp-pill-strip upp-snapshot-routes" role="group" aria-label="路线后缀">
+      ${SNAPSHOT_ROUTES.map(route => `<button type="button" class="upp-pill ${route === activeRoute ? 'active' : ''}" aria-pressed="${route === activeRoute}" data-snapshot-route="${route}">${route}</button>`).join('')}
+    </div>`;
+  }
+
+  function syncSnapshotRouteButtons(root, name) {
+    const { route } = splitSnapshotRoute(name);
+    for (const button of root.querySelectorAll('[data-snapshot-route]')) {
+      const active = button.dataset.snapshotRoute === route;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  function toggleSnapshotRoute(root, nameInput, nextRoute) {
+    const { base, route } = splitSnapshotRoute(nameInput.value);
+    nameInput.value = nameWithSnapshotRoute(base, route === nextRoute ? '' : nextRoute);
+    syncSnapshotRouteButtons(root, nameInput.value);
+  }
+
+  function updateSnapshotNaming(draft, group, nameInput, root) {
+    const name = splitSnapshotRoute(nameInput.value);
+    const { primary, suggestions } = snapshotNames(draft.namingContext, group);
+    if (!name.base || name.base === draft.autoName) {
+      nameInput.value = nameWithSnapshotRoute(primary, name.route);
+      draft.autoName = splitSnapshotRoute(nameInput.value).base;
+    }
+    draft.group = group;
+    draft.name = nameInput.value;
+    draft.nameSuggestions = suggestions;
+    const list = shadow.getElementById('upp-ss-name-suggestions');
+    if (root === elDrawerMask && list) list.innerHTML = renderSnapshotNameSuggestions(suggestions);
+    syncSnapshotRouteButtons(root, nameInput.value);
+  }
+
   function openSaveSnapshotDrawer() {
-    const defSc = state.store.settings.defaultSnapshotScope || {};
-    const named = suggestSnapshotNames({
+    state.drawer = buildSnapshotDraft(state.snapGroup || state.charInfo.name || '', {
       charName: state.charInfo.name,
       personaName: state.currentPersona?.name,
       presetName: state.loadedPresetName,
-      existingNames: state.store.snapshots.map(s => s.name),
     });
-    state.drawer = {
-      type: 'saveSnapshot',
-      name: named.primary,
-      nameSuggestions: named.suggestions,
-      group: state.snapGroup || state.charInfo.name || '',
-      note: '',
-      scope: {
-        persona: defSc.persona !== false,
-        worldbooks: defSc.worldbooks !== false,
-        preset: defSc.preset !== false,
-        regex: defSc.regex !== false,
-        api: defSc.api !== false,
-      },
-      selectedBooks: getDefaultSnapshotBooks(state.store),
-    };
+    state.drawer.selectedBooks = getDefaultSnapshotBooks(state.store);
     renderDrawer();
   }
 
@@ -5779,7 +5890,6 @@ function initExtension() {
       persistStore(state.store);
       const sw = shadow.getElementById('upp-auto-bind-sw');
       if (sw) sw.setAttribute('aria-checked', String(state.store.settings.autoApplyBindings));
-      syncExtSettingsCheckbox();
       toast(state.store.settings.autoApplyBindings ? '已开启切换聊天自动切回快照' : '已暂停自动切换快照');
       return;
     }
@@ -5892,8 +6002,20 @@ function initExtension() {
       return;
     }
     if (target.closest('#upp-new-wb-entry-btn') && state.activeBook) {
-      state.drawer = { type: 'entryEditor', mode: 'createWb', heading: `新建条目 · ${state.activeBook}`, bookName: state.activeBook, allowNameEdit: true, showStrategy: true, strategyType: 'constant', name: '', content: '' };
-      renderDrawer(); return;
+      const book = state.activeBook;
+      try {
+        const uid = await Host.createWorldbookEntry(book, { name: '新条目', content: '', strategyType: 'constant' });
+        await ensureBookEntries(book, true);
+        if (state.tab === 'worldbook' && state.activeBook === book) {
+          state.wbEntrySearch = '';
+          state.expandedWbUids.add(uid);
+          renderWorldbookToolbar();
+          renderWorldbookBody({ preservePanels: true });
+          locateWorldbookRow(uid, true);
+        }
+        toast('已新建条目', 'success');
+      } catch (err) { toast('新建失败：' + (err?.message || err), 'error'); }
+      return;
     }
     if (target.closest('#upp-copy-wb-btn') && state.activeBook) {
       const text = buildCleanCopyText(getCachedBookEntries(state.activeBook) || []);
@@ -5924,7 +6046,6 @@ function initExtension() {
       state.store.settings.presetGroupsDefaultCollapsed = next;
       persistStore(state.store);
       state.presetFoldState = {};
-      syncExtSettingsCheckbox();
       renderPresetToolbar(); renderPresetBody();
       toast(next ? '已设为预设分组默认折叠' : '已改为按预设自身展开状态显示');
       return;
@@ -6603,6 +6724,7 @@ function initExtension() {
 
     const wbSw = t.closest('[data-wb-toggle]');
     if (wbSw && state.activeBook) {
+      const book = state.activeBook;
       const u = wbSw.getAttribute('data-wb-toggle');
       const entry = (getCachedBookEntries(state.activeBook) || []).find(e => String(e.uid) === String(u));
       if (!entry) return;
@@ -6611,8 +6733,12 @@ function initExtension() {
       wbSw.setAttribute('aria-checked', String(next));
       wbSw.closest('.upp-entry-row')?.classList.toggle('is-on', next);
       try {
-        await Host.toggleWorldbookEntry(state.activeBook, u, next);
-        if (state.wbOnlyOn && !next) renderWorldbookBody();
+        await Host.toggleWorldbookEntry(book, u, next);
+        if (state.tab === 'worldbook' && state.activeBook === book && (state.wbOnlyOn || entry.content.includes('<'))) {
+          const scrollTop = elBody.scrollTop;
+          renderWorldbookBody({ preservePanels: true });
+          elBody.scrollTop = scrollTop;
+        }
       } catch (err) {
         entry.enabled = !next; wbSw.setAttribute('aria-checked', String(!next));
         wbSw.closest('.upp-entry-row')?.classList.toggle('is-on', !next);
@@ -6637,18 +6763,8 @@ function initExtension() {
         renderWorldbookToolbar();
       }
       state.expandedWbUids.add(uidKey);
-      renderWorldbookBody();
-      const escapedUid = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
-        ? CSS.escape(uidKey)
-        : String(uidKey).split('\\').join('\\\\').split('"').join('\\"');
-      const rowEl = elBody.querySelector(`[data-wb-wrap="${escapedUid}"]`);
-      if (rowEl) {
-        // Scroll strictly inside elBody; never scroll SillyTavern outer viewport
-        const bodyRect = elBody.getBoundingClientRect();
-        const rowRect = rowEl.getBoundingClientRect();
-        const targetTop = Math.max(0, elBody.scrollTop + (rowRect.top - bodyRect.top) - Math.round(elBody.clientHeight * 0.25));
-        elBody.scrollTo({ top: targetTop, behavior: 'smooth' });
-      }
+      renderWorldbookBody({ preservePanels: true });
+      locateWorldbookRow(uidKey);
       const h = hygiene.byUid[uidKey];
       const detail = [
         h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
@@ -6664,7 +6780,7 @@ function initExtension() {
         const scrollTop = elBody.scrollTop;
         if (state.expandedWbUids.has(uidKey)) state.expandedWbUids.delete(uidKey);
         else state.expandedWbUids.add(uidKey);
-        renderWorldbookBody();
+        renderWorldbookBody({ preservePanels: true });
         elBody.scrollTop = scrollTop;
       }
       return;
@@ -6675,9 +6791,17 @@ function initExtension() {
       if (uidKey) {
         const scrollTop = elBody.scrollTop;
         state.expandedWbUids.delete(uidKey);
-        renderWorldbookBody();
+        renderWorldbookBody({ preservePanels: true });
         elBody.scrollTop = scrollTop;
       }
+      return;
+    }
+    const wbTall = t.closest('[data-wb-inline-tall]');
+    if (wbTall) {
+      const textarea = wbTall.closest('[data-wb-panel]').querySelector('[data-wb-inline-content]');
+      const tall = textarea.classList.toggle('is-tall');
+      wbTall.setAttribute('aria-pressed', String(tall));
+      wbTall.textContent = tall ? '恢复高度' : '加高';
       return;
     }
     const wbInlineCopy = t.closest('[data-wb-inline-copy]');
@@ -6696,10 +6820,18 @@ function initExtension() {
       const strategyType = panel?.querySelector('[data-wb-inline-strategy]')?.value;
       const content = panel?.querySelector('[data-wb-inline-content]')?.value ?? '';
       try {
-        await Host.updateWorldbookEntry(state.activeBook, uidKey, name || '未命名条目', content, strategyType);
-        await ensureBookEntries(state.activeBook, true);
+        const book = state.activeBook;
+        const keyText = panel.querySelector('[data-wb-inline-key]').value;
+        const entry = (getCachedBookEntries(book) || []).find(item => String(item.uid) === uidKey);
+        const keys = keyText === entry?.keys.join(', ') ? undefined : keyText.split(/[,，\n]/).map(key => key.trim()).filter(Boolean);
+        const depth = panel.querySelector('[data-wb-inline-depth]').value;
+        await Host.updateWorldbookEntry(book, uidKey, name || '未命名条目', content, strategyType, {
+          keys, position: Number(panel.querySelector('[data-wb-inline-position]').value), depth: depth === '' ? undefined : Number(depth),
+        });
+        await ensureBookEntries(book, true);
+        if (state.tab !== 'worldbook' || state.activeBook !== book) return;
         const scrollTop = elBody.scrollTop;
-        renderWorldbookBody();
+        renderWorldbookBody({ preservePanels: true });
         elBody.scrollTop = scrollTop;
         toast('已保存世界书条目', 'success');
       } catch (err) {
@@ -6892,6 +7024,16 @@ function initExtension() {
   function handleDrawerSearchInput(targetEl) {
     const d = state.drawer;
     if (!d || !targetEl) return;
+    if (d.type === 'saveSnapshot') {
+      if (targetEl.id === 'upp-ss-group') {
+        updateSnapshotNaming(d, targetEl.value, shadow.getElementById('upp-ss-name'), elDrawerMask);
+        return;
+      }
+      if (targetEl.id === 'upp-ss-name') {
+        syncSnapshotRouteButtons(elDrawerMask, targetEl.value);
+        return;
+      }
+    }
     if (d.type === 'viewSnapshot') {
       if (targetEl.id === 'upp-sv-search') {
         d.search = targetEl.value;
@@ -6962,6 +7104,7 @@ function initExtension() {
         d.sourcePreset = ev.target.value;
         d.selectedSnapIds = null;
         d.newPromptDecisions = {};
+        resetPresetOverrides(d);
         recomputePresetSyncAnalysis(d);
         renderDrawer();
         return;
@@ -6969,6 +7112,7 @@ function initExtension() {
       if (ev.target.id === 'upp-ps-target-sel') {
         d.targetPreset = ev.target.value;
         d.newPromptDecisions = {};
+        resetPresetOverrides(d);
         recomputePresetSyncAnalysis(d);
         renderDrawer();
         return;
@@ -7005,7 +7149,7 @@ function initExtension() {
         const g = (d.targetPresetNorm?.groups || []).find(x => x.id === gid);
         if (ev.target.checked && g) d.forceOverrideGroups[gid] = g.enabled !== false;
         else delete d.forceOverrideGroups[gid];
-        renderPresetSyncOverrideList(d);
+        syncPresetOverrideCount(d);
         return;
       }
       if (ev.target.hasAttribute('data-ps-ov-pr')) {
@@ -7013,7 +7157,7 @@ function initExtension() {
         const p = (d.targetPresetNorm?.prompts || []).find(x => x.id === pid);
         if (ev.target.checked && p) d.forceOverridePrompts[pid] = !!p.enabled;
         else delete d.forceOverridePrompts[pid];
-        renderPresetSyncOverrideList(d);
+        syncPresetOverrideCount(d);
         return;
       }
       if (ev.target.id === 'upp-ps-clean-removed') { d.cleanRemovedIds = !!ev.target.checked; return; }
@@ -7822,17 +7966,29 @@ function initExtension() {
 
     if (d.type === 'saveSnapshot' && t.closest('#upp-ss-name-clear')) {
       const inp = shadow.getElementById('upp-ss-name');
-      if (inp) { inp.value = ''; focusDesktopSafe(inp); }
+      if (inp) { inp.value = ''; syncSnapshotRouteButtons(elDrawerMask, ''); focusDesktopSafe(inp); }
+      return;
+    }
+    const routeButton = t.closest('[data-snapshot-route]');
+    if (routeButton && d.type === 'saveSnapshot') {
+      toggleSnapshotRoute(elDrawerMask, shadow.getElementById('upp-ss-name'), routeButton.dataset.snapshotRoute);
       return;
     }
     const fillName = t.closest('[data-ss-fill-name]');
     if (fillName && d.type === 'saveSnapshot') {
       const inp = shadow.getElementById('upp-ss-name');
-      if (inp) inp.value = fillName.getAttribute('data-ss-fill-name') || '';
+      inp.value = nameWithSnapshotRoute(fillName.dataset.ssFillName, splitSnapshotRoute(inp.value).route);
+      d.autoName = splitSnapshotRoute(inp.value).base;
+      syncSnapshotRouteButtons(elDrawerMask, inp.value);
       return;
     }
     const fillGrp = t.closest('[data-ss-fill-group]');
-    if (fillGrp) { const inp = shadow.getElementById('upp-ss-group'); if (inp) inp.value = fillGrp.getAttribute('data-ss-fill-group') || ''; return; }
+    if (fillGrp && d.type === 'saveSnapshot') {
+      const inp = shadow.getElementById('upp-ss-group');
+      inp.value = fillGrp.dataset.ssFillGroup;
+      updateSnapshotNaming(d, inp.value, shadow.getElementById('upp-ss-name'), elDrawerMask);
+      return;
+    }
     if (t.closest('#upp-ss-confirm-btn') && d.type === 'saveSnapshot') {
       const name = (shadow.getElementById('upp-ss-name')?.value || '').trim();
       if (!name) { toast('请填写快照名称', 'warning'); return; }
@@ -7954,9 +8110,21 @@ function initExtension() {
         renderDrawer();
         return;
       }
-      if (t.closest('#upp-ps-ov-toggle')) {
+      const ovFold = t.closest('[data-ps-ov-fold]');
+      if (ovFold) {
+        const id = ovFold.getAttribute('data-ps-ov-fold');
+        const collapsed = ovFold.getAttribute('aria-expanded') === 'true';
+        if (collapsed) d.overrideCollapsed.add(id);
+        else d.overrideCollapsed.delete(id);
+        ovFold.closest('.upp-group-box').classList.toggle('is-collapsed', collapsed);
+        ovFold.setAttribute('aria-expanded', String(!collapsed));
+        return;
+      }
+      const ovToggle = t.closest('#upp-ps-ov-toggle');
+      if (ovToggle) {
         d.overrideExpanded = !d.overrideExpanded;
-        renderDrawer();
+        ovToggle.closest('.upp-ps-ov-box').classList.toggle('is-collapsed', !d.overrideExpanded);
+        ovToggle.setAttribute('aria-expanded', String(d.overrideExpanded));
         return;
       }
       if (t.closest('#upp-ps-run-btn')) {
@@ -8013,12 +8181,10 @@ function initExtension() {
 
   function applyThemeAll() {
     const mode = state.store.settings.themeMode || 'paper';
-    applyThemeToElement(elBackdrop, mode);
-    applyThemeToElement(elFabRoot, mode);
+    elModal.style.backgroundColor = applyThemeToElement(elBackdrop, mode);
+    elFabPop.style.backgroundColor = applyThemeToElement(elFabRoot, mode);
     applyThemeToElement(elRestorePill, mode);
     if (elThemeSelect) elThemeSelect.value = mode;
-    const extSel = document.getElementById('upp-ext-theme-sel');
-    if (extSel) extSel.value = mode;
   }
 
   elThemeSelect.addEventListener('change', () => {
@@ -8542,7 +8708,10 @@ function initExtension() {
 
   let fabPopOpen = false;
   let fabSearchQuery = '';
+  let fabGroup = '';
+  let fabDraft = null;
   let fabDragging = false;
+  let fabPointerId = null;
   let fabMoved = false;
   let fabStartX = 0;
   let fabStartY = 0;
@@ -8554,105 +8723,165 @@ function initExtension() {
     if (elFabVisBtn) elFabVisBtn.classList.toggle('active', show);
   }
 
+  function fabBounds() {
+    const width = window.innerWidth || 390;
+    const height = window.innerHeight || 780;
+    return { left: 10, top: 10, right: Math.max(10, width - 52), bottom: Math.max(10, height - 52), height };
+  }
+
   function positionFab() {
-    const vw = window.innerWidth || 390;
-    const vh = window.innerHeight || 780;
-    const size = 42;
-    const margin = 10;
-    const side = state.store.settings.fabSide === 'left' ? 'left' : 'right';
-    const yRatio = typeof state.store.settings.fabY === 'number' ? state.store.settings.fabY : 0.68;
-    const top = Math.round(Math.min(vh - size - 16, Math.max(54, vh * yRatio - size / 2)));
-    const left = side === 'left' ? margin : Math.max(margin, vw - size - margin);
-    elFabBtn.style.left = left + 'px';
-    elFabBtn.style.top = top + 'px';
+    if (fabDragging) return;
+    const { left, top, right, bottom, height } = fabBounds();
+    const { fabSide, fabY, fabPosition } = state.store.settings;
+    const x = fabPosition ? left + (right - left) * fabPosition[0] : fabSide === 'left' ? left : right;
+    const y = fabPosition ? top + (bottom - top) * fabPosition[1] : Math.min(bottom, Math.max(top, height * fabY - 21));
+    elFabBtn.style.left = Math.round(x) + 'px';
+    elFabBtn.style.top = Math.round(y) + 'px';
   }
 
   function positionFabPop() {
-    // Use visualViewport when available so mobile soft-keyboard resize gently repositions without closing or losing focus!
     const vv = window.visualViewport;
-    const vw = Math.round(vv?.width || window.innerWidth || 390);
-    const vh = Math.round(vv?.height || window.innerHeight || 780);
-    const vTop = Math.round(vv?.offsetTop || 0);
+    const x = vv?.offsetLeft || 0;
+    const y = vv?.offsetTop || 0;
+    const width = vv?.width || window.innerWidth || 390;
+    const height = vv?.height || window.innerHeight || 780;
     const margin = 12;
-    const rect = elFabBtn.getBoundingClientRect();
-    const maxPopH = Math.max(180, Math.min(430, vh - margin * 2));
-    elFabPop.style.maxHeight = `${maxPopH}px`;
-    const popW = Math.min(elFabPop.offsetWidth || 304, vw - margin * 2);
-    const popH = Math.min(elFabPop.offsetHeight || maxPopH, maxPopH);
-    let left = (rect.left + rect.width / 2) > vw / 2 ? (rect.left - popW - 8) : (rect.right + 8);
-    left = Math.min(vw - popW - margin, Math.max(margin, left));
-    let top = (rect.top + popH + margin > vTop + vh) ? (vTop + vh - popH - margin) : (rect.top - 24);
-    top = Math.min(vTop + vh - popH - margin, Math.max(vTop + margin, top));
-    elFabPop.style.left = Math.round(left) + 'px';
-    elFabPop.style.top = Math.round(top) + 'px';
+    const gap = 8;
+    const ball = elFabBtn.getBoundingClientRect();
+    const left = x + margin;
+    const right = x + width - margin;
+    const top = y + margin;
+    const bottom = y + height - margin;
+    const popWidth = Math.min(304, Math.max(1, right - left));
+    const roomLeft = ball.left - gap - left;
+    const roomRight = right - ball.right - gap;
+    const fitsBeside = Math.max(roomLeft, roomRight) >= popWidth;
+    const roomAbove = ball.top - gap - top;
+    const roomBelow = bottom - ball.bottom - gap;
+    const above = roomAbove > roomBelow;
+    const space = above ? roomAbove : roomBelow;
+    const availableHeight = fitsBeside || space < 160 ? bottom - top : Math.min(space, bottom - top);
+    const popHeight = Math.max(1, Math.min(352, availableHeight));
+    const desiredLeft = fitsBeside
+      ? (roomLeft > roomRight ? ball.left - gap - popWidth : ball.right + gap)
+      : ball.left + (ball.width - popWidth) / 2;
+    const desiredTop = fitsBeside ? ball.top : above ? ball.top - gap - popHeight : ball.bottom + gap;
+    Object.assign(elFabPop.style, {
+      width: `${popWidth}px`, maxHeight: `${popHeight}px`,
+      left: `${Math.round(Math.max(left, Math.min(right - popWidth, desiredLeft)))}px`,
+      top: `${Math.round(Math.max(top, Math.min(bottom - popHeight, desiredTop)))}px`,
+    });
   }
-
   function renderFabPopList() {
     const listEl = shadow.getElementById('upp-fab-pop-list');
     if (!listEl) return;
-    const snaps = state.store.snapshots || [];
-    const bound = resolveBindingForContext(state.store.bindings, state.chatId, state.charInfo.id);
+    const { snapshots, bindings } = state.store;
+    const chatId = readCurrentChatId();
+    const character = readCurrentCharInfo();
+    const chatBinding = chatId && bindings.chats[chatId];
+    const charBinding = character.id && bindings.characters[character.id];
+    const preset = Host.getLoadedPresetName();
+    const characterGroup = normalizeText(character.name);
+    const score = snap => {
+      if (snap.id === chatBinding) return 4;
+      if (snap.id === charBinding) return 3;
+      if (characterGroup && normalizeText(snap.group) === characterGroup) return 2;
+      return preset && snap.scope.preset && snap.preset?.name === preset ? 1 : 0;
+    };
     const q = normalizeText(fabSearchQuery);
-    const filtered = q
-      ? snaps.filter(s => normalizeText(`${s.name} ${s.group || ''} ${s.note || ''}`).includes(q))
-      : snaps;
+    const filtered = snapshots.filter(snap => (!fabGroup || snap.group === fabGroup)
+      && (!q || normalizeText(`${snap.name} ${snap.group} ${snap.note}`).includes(q)));
+    filtered.sort((a, b) => score(b) - score(a));
 
     listEl.innerHTML = filtered.length ? filtered.map(s => {
-      const isBound = bound && bound.snapshotId === s.id;
+      const binding = s.id === chatBinding ? '本聊天' : s.id === charBinding ? '本角色' : '';
+      const wb = s.scope.worldbooks ? s.worldbooks : null;
+      const books = wb ? [...new Set([
+        ...(wb.global || []), wb.char?.primary, ...(wb.char?.additional || []), wb.chat,
+        ...Object.keys(wb.entries || {}),
+      ].filter(Boolean))] : [];
+      const summary = [
+        ['User 人设', s.scope.persona && s.persona?.name],
+        ['预设', s.scope.preset && s.preset?.name],
+        ['世界书', books.join('、')],
+      ].filter(([, value]) => value);
       return `
-        <div class="upp-fab-snap-row ${isBound ? 'is-bound' : ''}">
-          <button type="button" class="upp-fab-snap-main" data-fab-inspect="${s.id}" title="${escapeHtml(s.note ? `${s.name}：${s.note}` : '点击查看快照详情')}">
+        <div class="upp-fab-snap-row ${binding ? 'is-bound' : ''}">
+          <div class="upp-fab-snap-main">
             <div class="upp-fab-snap-top">
-              <span class="upp-fab-snap-name">${escapeHtml(s.name)}</span>
-              ${isBound ? `<span class="upp-badge ok">${bound.source === 'chat' ? '本聊天' : '本角色'}</span>` : (s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : '')}
+              <span class="upp-fab-snap-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+              ${binding ? `<span class="upp-badge ok">${binding}</span>` : s.group ? `<span class="upp-badge">${escapeHtml(s.group)}</span>` : ''}
             </div>
-            ${s.note ? `<div class="upp-fab-snap-note">${escapeHtml(s.note)}</div>` : ''}
-          </button>
-          <button type="button" class="upp-fab-apply-btn" data-fab-apply="${s.id}">应用</button>
+            ${summary.length ? `<div class="upp-fab-snap-meta">${summary.map(([label, value]) => `<span>${label}：${escapeHtml(value)}</span>`).join('')}</div>` : ''}
+            ${s.note ? `<div class="upp-fab-snap-note" title="${escapeHtml(s.note)}">${escapeHtml(s.note)}</div>` : ''}
+          </div>
+          <button type="button" class="upp-fab-apply-btn" data-fab-apply="${escapeHtml(s.id)}">应用</button>
         </div>
       `;
-    }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">${snaps.length ? '没有匹配的快照' : '暂无快照，先保存一套吧'}</div>`;
+    }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">${snapshots.length ? '没有匹配的快照' : '暂无快照'}</div>`;
   }
 
   function renderFabPop() {
-    state.store = loadStore();
-    state.charInfo = readCurrentCharInfo();
-    state.chatId = readCurrentChatId();
-    const autoOn = !!state.store.settings.autoApplyBindings;
-
+    const groups = [...new Set(state.store.snapshots.map(s => s.group).filter(Boolean))];
+    if (!groups.includes(fabGroup)) fabGroup = '';
     elFabPop.innerHTML = `
       <div class="upp-fab-pop-head">
-        <span>快捷切换快照</span>
-        <button type="button" class="upp-switch" id="upp-fab-auto-sw" role="switch" aria-checked="${autoOn}" title="切聊天自动切回"></button>
+        <span>快照</span>
+        <label><input type="checkbox" id="upp-fab-auto-sw" ${state.store.settings.autoApplyBindings ? 'checked' : ''} />切聊天时自动应用绑定快照</label>
       </div>
       <div class="upp-fab-search-wrap">
         <div class="upp-input-wrap">
           ${ICONS.search}
-          <input type="text" id="upp-fab-search" spellcheck="false" placeholder="搜索快照名称、分组或备注…" value="${escapeHtml(fabSearchQuery)}" />
+          <input type="text" id="upp-fab-search" spellcheck="false" placeholder="搜索快照" value="${escapeHtml(fabSearchQuery)}" />
         </div>
+        <select class="upp-select" id="upp-fab-group" aria-label="快照分组">
+          <option value="">全部分组</option>
+          ${groups.map(group => `<option value="${escapeHtml(group)}" ${group === fabGroup ? 'selected' : ''}>${escapeHtml(group)}</option>`).join('')}
+        </select>
       </div>
       <div class="upp-fab-pop-list" id="upp-fab-pop-list"></div>
       <div class="upp-fab-pop-foot">
         <button type="button" class="upp-btn primary" id="upp-fab-save-btn">${ICONS.plus}<span>保存快照</span></button>
-        <button type="button" class="upp-btn" id="upp-fab-open-btn">完整面板</button>
       </div>
     `;
     renderFabPopList();
   }
 
+  function openFabSave() {
+    const charName = readCurrentCharInfo().name;
+    fabDraft = buildSnapshotDraft(fabGroup || charName, {
+      charName, personaName: Host.getCurrentPersona()?.name, presetName: Host.getLoadedPresetName(),
+    });
+    elFabPop.innerHTML = `
+      <div class="upp-fab-pop-head"><span>保存快照</span></div>
+      <div class="upp-fab-pop-list upp-fab-save-body">
+        <label class="upp-field">名称<input type="text" class="upp-text-input" id="upp-fab-save-name" spellcheck="false" maxlength="60" value="${escapeHtml(fabDraft.name)}" /></label>
+        ${renderSnapshotRoutes(fabDraft.name)}
+        <label class="upp-field">分组<input type="text" class="upp-text-input" id="upp-fab-save-group" spellcheck="false" maxlength="30" value="${escapeHtml(fabDraft.group)}" /></label>
+        <label class="upp-field">备注<input type="text" class="upp-text-input" id="upp-fab-save-note" spellcheck="false" maxlength="120" /></label>
+      </div>
+      <div class="upp-fab-pop-foot">
+        <button type="button" class="upp-btn" id="upp-fab-save-back">返回</button>
+        <button type="button" class="upp-btn primary" id="upp-fab-save-confirm">保存</button>
+      </div>
+    `;
+  }
   function openFabPop() {
     state.store = loadStore();
     applyThemeAll();
     renderFabPop();
     elFabPop.hidden = false;
     fabPopOpen = true;
+    elFabBtn.setAttribute('aria-expanded', 'true');
     positionFabPop();
   }
 
   function closeFabPop() {
     if (!fabPopOpen) return;
     fabPopOpen = false;
+    fabDraft = null;
     elFabPop.hidden = true;
+    elFabBtn.setAttribute('aria-expanded', 'false');
   }
 
   function syncFabUi() {
@@ -8668,11 +8897,13 @@ function initExtension() {
     positionFab();
     const bound = resolveBindingForContext(state.store.bindings, readCurrentChatId(), readCurrentCharInfo().id);
     elFabDot.hidden = !bound;
+    if (fabPopOpen && !fabDraft) renderFabPopList();
   }
 
   elFabBtn.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (fabDragging || (ev.button !== 0 && ev.pointerType === 'mouse')) return;
     fabDragging = true;
+    fabPointerId = ev.pointerId;
     fabMoved = false;
     fabStartX = ev.clientX;
     fabStartY = ev.clientY;
@@ -8683,7 +8914,7 @@ function initExtension() {
   }, { signal: ac.signal });
 
   elFabBtn.addEventListener('pointermove', ev => {
-    if (!fabDragging) return;
+    if (!fabDragging || ev.pointerId !== fabPointerId) return;
     const dx = ev.clientX - fabStartX;
     const dy = ev.clientY - fabStartY;
     if (!fabMoved && Math.hypot(dx, dy) >= 6) {
@@ -8692,105 +8923,154 @@ function initExtension() {
       closeFabPop();
     }
     if (!fabMoved) return;
-    const vw = window.innerWidth || 390;
-    const vh = window.innerHeight || 780;
-    const size = 42;
-    const left = Math.min(vw - size - 6, Math.max(6, fabOrigLeft + dx));
-    const top = Math.min(vh - size - 12, Math.max(46, fabOrigTop + dy));
-    elFabBtn.style.left = Math.round(left) + 'px';
+    const bounds = fabBounds();
+    const left = Math.min(bounds.right, Math.max(bounds.left, fabOrigLeft + dx));
+    const top = Math.min(bounds.bottom, Math.max(bounds.top, fabOrigTop + dy));    elFabBtn.style.left = Math.round(left) + 'px';
     elFabBtn.style.top = Math.round(top) + 'px';
   }, { signal: ac.signal });
 
   function finishFabPointer(ev) {
-    if (!fabDragging) return;
+    if (!fabDragging || ev.pointerId !== fabPointerId) return;
     fabDragging = false;
     elFabBtn.classList.remove('is-dragging');
     try { elFabBtn.releasePointerCapture(ev.pointerId); } catch (_) {}
     if (fabMoved) {
-      const vw = window.innerWidth || 390;
-      const vh = window.innerHeight || 780;
-      const rect = elFabBtn.getBoundingClientRect();
+      const { left, top, right, bottom, height } = fabBounds();
+      const x = parseFloat(elFabBtn.style.left);
+      const y = parseFloat(elFabBtn.style.top);
       state.store = loadStore();
-      state.store.settings.fabSide = (rect.left + rect.width / 2) < vw / 2 ? 'left' : 'right';
-      state.store.settings.fabY = Math.min(0.92, Math.max(0.08, (rect.top + rect.height / 2) / vh));
+      state.store.settings.fabPosition = [
+        (x - left) / Math.max(1, right - left),
+        (y - top) / Math.max(1, bottom - top),
+      ];
+      state.store.settings.fabSide = x < (left + right) / 2 ? 'left' : 'right';
+      state.store.settings.fabY = (y + 21) / height;
       persistStore(state.store);
-      positionFab();
-    } else {
+    } else if (ev.type === 'pointerup') {
       if (fabPopOpen) closeFabPop();
       else openFabPop();
     }
-  }
-  elFabBtn.addEventListener('pointerup', finishFabPointer, { signal: ac.signal });
+  }  elFabBtn.addEventListener('pointerup', finishFabPointer, { signal: ac.signal });
   elFabBtn.addEventListener('pointercancel', finishFabPointer, { signal: ac.signal });
+
+  elFabBtn.addEventListener('keydown', ev => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    ev.preventDefault();
+    if (ev.repeat) return;
+    if (fabPopOpen) closeFabPop();
+    else openFabPop();
+  }, { signal: ac.signal });
+
+  function handleFabInput(target) {
+    if (target.id === 'upp-fab-search') {
+      fabSearchQuery = target.value;
+      renderFabPopList();
+    } else if (fabDraft && target.id === 'upp-fab-save-group') {
+      updateSnapshotNaming(fabDraft, target.value, shadow.getElementById('upp-fab-save-name'), elFabPop);
+    } else if (fabDraft && target.id === 'upp-fab-save-name') {
+      syncSnapshotRouteButtons(elFabPop, target.value);
+    }
+  }
 
   elFabPop.addEventListener('compositionstart', ev => {
     if (ev.target) ev.target._uppComposing = true;
   }, { signal: ac.signal });
   elFabPop.addEventListener('compositionend', ev => {
-    if (ev.target && ev.target.id === 'upp-fab-search') {
-      ev.target._uppComposing = false;
-      fabSearchQuery = ev.target.value;
-      renderFabPopList();
-    }
+    if (!ev.target) return;
+    ev.target._uppComposing = false;
+    handleFabInput(ev.target);
   }, { signal: ac.signal });
   elFabPop.addEventListener('input', ev => {
     if (ev.isComposing || ev.target?._uppComposing) return;
-    if (ev.target && ev.target.id === 'upp-fab-search') {
-      fabSearchQuery = ev.target.value;
+    handleFabInput(ev.target);
+  }, { signal: ac.signal });
+  elFabPop.addEventListener('change', ev => {
+    if (ev.target.id === 'upp-fab-group') {
+      fabGroup = ev.target.value;
       renderFabPopList();
+      shadow.getElementById('upp-fab-pop-list').scrollTop = 0;
+    } else if (ev.target.id === 'upp-fab-auto-sw') {
+      state.store = loadStore();
+      state.store.settings.autoApplyBindings = ev.target.checked;
+      if (ev.target.checked) lastAutoKey = '';
+      persistStore(state.store);
+      if (state.open && state.tab === 'snapshots') renderSnapshotsToolbar();
     }
   }, { signal: ac.signal });
 
+  let fabSaving = false;
   elFabPop.addEventListener('click', async ev => {
     const t = ev.target;
-    if (t.closest('#upp-fab-auto-sw')) {
-      state.store = loadStore();
-      state.store.settings.autoApplyBindings = !state.store.settings.autoApplyBindings;
-      persistStore(state.store);
-      syncExtSettingsCheckbox();
-      renderFabPop();
-      toast(state.store.settings.autoApplyBindings ? '已开启自动切回快照' : '已暂停自动切换');
-      return;
-    }
-    if (t.closest('#upp-fab-open-btn')) {
-      closeFabPop();
-      openModal();
-      return;
-    }
     if (t.closest('#upp-fab-save-btn')) {
-      closeFabPop();
-      openModal();
-      window.setTimeout(() => openSaveSnapshotDrawer(), 60);
+      if (!fabSaving) openFabSave();
       return;
     }
-    const inspectItem = t.closest('[data-fab-inspect]');
-    if (inspectItem) {
-      const sid = inspectItem.getAttribute('data-fab-inspect');
-      const snap = state.store.snapshots.find(s => s.id === sid);
-      closeFabPop();
-      if (snap) {
-        openModal();
-        window.setTimeout(() => { void openSnapshotDetail(snap); }, 60);
+    if (t.closest('#upp-fab-save-back')) {
+      fabDraft = null;
+      renderFabPop();
+      return;
+    }
+    const route = t.closest('[data-snapshot-route]');
+    if (route && fabDraft) {
+      toggleSnapshotRoute(elFabPop, shadow.getElementById('upp-fab-save-name'), route.dataset.snapshotRoute);
+      return;
+    }
+    const confirm = t.closest('#upp-fab-save-confirm');
+    if (confirm && fabDraft && !fabSaving) {
+      const draft = fabDraft;
+      const group = shadow.getElementById('upp-fab-save-group').value.trim();
+      const name = shadow.getElementById('upp-fab-save-name').value.trim() || snapshotNames(draft.namingContext, group).primary;
+      const note = shadow.getElementById('upp-fab-save-note').value.trim();
+      if (!Object.values(draft.scope).some(Boolean)) {
+        toast('请至少勾选一项保存范围', 'warning');
+        return;
+      }
+      fabSaving = true;
+      confirm.disabled = true;
+      try {
+        const contextKey = () => JSON.stringify([readCurrentChatId(), readCurrentCharInfo().id, Host.getLoadedPresetName()]);
+        const capturedContext = contextKey();
+        const snapshot = await captureLiveSnapshot({ name, group, note, scope: draft.scope }, loadStore());
+        if (ac.signal.aborted) return;
+        if (contextKey() !== capturedContext) {
+          toast('聊天或预设已切换，请重新保存', 'warning');
+          return;
+        }
+        state.store = loadStore();
+        state.store.snapshots.unshift(snapshot);
+        persistStore(state.store);
+        if (fabDraft === draft) {
+          fabDraft = null;
+          if (fabGroup) fabGroup = group;
+          renderFabPop();
+        } else if (fabPopOpen && !fabDraft) {
+          renderFabPopList();
+        }
+        if (state.open && state.tab === 'snapshots') {
+          renderSnapshotsToolbar();
+          renderSnapshotsBody();
+        }
+        toast(`已保存快照「${snapshot.name}」`, 'success');
+      } catch (err) {
+        toast('保存失败：' + (err?.message || err), 'error');
+      } finally {
+        fabSaving = false;
+        confirm.disabled = false;
       }
       return;
     }
     const applyItem = t.closest('[data-fab-apply]');
     if (applyItem) {
-      const sid = applyItem.getAttribute('data-fab-apply');
-      const snap = state.store.snapshots.find(s => s.id === sid);
+      const snap = loadStore().snapshots.find(s => s.id === applyItem.dataset.fabApply);
       closeFabPop();
-      if (snap) {
-        await requestApplySnapshot(snap, { fromFab: true });
-      }
+      if (snap) await requestApplySnapshot(snap, { fromFab: true });
     }
   }, { signal: ac.signal });
-
   elFabVisBtn.addEventListener('click', () => {
     state.store = loadStore();
     state.store.settings.showFloatingBall = !(state.store.settings.showFloatingBall !== false);
     persistStore(state.store);
     syncFabUi();
-    syncExtSettingsCheckbox();
     if (state.open && state.minimized) positionRestorePill();
     toast(state.store.settings.showFloatingBall ? '已显示悬浮球' : '已隐藏悬浮球');
   }, { signal: ac.signal });
@@ -8857,6 +9137,7 @@ function initExtension() {
 
   let presetSyncTimer = null;
   function handleHostPresetChanged() {
+    if (fabPopOpen && !fabDraft) renderFabPopList();
     if (!state.open || state.minimized || isApplyingSnapshot) return;
     if (presetSyncTimer) window.clearTimeout(presetSyncTimer);
     presetSyncTimer = window.setTimeout(() => {
@@ -9005,19 +9286,6 @@ function initExtension() {
     menu.appendChild(item);
   }
 
-  // Mount compact drawer inside Extensions Settings
-  function syncExtSettingsCheckbox() {
-    const st = loadStore().settings;
-    const cb = document.getElementById('upp-ext-auto-apply-cb');
-    if (cb) cb.checked = !!st.autoApplyBindings;
-    const fabCb = document.getElementById('upp-ext-fab-cb');
-    if (fabCb) fabCb.checked = st.showFloatingBall !== false;
-    const foldCb = document.getElementById('upp-ext-fold-cb');
-    if (foldCb) foldCb.checked = st.presetGroupsDefaultCollapsed !== false;
-    const nativeBarCb = document.getElementById('upp-ext-native-bar-cb');
-    if (nativeBarCb) nativeBarCb.checked = isNativePersonaBarEnabled();
-  }
-
   function syncNativePersonaBar() {
     if (typeof document === 'undefined') return;
     const existing = document.getElementById(NATIVE_PERSONA_BAR_ID);
@@ -9048,13 +9316,6 @@ function initExtension() {
       bar.addEventListener('click', async ev => {
         ev.stopPropagation();
         const t = ev.target;
-        if (t.closest('#upp-native-open-btn')) {
-          state.tab = 'user';
-          state.userView = 'main';
-          state.userInlineEditor = null;
-          openModal();
-          return;
-        }
         if (t.closest('#upp-native-apply-ver-btn')) {
           const p = Host.getCurrentPersona();
           const vid = bar.querySelector('#upp-native-ver-sel')?.value || '';
@@ -9094,7 +9355,6 @@ function initExtension() {
     }
 
     bar.innerHTML = `
-      <button type="button" class="menu_button upp-native-btn" id="upp-native-open-btn" title="打开快照管家 User 管理">快照管家 User</button>
       ${versions.length ? `
         <select class="upp-native-select" id="upp-native-ver-sel" title="当前 User 的内部版本">
           ${versions.map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}${v.displayName ? ` (${escapeHtml(v.displayName)})` : ''}</option>`).join('')}
@@ -9105,99 +9365,12 @@ function initExtension() {
     `;
   }
 
-  function mountExtSettings() {
-    const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
-    if (!container || document.getElementById(SETTINGS_BOX_ID)) return;
-    const box = document.createElement('div');
-    box.id = SETTINGS_BOX_ID;
-    box.className = 'inline-drawer';
-    box.innerHTML = `
-      <div class="inline-drawer-toggle inline-drawer-header">
-        <b>快照管家 v${APP_VERSION}</b>
-        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-      </div>
-      <div class="inline-drawer-content">
-        <div class="upp-ext-settings-row">
-          <label class="checkbox_label" for="upp-ext-auto-apply-cb">
-            <input id="upp-ext-auto-apply-cb" type="checkbox" ${state.store.settings.autoApplyBindings ? 'checked' : ''} />
-            <span>切换聊天/角色时自动切回绑定快照</span>
-          </label>
-        </div>
-        <div class="upp-ext-settings-row">
-          <label class="checkbox_label" for="upp-ext-fab-cb">
-            <input id="upp-ext-fab-cb" type="checkbox" ${state.store.settings.showFloatingBall !== false ? 'checked' : ''} />
-            <span>显示快捷切换悬浮球</span>
-          </label>
-        </div>
-        <div class="upp-ext-settings-row">
-          <label class="checkbox_label" for="upp-ext-fold-cb">
-            <input id="upp-ext-fold-cb" type="checkbox" ${state.store.settings.presetGroupsDefaultCollapsed !== false ? 'checked' : ''} />
-            <span>预设分组默认折叠</span>
-          </label>
-        </div>
-        <div class="upp-ext-settings-row">
-          <label class="checkbox_label" for="upp-ext-native-bar-cb">
-            <input id="upp-ext-native-bar-cb" type="checkbox" ${isNativePersonaBarEnabled() ? 'checked' : ''} />
-            <span>在酒馆 User 页面显示快捷版本栏</span>
-          </label>
-        </div>
-        <div class="upp-ext-settings-row">
-          <span>面板配色</span>
-          <select id="upp-ext-theme-sel" class="text_pole" style="width:auto;min-width:110px;">
-            <option value="paper" ${state.store.settings.themeMode === 'paper' ? 'selected' : ''}>素纸</option>
-            <option value="ink" ${state.store.settings.themeMode === 'ink' ? 'selected' : ''}>青岚</option>
-            <option value="warm" ${state.store.settings.themeMode === 'warm' ? 'selected' : ''}>暖砂</option>
-            <option value="sakura" ${state.store.settings.themeMode === 'sakura' ? 'selected' : ''}>淡樱</option>
-            <option value="host" ${state.store.settings.themeMode === 'host' ? 'selected' : ''}>跟随酒馆</option>
-            <option value="glass-dark" ${state.store.settings.themeMode === 'glass-dark' ? 'selected' : ''}>深色夜间</option>
-          </select>
-        </div>
-        <div class="upp-ext-settings-row">
-          <div class="menu_button" id="upp-ext-open-btn"><i class="fa-solid fa-camera-retro"></i><span>打开面板</span></div>
-        </div>
-      </div>
-    `;
-    container.appendChild(box);
-    box.querySelector('#upp-ext-open-btn')?.addEventListener('click', openModal);
-    box.querySelector('#upp-ext-auto-apply-cb')?.addEventListener('change', ev => {
-      state.store = loadStore();
-      state.store.settings.autoApplyBindings = !!ev.target.checked;
-      persistStore(state.store);
-      if (state.open && state.tab === 'snapshots') renderSnapshotsToolbar();
-    });
-    box.querySelector('#upp-ext-fab-cb')?.addEventListener('change', ev => {
-      state.store = loadStore();
-      state.store.settings.showFloatingBall = !!ev.target.checked;
-      persistStore(state.store);
-      syncFabUi();
-    });
-    box.querySelector('#upp-ext-fold-cb')?.addEventListener('change', ev => {
-      state.store = loadStore();
-      state.store.settings.presetGroupsDefaultCollapsed = !!ev.target.checked;
-      persistStore(state.store);
-      state.presetFoldState = {};
-      if (state.open && state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
-    });
-    box.querySelector('#upp-ext-native-bar-cb')?.addEventListener('change', ev => {
-      setNativePersonaBarEnabled(!!ev.target.checked);
-      syncNativePersonaBar();
-    });
-    box.querySelector('#upp-ext-theme-sel')?.addEventListener('change', ev => {
-      state.store = loadStore();
-      state.store.settings.themeMode = ev.target.value;
-      persistStore(state.store);
-      applyThemeAll();
-    });
-  }
-
   document.body.appendChild(host);
   syncFabUi();
   mountWandMenu();
-  mountExtSettings();
   syncNativePersonaBar();
   function onAppReady() {
     mountWandMenu();
-    mountExtSettings();
     syncFabUi();
     syncNativePersonaBar();
   }
