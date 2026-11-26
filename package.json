@@ -1,6 +1,6 @@
 {
   "name": "user-persona-picker",
-  "version": "7.9.1",
+  "version": "7.9.2",
   "private": true,
   "type": "module",
   "description": "SillyTavern / TauriTavern extension for managing user personas, snapshots, worldbooks, presets, and regex rules.",

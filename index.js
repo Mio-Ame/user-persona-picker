@@ -1654,6 +1654,11 @@ const ICONS = {
 const STYLE_CSS = `
 :host {
   all: initial;
+  /* 统一字号阶梯：全插件只允许这四档（手机端输入框由 16px 反缩放规则另行覆盖） */
+  --upp-fs-xs: 11px;
+  --upp-fs-sm: 12px;
+  --upp-fs-md: 13px;
+  --upp-fs-lg: 15px;
   position: fixed;
   top: 0;
   left: 0;
@@ -1664,11 +1669,13 @@ const STYLE_CSS = `
      若此处为 auto，宿主任何带 z-index 的界面元素都会盖住整个面板，看起来就像面板透明 */
   z-index: 900000;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: var(--upp-fs-md);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
 *, *::before, *::after { box-sizing: border-box; }
+/* 表单控件默认继承字号，杜绝浏览器给 button/input 塞 13.3px 之类的原生字号 */
+button, input, select, textarea { font-family: inherit; font-size: inherit; }
 [hidden] { display: none !important; }
 
 /* Unified Theme Palettes: paper (素纸) | ink (青岚) | warm (暖砂) | sakura (淡樱) | glass-dark (深色夜间) */
@@ -1846,6 +1853,11 @@ const STYLE_CSS = `
 .upp-fab-root[data-theme="glass-dark"] .upp-fab-pop {
   background-color: #17181c;
 }
+/* 悬浮球压在面板的顶栏/底栏时按左右侧让位，标题、状态与按钮都不会被球挡住 */
+.upp-modal.is-fab-clear-head-l .upp-header { padding-left: calc(16px + 48px); }
+.upp-modal.is-fab-clear-head-r .upp-header { padding-right: calc(16px + 48px); }
+.upp-modal.is-fab-clear-foot-l .upp-footer { padding-left: calc(12px + 36px); }
+.upp-modal.is-fab-clear-foot-r .upp-footer { padding-right: calc(12px + 36px); }
 
 .upp-header {
   flex-shrink: 0;
@@ -1867,9 +1879,9 @@ const STYLE_CSS = `
   cursor: grabbing;
 }
 .upp-title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-.upp-title { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; flex-shrink: 0; }
+.upp-title { font-size: var(--upp-fs-lg); font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; flex-shrink: 0; }
 .upp-ctx-chip {
-  font-size: 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--border);
+  font-size: var(--upp-fs-xs); color: var(--muted); background: var(--surface); border: 1px solid var(--border);
   border-radius: 999px; padding: 2px 8px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upp-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -1883,7 +1895,7 @@ const STYLE_CSS = `
 .upp-tabs::-webkit-scrollbar { display: none; }
 .upp-tab {
   height: 32px; min-height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid transparent;
-  background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 550; line-height: 1;
+  background: transparent; color: var(--muted); font-size: var(--upp-fs-md); font-weight: 550; line-height: 1;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   white-space: nowrap; flex-shrink: 0; vertical-align: middle;
   transition: background 0.14s, color 0.14s, border-color 0.14s, box-shadow 0.14s;
@@ -1896,7 +1908,7 @@ const STYLE_CSS = `
   box-shadow: var(--card-shadow);
 }
 .upp-tab-count {
-  font-size: 11px; line-height: 1; height: 16px; min-width: 16px; padding: 0 5px;
+  font-size: var(--upp-fs-xs); line-height: 1; height: 16px; min-width: 16px; padding: 0 5px;
   border-radius: 999px; background: var(--surface-strong); border: 1px solid var(--border-strong);
   color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
   font-variant-numeric: tabular-nums;
@@ -1931,7 +1943,7 @@ const STYLE_CSS = `
 
 .upp-btn, .upp-select, .upp-input-wrap {
   height: 30px; border-radius: 9px; border: 1px solid var(--border);
-  background: var(--surface-strong); color: var(--text); font-size: 12px; font-family: inherit;
+  background: var(--surface-strong); color: var(--text); font-size: var(--upp-fs-sm); font-family: inherit;
 }
 .upp-btn {
   padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
@@ -1960,7 +1972,7 @@ const STYLE_CSS = `
 }
 .upp-input-wrap svg { color: var(--muted); flex-shrink: 0; }
 .upp-input-wrap input {
-  width: 100%; height: 100%; min-height: 0; border: none; background: transparent; color: var(--text); font-size: 12px; font-family: inherit; outline: none;
+  width: 100%; height: 100%; min-height: 0; border: none; background: transparent; color: var(--text); font-size: var(--upp-fs-sm); font-family: inherit; outline: none;
 }
 .upp-input-wrap input::placeholder { color: var(--muted); }
 
@@ -1978,7 +1990,7 @@ const STYLE_CSS = `
 .upp-switch-label {
   height: 30px; padding: 0 9px; border-radius: 9px; border: 1px solid var(--border);
   background: var(--surface-strong); display: inline-flex; align-items: center; gap: 7px;
-  font-size: 12px; color: var(--text); cursor: pointer; white-space: nowrap; flex-shrink: 0; user-select: none;
+  font-size: var(--upp-fs-sm); color: var(--text); cursor: pointer; white-space: nowrap; flex-shrink: 0; user-select: none;
 }
 
 .upp-body {
@@ -1998,7 +2010,7 @@ const STYLE_CSS = `
   padding: 10px 16px; border-top: 1px solid var(--border-strong); background: var(--chrome);
 }
 .upp-foot-status {
-  min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px;
+  min-width: 0; display: flex; align-items: center; gap: 6px; font-size: var(--upp-fs-sm);
   color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upp-foot-status > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2009,9 +2021,9 @@ const STYLE_CSS = `
 .upp-pill-strip { display: flex; align-items: center; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 1px; scrollbar-width: none; }
 .upp-pill-strip::-webkit-scrollbar { display: none; }
 .upp-pill {
-  height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer;
-  white-space: nowrap; flex-shrink: 0; display: inline-block; line-height: 26px; vertical-align: middle;
+  height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--muted); font-size: var(--upp-fs-sm); cursor: pointer;
+  white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; line-height: 1; vertical-align: middle;
   max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .upp-pill.is-closable {
@@ -2034,13 +2046,14 @@ const STYLE_CSS = `
 .upp-card-head > .upp-row-nowrap:last-child:not(:first-child) { flex-shrink: 0; }
 .upp-card-head > .upp-card-meta { flex-shrink: 0; }
 .upp-card-head .upp-badge { max-width: 150px; }
-.upp-card-title { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upp-card-meta { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.upp-card-title { font-size: var(--upp-fs-md); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-card-meta { font-size: var(--upp-fs-sm); color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 
 .upp-badge {
-  display: inline-block; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  padding: 2px 7px; border-radius: 999px; line-height: 1.45; vertical-align: middle;
-  font-size: 11px; border: 1px solid var(--border); background: var(--surface-strong); color: var(--muted); white-space: nowrap; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 20px; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 8px; border-radius: 999px; line-height: 1;
+  font-size: var(--upp-fs-sm); border: 1px solid var(--border); background: var(--surface-strong); color: var(--muted); white-space: nowrap; flex-shrink: 0;
 }
 button.upp-badge { display: inline-flex; align-items: center; gap: 4px; }
 button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2102,7 +2115,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-dot.snap-off { background: transparent; border: 1.5px solid var(--muted); }
 
 .upp-role-tag {
-  font-size: 10px; font-weight: 650; padding: 1px 5px; border-radius: 5px;
+  font-size: var(--upp-fs-xs); font-weight: 650; padding: 1px 5px; border-radius: 5px;
   background: var(--accent-soft); color: var(--accent); flex-shrink: 0; text-transform: uppercase;
 }
 .upp-role-tag.placeholder { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
@@ -2110,8 +2123,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-entry-title-row { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
 .upp-entry-title-row .upp-badge { flex: 0 1 auto; min-width: 44px; }
 .upp-entry-title-row .upp-badge.upp-keep { flex-shrink: 0; min-width: 0; }
-.upp-entry-name { flex: 0 1 auto; font-size: 13px; font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upp-entry-preview { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-entry-name { flex: 0 1 auto; font-size: var(--upp-fs-md); font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upp-entry-preview { font-size: var(--upp-fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-entry-wrap { display: flex; flex-direction: column; }
 .upp-entry-wrap.is-expanded > .upp-entry-row {
   border-bottom-left-radius: 0;
@@ -2134,14 +2147,14 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   gap: 7px;
 }
 .upp-inline-meta {
-  font-size: 11px; color: var(--muted);
+  font-size: var(--upp-fs-xs); color: var(--muted);
   display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
 }
 .upp-inline-pre {
   margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface-strong); color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
-  font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  font-size: var(--upp-fs-sm); line-height: 1.55; white-space: pre-wrap; word-break: break-word;
   max-height: 280px; overflow-y: auto; overscroll-behavior: contain;
 }
 .upp-inline-textarea {
@@ -2149,7 +2162,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   border-radius: 8px; border: 1px solid var(--border-strong);
   background: var(--surface-strong); color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
-  font-size: 12px; line-height: 1.55; padding: 8px 10px; outline: none;
+  font-size: var(--upp-fs-sm); line-height: 1.55; padding: 8px 10px; outline: none;
   overscroll-behavior: contain;
 }
 [data-wb-inline-content].is-tall { min-height: max(280px, 45dvh); max-height: none; }
@@ -2157,10 +2170,10 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 #upp-pin-book-btn { margin-inline-start: auto; }
 .upp-inline-textarea:focus { border-color: var(--accent); }
 .upp-inline-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
-.upp-wb-sub { color: var(--muted); font-size: 11px; margin-left: 4px; font-weight: 400; }
+.upp-wb-sub { color: var(--muted); font-size: var(--upp-fs-xs); margin-left: 4px; font-weight: 400; }
 
 .upp-persona-live-box {
-  font-size: 12.5px; line-height: 1.55; color: var(--text); background: var(--surface-strong);
+  font-size: var(--upp-fs-md); line-height: 1.55; color: var(--text); background: var(--surface-strong);
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
   max-height: 180px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; word-break: break-word; cursor: pointer;
 }
@@ -2172,7 +2185,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 
 .upp-bind-strip {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px;
-  border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--accent-border); font-size: 12px;
+  border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--accent-border); font-size: var(--upp-fs-sm);
   min-width: 0;
 }
 .upp-bind-strip > span:first-child {
@@ -2187,7 +2200,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 
 .upp-empty {
-  text-align: center; color: var(--muted); padding: 36px 16px; font-size: 13px;
+  text-align: center; color: var(--muted); padding: 36px 16px; font-size: var(--upp-fs-md);
   display: flex; flex-direction: column; align-items: center; gap: 10px;
 }
 
@@ -2246,7 +2259,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-drawer-head {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 11px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+  padding: 11px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: var(--upp-fs-md);
 }
 .upp-drawer-head > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-drawer-head > .upp-row-nowrap:first-child { flex: 1; min-width: 0; }
@@ -2275,10 +2288,10 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 
 .upp-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.upp-field label { font-size: 12px; color: var(--muted); font-weight: 550; }
+.upp-field label { font-size: var(--upp-fs-sm); color: var(--muted); font-weight: 550; }
 .upp-text-input, .upp-textarea {
   width: 100%; border-radius: 9px; border: 1px solid var(--border-strong);
-  background: var(--bg); color: var(--text); font-family: inherit; font-size: 12.5px; padding: 7px 10px; outline: none;
+  background: var(--bg); color: var(--text); font-family: inherit; font-size: var(--upp-fs-md); padding: 7px 10px; outline: none;
 }
 .upp-text-input:focus, .upp-textarea:focus { border-color: var(--accent); }
 .upp-textarea {
@@ -2289,7 +2302,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .upp-check-item {
   display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 9px; min-width: 0;
-  border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 12px; user-select: none;
+  border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: var(--upp-fs-sm); user-select: none;
 }
 .upp-check-item input { accent-color: var(--accent); margin: 0; flex-shrink: 0; }
 .upp-check-item > span:not(.upp-badge) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2316,22 +2329,22 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-merge-top > .upp-btn { flex-shrink: 0; }
 .upp-merge-name {
-  font-size: 13px; font-weight: 600; color: var(--text); min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--upp-fs-md); font-weight: 600; color: var(--text); min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .upp-merge-snippet {
-  font-size: 11.5px; color: var(--muted); line-height: 1.45;
+  font-size: var(--upp-fs-sm); color: var(--muted); line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   word-break: break-word; padding-left: 21px;
 }
 .upp-unsaved-bar {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
   padding: 9px 14px; background: var(--warn-soft); border-bottom: 1px solid rgba(166, 110, 56, 0.35);
-  color: var(--text); font-size: 12px;
+  color: var(--text); font-size: var(--upp-fs-sm);
 }
 
 .upp-diff-box {
   border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--upp-fs-sm); line-height: 1.5;
   max-height: 320px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
 }
 .upp-diff-line { padding: 1px 6px; border-radius: 4px; }
@@ -2340,23 +2353,23 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-diff-line.same { color: var(--muted); }
 
 .upp-sec-title {
-  font-size: 12px; font-weight: 600; color: var(--muted);
+  font-size: var(--upp-fs-sm); font-weight: 600; color: var(--muted);
   display: flex; align-items: center; justify-content: space-between; margin-top: 2px;
 }
 .upp-detail-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px;
   border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
-  cursor: pointer; font-size: 12px; color: var(--text); text-align: left; width: 100%; min-width: 0;
+  cursor: pointer; font-size: var(--upp-fs-sm); color: var(--text); text-align: left; width: 100%; min-width: 0;
 }
 .upp-detail-item > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upp-detail-item > *:last-child:not(:first-child) { flex-shrink: 0; }
 .upp-row-nowrap > .upp-detail-item { flex: 1; min-width: 0; width: auto; }
 .upp-detail-item:hover { border-color: var(--accent); background: var(--surface-hover); }
-.upp-ps-inherit-sel { height: 26px; font-size: 11px; max-width: 165px; padding: 0 20px 0 6px; }
+.upp-ps-inherit-sel { height: 26px; font-size: var(--upp-fs-xs); max-width: 165px; padding: 0 20px 0 6px; }
 
 .upp-modal.is-compact-h .upp-header { padding: 5px 10px; }
 .upp-modal.is-compact-h .upp-tabs { padding: 4px 10px; }
-.upp-modal.is-compact-h .upp-tab { height: 26px; min-height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-tab { height: 26px; min-height: 26px; font-size: var(--upp-fs-sm); }
 .upp-modal.is-compact-h .upp-toolbar { padding: 4px 10px; gap: 4px; height: 70px; }
 .upp-modal.is-compact-h .upp-toolbar .upp-row,
 .upp-modal.is-compact-h .upp-toolbar .upp-tb-row3,
@@ -2369,15 +2382,15 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-modal.is-compact-h .upp-tb-rg-row1,
 .upp-modal.is-compact-h .upp-tb-rg-row2 { min-height: 26px; }
 .upp-modal.is-compact-h .upp-toolbar .upp-pill-strip { padding-bottom: 0; }
-.upp-modal.is-compact-h .upp-toolbar .upp-pill { height: 26px; line-height: 24px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-pill { height: 26px; line-height: 24px; font-size: var(--upp-fs-sm); }
 .upp-modal.is-compact-h .upp-toolbar .upp-btn,
 .upp-modal.is-compact-h .upp-toolbar .upp-select,
 .upp-modal.is-compact-h .upp-toolbar .upp-input-wrap,
-.upp-modal.is-compact-h .upp-toolbar .upp-switch-label { height: 26px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-toolbar .upp-switch-label { height: 26px; font-size: var(--upp-fs-sm); }
 .upp-modal.is-compact-h .upp-toolbar .upp-btn.icon-only { width: 26px; }
 .upp-modal.is-compact-h .upp-footer { flex-direction: row; align-items: center; padding: 5px 10px; gap: 6px; }
 .upp-modal.is-compact-h.is-resizable .upp-footer { padding-right: 30px; }
-.upp-modal.is-compact-h .upp-foot-actions .upp-btn { height: 28px; font-size: 11.5px; }
+.upp-modal.is-compact-h .upp-foot-actions .upp-btn { height: 28px; font-size: var(--upp-fs-sm); }
 
 @container plugin-win (max-width: 560px) {
   .upp-toolbar {
@@ -2453,21 +2466,21 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 
 @container plugin-win (max-width: 420px) {
   .upp-header { padding: 8px 10px; gap: 6px; }
-  .upp-title { font-size: 13.5px; }
-  .upp-ctx-chip { max-width: 52px; font-size: 10.5px; padding: 1px 6px; }
+  .upp-title { font-size: var(--upp-fs-md); }
+  .upp-ctx-chip { max-width: 52px; font-size: var(--upp-fs-xs); padding: 1px 6px; }
   .upp-head-actions { gap: 3px; }
-  #upp-theme-select { max-width: 62px; height: 26px; padding: 0 14px 0 5px; font-size: 11px; }
-  #upp-fab-vis-btn { height: 26px; padding: 0 6px; font-size: 11px; }
+  #upp-theme-select { max-width: 76px; height: 26px; padding: 0 16px 0 6px; font-size: var(--upp-fs-xs); }
+  #upp-fab-vis-btn { height: 26px; padding: 0 6px; font-size: var(--upp-fs-xs); }
   .upp-header .upp-btn.icon-only { width: 25px; height: 25px; }
   .upp-tabs { padding: 7px 12px; gap: 4px; }
-  .upp-tab { padding: 0 9px; font-size: 12px; }
+  .upp-tab { padding: 0 9px; font-size: var(--upp-fs-sm); }
   .upp-body { padding: 10px 12px 12px; }
 }
 
 @container plugin-win (max-width: 355px) {
   .upp-ctx-chip { display: none; }
-  #upp-theme-select { max-width: 56px; font-size: 10.5px; }
-  #upp-fab-vis-btn { padding: 0 5px; font-size: 10.5px; }
+  #upp-theme-select { max-width: 66px; font-size: var(--upp-fs-xs); }
+  #upp-fab-vis-btn { padding: 0 5px; font-size: var(--upp-fs-xs); }
   .upp-header .upp-btn.icon-only { width: 24px; height: 24px; }
 }
 
@@ -2544,7 +2557,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   justify-content: space-between;
   gap: 6px;
   padding: 5px 6px 3px;
-  font-size: 11.5px;
+  font-size: var(--upp-fs-sm);
   font-weight: 600;
   color: var(--muted);
   min-width: 0;
@@ -2563,7 +2576,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-fab {
   position: fixed;
   pointer-events: auto;
-  z-index: 29990;
+  /* 高于透明遮罩（30000）：面板展开时悬浮球依然可见、可拖、可点 */
+  z-index: 30001;
   width: 42px;
   height: 42px;
   border-radius: 50%;
@@ -2577,6 +2591,8 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   cursor: grab;
   touch-action: none;
   user-select: none;
+  font-family: inherit;
+  font-size: var(--upp-fs-sm);
   transition: transform 0.14s ease, box-shadow 0.14s ease;
 }
 .upp-fab:hover { transform: scale(1.06); }
@@ -2594,7 +2610,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-fab-pop {
   position: fixed;
   pointer-events: auto;
-  z-index: 30001;
+  z-index: 30002;
   width: min(304px, calc(100% - 24px));
   width: min(304px, calc(100dvw - 24px));
   height: 352px;
@@ -2619,7 +2635,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   background: var(--chrome);
   border-top: 2px solid var(--accent);
   border-bottom: 1px solid var(--border-strong);
-  font-size: 12.5px;
+  font-size: var(--upp-fs-md);
   font-weight: 600;
 }
 .upp-fab-search-wrap {
@@ -2627,20 +2643,31 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 7px 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 .upp-fab-search-wrap .upp-input-wrap {
-  height: 28px;
-  min-width: 0;
+  height: 30px;
+  flex: 1 1 auto;
+  min-width: 84px;
+  font-size: var(--upp-fs-sm);
 }
-.upp-fab-search-wrap select { max-width: 100px; }
-.upp-fab-pop-head label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.upp-fab-search-wrap .upp-input-wrap input { font-size: var(--upp-fs-sm); }
+/* 分组下拉：与搜索框同高同字号；长分组名走省略号，完整名称挂 title 提示 */
+.upp-fab-search-wrap .upp-select {
+  flex: 0 1 auto;
+  height: 30px;
+  min-width: 92px;
+  max-width: 58%;
+  font-size: var(--upp-fs-sm);
+  text-overflow: ellipsis;
+}
+.upp-fab-pop-head label { display: flex; align-items: center; gap: 6px; font-size: var(--upp-fs-sm); }
 .upp-fab-pop-head label input { margin: 0; }
 .upp-fab-save-body { display: grid; align-content: start; gap: 8px; padding: 10px; }
 .upp-fab-save-body .upp-text-input { min-height: 36px; font-size: 16px; }
-.upp-fab-snap-meta { display: grid; gap: 2px; color: var(--muted); font-size: 11px; }
+.upp-fab-snap-meta { display: grid; gap: 2px; color: var(--muted); font-size: var(--upp-fs-xs); }
 .upp-fab-snap-meta span { min-width: 0; overflow-wrap: anywhere; }
 .upp-fab-snap-row { flex-shrink: 0; }
 .upp-pill-strip.upp-snapshot-routes {
@@ -2684,7 +2711,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--upp-fs-sm);
   text-align: left;
 }
 .upp-fab-snap-top {
@@ -2695,7 +2722,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-fab-snap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 580; }
 .upp-fab-snap-note {
-  font-size: 11px;
+  font-size: var(--upp-fs-xs);
   color: var(--muted);
   line-height: 1.35;
   white-space: pre-wrap;
@@ -2710,7 +2737,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   background: var(--accent);
   color: var(--accent-text);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--upp-fs-sm);
   font-weight: 550;
   display: inline-flex;
   align-items: center;
@@ -2729,7 +2756,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   padding: 7px 8px;
   border-top: 1px solid var(--border);
 }
-.upp-fab-pop-foot .upp-btn { flex: 1; height: 29px; font-size: 11.5px; padding: 0 8px; }
+.upp-fab-pop-foot .upp-btn { flex: 1; height: 29px; font-size: var(--upp-fs-sm); padding: 0 8px; }
 .upp-restore-pill {
   position: fixed;
   z-index: 29992;
@@ -2744,7 +2771,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   align-items: center;
   gap: 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--upp-fs-sm);
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
@@ -2775,7 +2802,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 .upp-block-title {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--upp-fs-md);
   font-weight: 650;
   color: var(--text);
   display: flex;
@@ -2820,7 +2847,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--upp-fs-sm);
   padding: 5px 7px;
   border-radius: 7px;
   background: var(--surface-strong);
@@ -2844,7 +2871,7 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   border: 1px solid color-mix(in srgb, var(--warn) 32%, var(--border));
   background: var(--warn-soft);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--upp-fs-sm);
   line-height: 1.5;
   display: flex;
   flex-direction: column;
@@ -3476,7 +3503,7 @@ function initExtension() {
         <section class="upp-card upp-section-block" data-merge-section="keep">
           <h4 class="upp-block-title">
             <span>1. 选择保留的主 User 槽位</span>
-            ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-merge-keep-preview-btn">${m.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
+            ${keepObj ? `<button type="button" class="upp-pill" style="height:22px;font-size:var(--upp-fs-xs);padding:0 8px;" id="upp-merge-keep-preview-btn">${m.showKeepPreview ? '收起主正文' : '查看主正文'}</button>` : ''}
           </h4>
           ${dupGroups.length ? `
             <div class="upp-pill-strip">
@@ -4297,8 +4324,8 @@ function initExtension() {
             <div class="upp-sec-title" style="margin:0;">
               <span>人设详细正文</span>
               <div class="upp-row-nowrap">
-                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" id="upp-sv-persona-pull" title="用当前酒馆正在使用的 User 名字与正文覆盖下方内容">拉取当前 User</button>
-                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" id="upp-sv-persona-copy">${ICONS.copy}<span>复制</span></button>
+                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:var(--upp-fs-xs);" id="upp-sv-persona-pull" title="用当前酒馆正在使用的 User 名字与正文覆盖下方内容">拉取当前 User</button>
+                <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:var(--upp-fs-xs);" id="upp-sv-persona-copy">${ICONS.copy}<span>复制</span></button>
               </div>
             </div>
             <textarea class="upp-textarea" id="upp-sv-persona-desc" spellcheck="false" style="flex:1;min-height:220px;" placeholder="直接微调此快照的 User 人设正文，修改后点右上角「保存修改」生效">${escapeHtml(descText)}</textarea>
@@ -4493,7 +4520,7 @@ function initExtension() {
               ${candPlan ? `<span class="upp-badge">将变为：${escapeHtml(candPlan.versionName)}</span>` : ''}
               <span class="upp-card-meta">${desc.length} 字</span>
             </label>
-            <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:11px;" data-merge-preview="${aid}">${expanded ? '收起正文' : '查看正文'}</button>
+            <button type="button" class="upp-btn" style="height:24px;padding:0 8px;font-size:var(--upp-fs-xs);" data-merge-preview="${aid}">${expanded ? '收起正文' : '查看正文'}</button>
           </div>
           ${!expanded ? `<div class="upp-merge-snippet">${escapeHtml(snippet || '（空描述）')}</div>` : `
             <pre class="upp-inline-pre" style="max-height:180px;">${escapeHtml(desc || '（空描述）')}</pre>
@@ -4581,7 +4608,7 @@ function initExtension() {
       return `
         <div class="upp-wb-sec-head">
           <span class="upp-row-nowrap">${dotHtml}<span>${escapeHtml(sec.name)}（${sec.items.length}）</span>${sec.isExcluded ? '<span class="upp-badge">已排除</span>' : ''}</span>
-          <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
+          <button type="button" class="upp-pill" style="height:22px;font-size:var(--upp-fs-xs);padding:0 8px;" data-ss-toggle-group="${escapeHtml(sec.id)}">${allChecked ? '取消全选' : '全选本组'}</button>
         </div>
         ${sec.items.map(it => {
           const sub = it.subtitle ? `<span class="upp-wb-sub">${escapeHtml(it.subtitle)}</span>` : '';
@@ -4700,7 +4727,7 @@ function initExtension() {
       return `
         <div class="upp-group-box ${folded ? 'is-collapsed' : ''}" style="margin-bottom:4px;">
           <div class="upp-group-head" style="padding:6px 9px;">
-            <button type="button" class="upp-group-toggle-btn" data-bp-fold="${escapeHtml(sec.id)}" style="font-size:12px;">
+            <button type="button" class="upp-group-toggle-btn" data-bp-fold="${escapeHtml(sec.id)}" style="font-size:var(--upp-fs-sm);">
               <span class="upp-group-chev">${ICONS.chevron}</span>
               ${dotHtml}
               <span class="upp-group-name">${escapeHtml(sec.name)}</span>
@@ -5365,7 +5392,7 @@ function initExtension() {
             <div class="upp-field">
               <div class="upp-sec-title">
                 <span>要同步的快照 · 已选 ${selSet.size} / ${matchingSnaps.length}</span>
-                <button type="button" class="upp-pill" style="height:22px;font-size:11px;padding:0 8px;" id="upp-ps-toggle-all-snaps">${allSnapsSelected ? '取消全选' : '全选'}</button>
+                <button type="button" class="upp-pill" style="height:22px;font-size:var(--upp-fs-xs);padding:0 8px;" id="upp-ps-toggle-all-snaps">${allSnapsSelected ? '取消全选' : '全选'}</button>
               </div>
               <div class="upp-pop-list" style="max-height:110px;">
                 ${matchingSnaps.map(s => `
@@ -8542,6 +8569,7 @@ function initExtension() {
     syncModalLayoutClasses();
     syncFabVisBtn();
     void refreshAll(false);
+    adaptPanelToFab();
   }
 
   function closeModal() {
@@ -8558,6 +8586,7 @@ function initExtension() {
     elBackdrop.removeAttribute('aria-hidden');
     elBackdrop.hidden = true;
     elRestorePill.hidden = true;
+    elModal.classList.remove('is-fab-clear-foot-l', 'is-fab-clear-foot-r', 'is-fab-clear-head-l', 'is-fab-clear-head-r');
     resetModalGeometry();
     syncFabUi();
   }
@@ -8935,7 +8964,7 @@ function initExtension() {
           <button type="button" class="upp-fab-apply-btn" data-fab-apply="${escapeHtml(s.id)}">应用</button>
         </div>
       `;
-    }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:12px;">${snapshots.length ? '没有匹配的快照' : '暂无快照'}</div>`;
+    }).join('') : `<div class="upp-empty" style="padding:18px 10px;font-size:var(--upp-fs-sm);">${snapshots.length ? '没有匹配的快照' : '暂无快照'}</div>`;
   }
 
   function renderFabPop() {
@@ -8951,7 +8980,7 @@ function initExtension() {
           ${ICONS.search}
           <input type="text" id="upp-fab-search" spellcheck="false" placeholder="搜索快照" value="${escapeHtml(fabSearchQuery)}" />
         </div>
-        <select class="upp-select" id="upp-fab-group" aria-label="快照分组">
+        <select class="upp-select" id="upp-fab-group" aria-label="快照分组" title="${escapeHtml(fabGroup || '全部分组')}">
           <option value="">全部分组</option>
           ${groups.map(group => `<option value="${escapeHtml(group)}" ${group === fabGroup ? 'selected' : ''}>${escapeHtml(group)}</option>`).join('')}
         </select>
@@ -9017,6 +9046,67 @@ function initExtension() {
     if (fabPopOpen && !fabDraft) renderFabPopList();
   }
 
+  function fabRect() {
+    return elFabBtn.getBoundingClientRect();
+  }
+
+  // 面板展开时拖动悬浮球 → 让面板跟着让位：浮动窗口整体挪开，全屏窗口给顶/底操作条留出让位空间
+  function adaptPanelToFab() {
+    if (!elModal || !state.open || state.minimized) return;
+    const ball = fabRect();
+    const rect = elModal.getBoundingClientRect();
+    const pad = 10;
+    const overlaps = ball.right + pad > rect.left && ball.left - pad < rect.right
+      && ball.bottom + pad > rect.top && ball.top - pad < rect.bottom;
+    const clearClasses = [
+      'is-fab-clear-head-l', 'is-fab-clear-head-r',
+      'is-fab-clear-foot-l', 'is-fab-clear-foot-r',
+    ];
+    elModal.classList.remove(...clearClasses);
+    if (!overlaps) {
+      if (modalGeo.floating) reclampModalGeometry();
+      return;
+    }
+    if (modalGeo.floating && !isMobileFullscreen()) {
+      nudgePanelAwayFromFab(ball, rect);
+      return;
+    }
+    const footerRect = elFooter?.getBoundingClientRect();
+    const headerRect = elHeader?.getBoundingClientRect();
+    const ballCenterX = ball.left + ball.width / 2;
+    const side = ballCenterX < rect.left + rect.width / 2 ? 'l' : 'r';
+    if (footerRect && ball.bottom > footerRect.top && ball.top < footerRect.bottom) {
+      elModal.classList.add(`is-fab-clear-foot-${side}`);
+    } else if (headerRect && ball.bottom > headerRect.top && ball.top < headerRect.bottom) {
+      elModal.classList.add(`is-fab-clear-head-${side}`);
+    }
+  }
+
+  // 浮动窗口遇到悬浮球时，用最小位移让开（保持落点不动）
+  function nudgePanelAwayFromFab(ball, rect) {
+    const pad = 10;
+    const { vw, vh } = getViewportSize();
+    let dx = 0;
+    let dy = 0;
+    const needLeft = ball.right + pad - rect.left;
+    const needRight = rect.right - (ball.left - pad);
+    if (rect.left - pad >= needLeft) dx = -needLeft;
+    else if (vw - rect.right - pad >= needRight) dx = needRight;
+    else {
+      const needUp = ball.bottom + pad - rect.top;
+      const needDown = rect.bottom - (ball.top - pad);
+      if (rect.top - pad >= needUp) dy = -needUp;
+      else if (vh - rect.bottom - pad >= needDown) dy = needDown;
+      else return;
+    }
+    applyModalRect({
+      left: Math.round(rect.left + dx),
+      top: Math.round(rect.top + dy),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    }, false);
+  }
+
   elFabBtn.addEventListener('pointerdown', ev => {
     if (fabDragging || (ev.button !== 0 && ev.pointerType === 'mouse')) return;
     fabDragging = true;
@@ -9063,6 +9153,7 @@ function initExtension() {
       state.store.settings.fabSide = x < (left + right) / 2 ? 'left' : 'right';
       state.store.settings.fabY = (y + 21) / height;
       persistStore(state.store);
+      adaptPanelToFab();
     } else if (ev.type === 'pointerup') {
       if (fabPopOpen) closeFabPop();
       else openFabPop();
@@ -9104,6 +9195,7 @@ function initExtension() {
   elFabPop.addEventListener('change', ev => {
     if (ev.target.id === 'upp-fab-group') {
       fabGroup = ev.target.value;
+      ev.target.title = fabGroup || '全部分组';
       renderFabPopList();
       shadow.getElementById('upp-fab-pop-list').scrollTop = 0;
     } else if (ev.target.id === 'upp-fab-auto-sw') {
@@ -9226,6 +9318,7 @@ function initExtension() {
       positionRestorePill();
     } else if (state.open && !state.minimized) {
       reclampModalGeometry();
+      adaptPanelToFab();
     }
   }
   window.addEventListener('resize', handleViewportChange, { signal: ac.signal });

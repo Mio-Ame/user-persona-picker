@@ -70,7 +70,34 @@ function findChrome() {
 const MARKUP = `
 <div class="upp-fab-root" id="upp-fab-root">
   <button type="button" class="upp-fab" id="upp-fab-btn">CAM</button>
-  <div class="upp-fab-pop" id="upp-fab-pop" hidden><div class="upp-fab-pop-head">快捷快照</div></div>
+  <div class="upp-fab-pop" id="upp-fab-pop" hidden>
+    <div class="upp-fab-pop-head"><span>快照</span><label><input type="checkbox" checked />切聊天时自动应用绑定快照</label></div>
+    <div class="upp-fab-search-wrap">
+      <div class="upp-input-wrap"><input type="text" id="upp-fab-search" placeholder="搜索快照" spellcheck="false" /></div>
+      <select class="upp-select" id="upp-fab-group" aria-label="快照分组" title="全部分组">
+        <option value="">全部分组</option>
+        <option>雨天酒馆</option>
+        <option>很长很长的一个分组名称示例</option>
+      </select>
+    </div>
+    <div class="upp-fab-pop-list" id="upp-fab-pop-list">
+      <div class="upp-fab-snap-row is-bound">
+        <div class="upp-fab-snap-main">
+          <div class="upp-fab-snap-top"><span class="upp-fab-snap-name">雨天 · 主聊天</span><span class="upp-badge ok">本聊天</span></div>
+          <div class="upp-fab-snap-meta"><span>User 人设：沈倦</span><span>预设：叙事加速</span><span>世界书：雨夜酒馆</span></div>
+          <div class="upp-fab-snap-note">临时笔记：雨天、旧信</div>
+        </div>
+        <button type="button" class="upp-fab-apply-btn">应用</button>
+      </div>
+      <div class="upp-fab-snap-row">
+        <div class="upp-fab-snap-main">
+          <div class="upp-fab-snap-top"><span class="upp-fab-snap-name">港口旧事 · 存档 2</span><span class="upp-badge">港口旧事</span></div>
+        </div>
+        <button type="button" class="upp-fab-apply-btn">应用</button>
+      </div>
+    </div>
+    <div class="upp-fab-pop-foot"><button type="button" class="upp-btn primary">保存快照</button></div>
+  </div>
 </div>
 <button type="button" class="upp-restore-pill" id="upp-restore-pill">快照管家 · 点击恢复</button>
 <div class="upp-backdrop" hidden>
@@ -329,6 +356,84 @@ async function evaluate(cdp, sessionId, expression) {
   return res.result?.value;
 }
 
+// 悬浮球弹层：层级、字号一致性、分组下拉宽度、胶囊/徽章高度、全插件字号阶梯
+async function collectFabMetrics(cdp, sessionId) {
+  const raw = await evaluate(cdp, sessionId, `(() => {
+    const s = document.getElementById('upp-host').shadowRoot;
+    const pop = s.getElementById('upp-fab-pop');
+    pop.hidden = false;
+    pop.style.left = '12px';
+    pop.style.top = '12px';
+    pop.style.width = '304px';
+    pop.style.maxHeight = '352px';
+    const cs = el => getComputedStyle(el);
+    const px = el => Math.round(parseFloat(cs(el).fontSize) * 10) / 10;
+    const search = s.getElementById('upp-fab-search');
+    const group = s.getElementById('upp-fab-group');
+    const pills = [...s.querySelectorAll('.upp-pill-strip .upp-pill')].map(el => Math.round(el.getBoundingClientRect().height));
+    const badges = [...s.querySelectorAll('.upp-fab-snap-row .upp-badge')].map(el => Math.round(el.getBoundingClientRect().height));
+    const sizes = new Set();
+    const sizeSamples = {};
+    s.querySelectorAll('*').forEach(el => {
+      const v = px(el);
+      if (!(v > 0)) return;
+      sizes.add(v);
+      if (!sizeSamples[v]) {
+        sizeSamples[v] = (el.tagName || '').toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : '');
+      }
+    });
+    return JSON.stringify({
+      fabZ: Number(cs(s.getElementById('upp-fab-btn')).zIndex),
+      backdropZ: Number(cs(s.querySelector('.upp-backdrop')).zIndex),
+      searchFont: px(search),
+      selectFont: px(group),
+      selectWidth: Math.round(group.getBoundingClientRect().width),
+      themeSelectWidth: Math.round(s.getElementById('upp-theme-select').getBoundingClientRect().width),
+      headerOverflow: (() => {
+        const h = s.querySelector('.upp-header');
+        return Math.round(h.scrollWidth - h.clientWidth);
+      })(),
+      pills,
+      badges,
+      fontSizes: [...sizes].sort((a, b) => a - b),
+      sizeSamples,
+    });
+  })()`);
+  return JSON.parse(raw || '{}');
+}
+
+function checkFabAndType(m) {
+  if (!m || !m.fabZ) {
+    fail('未能读取悬浮球弹层度量');
+    return;
+  }
+  if (m.fabZ > m.backdropZ) pass(`悬浮球层级 ${m.fabZ} 高于遮罩 ${m.backdropZ}，面板展开时仍可拖动`);
+  else fail(`悬浮球层级 ${m.fabZ} 不高于遮罩 ${m.backdropZ}，面板展开时会被遮住`);
+
+  if (m.searchFont === m.selectFont) pass(`搜索框与分组下拉同字号 ${m.searchFont}px`);
+  else fail(`搜索框 ${m.searchFont}px 与分组下拉 ${m.selectFont}px 字号不一致`);
+
+  if (m.selectWidth >= 92) pass(`分组下拉宽 ${m.selectWidth}px，可完整显示「全部分组」`);
+  else fail(`分组下拉仅 ${m.selectWidth}px，长分组名会被截断`);
+
+  if (m.themeSelectWidth >= 70) pass(`顶栏主题下拉宽 ${m.themeSelectWidth}px，文字与箭头不再互撞`);
+  else fail(`顶栏主题下拉仅 ${m.themeSelectWidth}px，文字会撞到右侧箭头`);
+
+  if (m.headerOverflow <= 0) pass('顶栏无横向溢出');
+  else fail(`顶栏横向溢出 ${m.headerOverflow}px`);
+
+  const uniform = arr => Array.isArray(arr) && arr.length > 0 && new Set(arr).size === 1;
+  if (uniform(m.pills)) pass(`分组胶囊高度一致 ${m.pills[0]}px`);
+  else fail(`分组胶囊高度不一致：${JSON.stringify(m.pills)}`);
+  if (uniform(m.badges)) pass(`行内徽章高度一致 ${m.badges[0]}px`);
+  else fail(`行内徽章高度不一致：${JSON.stringify(m.badges)}`);
+
+  const allowed = new Set([11, 12, 13, 15, 16]);
+  const bad = (m.fontSizes || []).filter(v => !allowed.has(v));
+  if (!bad.length) pass(`字号收敛为 ${(m.fontSizes || []).join(' / ')}px（11/12/13/15 + 手机输入框 16）`);
+  else fail(`出现阶梯外字号：${bad.map(v => `${v}px(${m.sizeSamples?.[v] || '?'})`).join(', ')}`);
+}
+
 async function loadAndReport(cdp, sessionId, url) {
   const loaded = cdp.once('Page.loadEventFired');
   await cdp.send('Page.navigate', { url }, sessionId);
@@ -443,6 +548,14 @@ async function main() {
       if (mini.backdrop <= 0.001) pass('小窗形态下遮罩恢复透明，可对照后方聊天');
       else fail(`小窗形态下遮罩未恢复透明：${mini.backdrop}`);
 
+      // 复原成全屏形态，避免影响后续探针
+      await evaluate(cdp, sessionId, `(() => {
+        const s = document.getElementById('upp-host').shadowRoot;
+        s.querySelector('.upp-backdrop').classList.remove('is-mini');
+        s.querySelector('.upp-modal').classList.remove('is-floating');
+        return 1;
+      })()`);
+
       // 实底守卫机制验证：样式表用 !important 把面板改成半透明时，内联 !important 能否夺回
       const guardRaw = await evaluate(cdp, sessionId, `(() => {
         const s = document.getElementById('upp-host').shadowRoot;
@@ -471,6 +584,55 @@ async function main() {
       else fail(`无法复现被覆盖场景：${guard.soft}`);
       if (alphaOfStr(guard.forced) >= 0.999) pass('内联 !important 可夺回实底（实底守卫机制有效）');
       else fail(`实底守卫无法夺回底色：${guard.forced}`);
+
+      // 悬浮球弹层与全插件字号
+      const fabReport = await collectFabMetrics(cdp, sessionId);
+      checkFabAndType(fabReport);
+      if (shotsDir) await shoot(cdp, sessionId, path.join(shotsDir, 'paint-fabpop390.png'));
+
+      // 悬浮球拖到面板左上角时，标题应被让位推开
+      const clearRaw = await evaluate(cdp, sessionId, `(() => {
+        const s = document.getElementById('upp-host').shadowRoot;
+        const modal = s.querySelector('.upp-modal');
+        const ball = s.getElementById('upp-fab-btn');
+        const title = s.querySelector('.upp-title');
+        const hit = (a, b) => !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+        ball.style.left = '6px';
+        ball.style.top = '6px';
+        const before = hit(ball.getBoundingClientRect(), title.getBoundingClientRect());
+        const br = ball.getBoundingClientRect();
+        const tr = title.getBoundingClientRect();
+        modal.classList.add('is-fab-clear-head-l');
+        const after = hit(ball.getBoundingClientRect(), title.getBoundingClientRect());
+        modal.classList.remove('is-fab-clear-head-l');
+        return JSON.stringify({
+          before, after,
+          ball: [Math.round(br.left), Math.round(br.top), Math.round(br.width), Math.round(br.height)],
+          title: [Math.round(tr.left), Math.round(tr.top), Math.round(tr.width), Math.round(tr.height)],
+        });
+      })()`);
+      const clear = JSON.parse(clearRaw || '{}');
+      if (clear.before !== true) fail(`让位探针未复现重叠（球未压在标题上）ball=${JSON.stringify(clear.ball)} title=${JSON.stringify(clear.title)}`);
+      else pass('悬浮球压在标题上时确实遮挡（复现问题场景）');
+      if (clear.after === false) pass('顶栏让位生效：标题被推开，不被悬浮球遮挡');
+      else fail('顶栏让位无效：标题仍被悬浮球遮挡');
+      if (shotsDir) {
+        await evaluate(cdp, sessionId, `(() => {
+          const s = document.getElementById('upp-host').shadowRoot;
+          s.querySelector('.upp-modal').classList.add('is-fab-clear-head-l');
+          s.getElementById('upp-fab-pop').hidden = true;
+          const ball = s.getElementById('upp-fab-btn');
+          ball.style.left = '6px';
+          ball.style.top = '6px';
+          return 1;
+        })()`);
+        await shoot(cdp, sessionId, path.join(shotsDir, 'paint-fabclear390.png'));
+        await evaluate(cdp, sessionId, `(() => {
+          const s = document.getElementById('upp-host').shadowRoot;
+          s.querySelector('.upp-modal').classList.remove('is-fab-clear-head-l');
+          return 1;
+        })()`);
+      }
     }
 
     await cdp.send('Emulation.setDeviceMetricsOverride', {
