@@ -1660,6 +1660,9 @@ const STYLE_CSS = `
   width: 0;
   height: 0;
   pointer-events: none;
+  /* 宿主容器自身也要压在最上层：position: fixed 会生成独立层叠上下文，
+     若此处为 auto，宿主任何带 z-index 的界面元素都会盖住整个面板，看起来就像面板透明 */
+  z-index: 900000;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
   line-height: 1.45;
@@ -1816,9 +1819,13 @@ const STYLE_CSS = `
   container-type: inline-size;
   container-name: plugin-win;
   width: min(780px, 100%);
+  height: min(690px, 88vh);
   height: min(690px, 88dvh);
+  max-height: 100vh;
   max-height: 100dvh;
-  background: var(--bg);
+  /* 实底兜底：先铺一层不透明底色，再由主题色覆盖；任何变量解析失败都绝不透出宿主内容 */
+  background-color: #f1f1ec;
+  background-image: linear-gradient(var(--bg), var(--bg));
   border: 1.5px solid var(--border-strong);
   border-radius: 16px;
   box-shadow: var(--modal-shadow);
@@ -1833,6 +1840,11 @@ const STYLE_CSS = `
 .upp-modal.is-dragging,
 .upp-modal.is-resizing {
   user-select: none;
+}
+/* 深色配色下的实底兜底（仅在主题色变量异常时才可见，保证永不透底） */
+.upp-backdrop[data-theme="glass-dark"] .upp-modal,
+.upp-fab-root[data-theme="glass-dark"] .upp-fab-pop {
+  background-color: #17181c;
 }
 
 .upp-header {
@@ -2460,6 +2472,15 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 
 @media (max-width: 680px) {
+  /* 手机全屏形态：整屏铺不透明实底，任何高度/宽度计算偏差或主题半透明都不会透出宿主内容；
+     小窗对照形态（.is-mini）仍保持透明，方便看上方聊天区 */
+  .upp-backdrop:not(.is-mini) {
+    background-color: #f1f1ec;
+    background-image: linear-gradient(var(--bg), var(--bg));
+  }
+  .upp-backdrop:not(.is-mini)[data-theme="glass-dark"] {
+    background-color: #17181c;
+  }
   .upp-backdrop {
     padding: 0;
     padding-left: env(safe-area-inset-left, 0px);
@@ -2468,7 +2489,9 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   }
   .upp-modal:not(.is-floating) {
     width: 100%;
+    height: 100vh;
     height: 100dvh;
+    max-height: 100vh;
     max-height: 100dvh;
     border-radius: 0;
     border-left: none;
@@ -2572,10 +2595,13 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   position: fixed;
   pointer-events: auto;
   z-index: 30001;
+  width: min(304px, calc(100% - 24px));
   width: min(304px, calc(100dvw - 24px));
   height: 352px;
+  max-height: calc(100vh - 24px);
   max-height: calc(100dvh - 24px);
-  background: var(--bg);
+  background-color: #f1f1ec;
+  background-image: linear-gradient(var(--bg), var(--bg));
   border: 1.5px solid var(--border-strong);
   border-radius: 15px;
   box-shadow: var(--modal-shadow);
@@ -8179,13 +8205,102 @@ function initExtension() {
     }
   });
 
+  function colorAlpha(color) {
+    const s = String(color || '').trim();
+    if (!s) return 1;
+    if (/^transparent$/i.test(s)) return 0;
+    const m = s.match(/^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
+    if (!m || m[4] === undefined) return 1;
+    const raw = m[4];
+    const a = raw.endsWith('%') ? Number(raw.slice(0, -1)) / 100 : Number(raw);
+    return Number.isFinite(a) ? a : 1;
+  }
+
+  // 实底守卫：万一宿主或内核把底色算成了半透明，这里用 !important 强制改写回实底，
+  // 保证面板在任何环境下都不会透出底层内容（只在真的算错时才动手，正常情况零副作用）。
+  let surfaceGuardFired = false;
+  function guardPanelSurface(solidBg) {
+    if (!elModal || !solidBg) return false;
+    let alpha = 1;
+    try { alpha = colorAlpha(window.getComputedStyle(elModal).backgroundColor); } catch (_) { return false; }
+    if (alpha >= 0.999) return false;
+    const targets = [elModal, elFabPop, elRestorePill].filter(Boolean);
+    targets.forEach(el => {
+      el.style.setProperty('background-color', solidBg, 'important');
+      el.style.setProperty('background-image', 'none', 'important');
+    });
+    let floating = false;
+    try { floating = !!modalGeo.floating; } catch (_) { floating = false; }
+    if (isMobileFullscreen() && !floating && elBackdrop) {
+      elBackdrop.style.setProperty('background-color', solidBg, 'important');
+      elBackdrop.style.setProperty('background-image', 'none', 'important');
+    }
+    if (!surfaceGuardFired) {
+      surfaceGuardFired = true;
+      try { toast('已强制面板不透明显示', 'warning'); } catch (_) {}
+    }
+    return true;
+  }
+
+  function clearSurfaceGuard() {
+    [elModal, elFabPop, elRestorePill, elBackdrop].filter(Boolean).forEach(el => {
+      el.style.removeProperty('background-image');
+      el.style.removeProperty('background-color');
+    });
+  }
+
   function applyThemeAll() {
     const mode = state.store.settings.themeMode || 'paper';
-    elModal.style.backgroundColor = applyThemeToElement(elBackdrop, mode);
-    elFabPop.style.backgroundColor = applyThemeToElement(elFabRoot, mode);
-    applyThemeToElement(elRestorePill, mode);
+    clearSurfaceGuard();
+    const solidBg = applyThemeToElement(elBackdrop, mode);
+    elModal.style.backgroundColor = solidBg;
+    const solidFab = applyThemeToElement(elFabRoot, mode);
+    elFabPop.style.backgroundColor = solidFab;
+    elRestorePill.style.backgroundColor = applyThemeToElement(elRestorePill, mode);
     if (elThemeSelect) elThemeSelect.value = mode;
+    guardPanelSurface(solidBg);
+    if (state.open) {
+      window.requestAnimationFrame(() => {
+        try { guardPanelSurface(solidBg); } catch (_) {}
+      });
+    }
+    return { solidBg, solidFab };
   }
+
+  // 面板实底自检：控制台执行 __uppPaintDiag() 即可看到各层真实计算出的底色与层级
+  function collectPaintDiag() {
+    const read = el => {
+      if (!el) return null;
+      const cs = window.getComputedStyle(el);
+      return {
+        background: cs.backgroundColor,
+        image: String(cs.backgroundImage || '').slice(0, 48),
+        zIndex: cs.zIndex,
+        visible: !el.hidden,
+      };
+    };
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    return {
+      version: APP_VERSION,
+      themeMode: state.store?.settings?.themeMode || '',
+      hostTint: rootStyle.getPropertyValue('--SmartThemeBlurTintColor').trim(),
+      hostBodyBg: window.getComputedStyle(document.body || document.documentElement).backgroundColor,
+      viewport: getViewportSize(),
+      mobileFullscreen: isMobileFullscreen(),
+      hostZ: window.getComputedStyle(host).zIndex,
+      modal: read(elModal),
+      backdrop: read(elBackdrop),
+      fabPop: read(elFabPop),
+      drawer: read(elDrawerMask?.querySelector('.upp-drawer') || null),
+    };
+  }
+  try {
+    window.__uppPaintDiag = collectPaintDiag;
+    if (!window.__uppPaintAnnounced) {
+      window.__uppPaintAnnounced = true;
+      console.info(`[快照管家] v${APP_VERSION} 面板实底模式就绪；显示异常时可在控制台执行 __uppPaintDiag()`);
+    }
+  } catch (_) {}
 
   elThemeSelect.addEventListener('change', () => {
     state.store = loadStore();
@@ -8235,6 +8350,8 @@ function initExtension() {
     elModal.classList.toggle('is-floating', !!modalGeo.floating);
     elModal.classList.toggle('is-draggable', !mobileFs);
     elModal.classList.toggle('is-resizable', !mobileFs);
+    // 小窗对照形态下遮罩保持透明以便看后方酒馆界面，其余手机形态整屏铺实底
+    elBackdrop?.classList.toggle('is-mini', !!modalGeo.floating);
     let h = modalGeo.floating && modalGeo.height ? modalGeo.height : (elModal.getBoundingClientRect().height || 0);
     if (!h && state.open) h = getViewportSize().vh;
     elModal.classList.toggle('is-compact-h', h > 0 && h <= 330);
@@ -9088,7 +9205,19 @@ function initExtension() {
   }
   document.addEventListener('select2:opening', handleSelect2Opening, { capture: true, signal: ac.signal });
 
+  // 旋转、软键盘、宿主主题热切换后重新读取主题色，保证面板底色始终是实底
+  let themeRefreshTimer = null;
+  function scheduleThemeRefresh() {
+    if (themeRefreshTimer) return;
+    themeRefreshTimer = window.setTimeout(() => {
+      themeRefreshTimer = null;
+      try { applyThemeAll(); } catch (_) {}
+      try { syncModalLayoutClasses(); } catch (_) {}
+    }, 140);
+  }
+
   function handleViewportChange() {
+    scheduleThemeRefresh();
     if (state.store.settings.showFloatingBall !== false) {
       positionFab();
       if (fabPopOpen) positionFabPop();
@@ -9102,6 +9231,10 @@ function initExtension() {
   window.addEventListener('resize', handleViewportChange, { signal: ac.signal });
   window.addEventListener('orientationchange', handleViewportChange, { signal: ac.signal });
   window.visualViewport?.addEventListener('resize', handleViewportChange, { signal: ac.signal });
+  window.addEventListener('pageshow', scheduleThemeRefresh, { signal: ac.signal });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleThemeRefresh();
+  }, { signal: ac.signal });
 
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape') {

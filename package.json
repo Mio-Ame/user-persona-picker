@@ -1,6 +1,6 @@
 {
   "name": "user-persona-picker",
-  "version": "7.9.0",
+  "version": "7.9.1",
   "private": true,
   "type": "module",
   "description": "SillyTavern / TauriTavern extension for managing user personas, snapshots, worldbooks, presets, and regex rules.",
@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --max-old-space-size=1024 --test --test-concurrency=1 tests/*.test.mjs",
     "test:core": "node --max-old-space-size=1024 --test tests/core.test.mjs",
-    "test:e2e": "node --max-old-space-size=1024 --test --test-concurrency=1 tests/e2e_ui.test.mjs"
+    "test:e2e": "node --max-old-space-size=1024 --test --test-concurrency=1 tests/e2e_ui.test.mjs",
+    "test:paint": "node tests/paint_check.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
