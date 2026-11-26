@@ -112,6 +112,31 @@ const MARKUP = `
       <button type="button" class="upp-btn primary">保存当前状态</button>
       <div class="upp-pill-strip"><button class="upp-pill active">全部 (3)</button><button class="upp-pill">主聊天</button></div></div>
     <div class="upp-body">
+      <div class="upp-group-box" id="upp-group-demo">
+        <div class="upp-group-head">
+          <button type="button" class="upp-group-toggle-btn"><span class="upp-group-chev">▾</span><span class="upp-group-name">雨天酒馆</span></button>
+        </div>
+        <div class="upp-group-items">
+          <div class="upp-entry-wrap">
+            <div class="upp-entry-row is-on" id="upp-row-on">
+              <button type="button" class="upp-entry-main">
+                <span class="upp-entry-chev">▸</span><span class="upp-dot constant"></span>
+                <span class="upp-entry-text"><span class="upp-entry-name">旧修表铺</span><span class="upp-entry-preview">她小时候在店里学修钟表</span></span>
+              </button>
+              <button type="button" class="upp-switch" role="switch" aria-checked="true"></button>
+            </div>
+          </div>
+          <div class="upp-entry-wrap">
+            <div class="upp-entry-row is-off" id="upp-row-off">
+              <button type="button" class="upp-entry-main">
+                <span class="upp-entry-chev">▸</span><span class="upp-dot selective"></span>
+                <span class="upp-entry-text"><span class="upp-entry-name">外祖父的遗物</span><span class="upp-entry-preview">工具箱来自外祖父</span></span>
+              </button>
+              <button type="button" class="upp-switch" role="switch" aria-checked="false"></button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="upp-card"><div class="upp-entry-title-row"><strong>雨天 · 主聊天</strong><span class="upp-badge ok">当前</span></div>
         <div class="upp-muted">User 人设：沈倦 / 预设：叙事加速 / 世界书：雨夜酒馆</div>
         <div class="upp-snap-actions"><button class="upp-btn">应用</button><button class="upp-btn">查看</button><button class="upp-btn">改名</button></div></div>
@@ -434,6 +459,56 @@ function checkFabAndType(m) {
   else fail(`出现阶梯外字号：${bad.map(v => `${v}px(${m.sizeSamples?.[v] || '?'})`).join(', ')}`);
 }
 
+// 分组 / 条目 / 未开启条目 的三层视觉区分
+async function collectHierarchyMetrics(cdp, sessionId) {
+  const raw = await evaluate(cdp, sessionId, `(() => {
+    const s = document.getElementById('upp-host').shadowRoot;
+    const cs = el => getComputedStyle(el);
+    const rgb = el => {
+      const parts = String(cs(el).backgroundColor).match(/[0-9.]+/g) || [];
+      return {
+        r: Number(parts[0]) || 0, g: Number(parts[1]) || 0, b: Number(parts[2]) || 0,
+        a: parts[3] === undefined ? 1 : Number(parts[3]),
+      };
+    };
+    const dist = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+    const group = s.getElementById('upp-group-demo');
+    const head = group.querySelector('.upp-group-head');
+    const onRow = s.getElementById('upp-row-on');
+    const offRow = s.getElementById('upp-row-off');
+    return JSON.stringify({
+      groupVsRow: dist(rgb(group), rgb(onRow)),
+      headVsRow: dist(rgb(head), rgb(onRow)),
+      onOpacity: Number(cs(onRow.querySelector('.upp-entry-main')).opacity),
+      offOpacity: Number(cs(offRow.querySelector('.upp-entry-main')).opacity),
+      offSwitchOpacity: Number(cs(offRow.querySelector('.upp-switch')).opacity),
+      offBorderStyle: cs(offRow).borderTopStyle,
+      groupAlpha: rgb(group).a,
+      rowAlpha: rgb(onRow).a,
+    });
+  })()`);
+  return JSON.parse(raw || '{}');
+}
+
+function checkHierarchy(m) {
+  if (!m || typeof m.groupVsRow !== 'number') {
+    fail('未能读取分组/条目层级度量');
+    return;
+  }
+  if (m.groupAlpha >= 0.999 && m.rowAlpha >= 0.999) pass('分组与条目都是不透明底色');
+  else fail(`分组或条目底色带透明度：group=${m.groupAlpha} row=${m.rowAlpha}`);
+  if (m.groupVsRow >= 28) pass(`分组容器与条目卡片配色差 ${m.groupVsRow}（RGB 通道和），层级一眼可分`);
+  else fail(`分组容器与条目卡片配色差仅 ${m.groupVsRow}，看不出层级`);
+  if (m.headVsRow >= 28) pass(`分组标题带与条目卡片配色差 ${m.headVsRow}`);
+  else fail(`分组标题带与条目卡片配色差仅 ${m.headVsRow}`);
+  if (m.onOpacity >= 0.99 && m.offOpacity <= 0.5) pass(`未开启条目正文淡出到 ${m.offOpacity}，开启条目保持 ${m.onOpacity}`);
+  else fail(`开启/未开启区分不足：on=${m.onOpacity} off=${m.offOpacity}`);
+  if (m.offSwitchOpacity >= 0.99) pass('未开启条目的开关保持全不透明，仍然可点');
+  else fail(`未开启条目的开关被一起淡出：${m.offSwitchOpacity}`);
+  if (m.offBorderStyle === 'dashed') pass('未开启条目改为虚线框，和开启条目形态不同');
+  else fail(`未开启条目边框不是虚线：${m.offBorderStyle}`);
+}
+
 async function loadAndReport(cdp, sessionId, url) {
   const loaded = cdp.once('Page.loadEventFired');
   await cdp.send('Page.navigate', { url }, sessionId);
@@ -588,6 +663,8 @@ async function main() {
       // 悬浮球弹层与全插件字号
       const fabReport = await collectFabMetrics(cdp, sessionId);
       checkFabAndType(fabReport);
+      const hierarchyReport = await collectHierarchyMetrics(cdp, sessionId);
+      checkHierarchy(hierarchyReport);
       if (shotsDir) await shoot(cdp, sessionId, path.join(shotsDir, 'paint-fabpop390.png'));
 
       // 悬浮球拖到面板左上角时，标题应被让位推开
