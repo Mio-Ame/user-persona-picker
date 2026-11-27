@@ -1,4 +1,4 @@
-﻿import {
+import {
   characters,
   chat_metadata,
   eventSource,
@@ -6,12 +6,15 @@
   getCurrentChatId,
   getRequestHeaders,
   reloadCurrentChat,
+  saveMetadata,
   saveSettingsDebounced,
   setUserName,
   this_chid,
 } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import {
+  charSetAuxWorlds,
+  charUpdatePrimaryWorld,
   getWorldInfoSettings,
   loadWorldInfo,
   onWorldInfoChange,
@@ -743,6 +746,42 @@ const Host = {
   },
   getChatWorldbook() {
     return chat_metadata?.world_info ? String(chat_metadata.world_info) : null;
+  },
+  // 恢复绑定用：走宿主自己的接口（已核对安装版 scripts/world-info.js / script.js 的导出）
+  async setCharPrimaryWorldbook(name) {
+    if (typeof charUpdatePrimaryWorld !== 'function') return false;
+    try {
+      await charUpdatePrimaryWorld(name || null);
+      return true;
+    } catch (err) {
+      console.warn('[快照管家] 设置角色主世界书失败', err);
+      return false;
+    }
+  },
+  setCharAdditionalWorldbooks(books) {
+    if (typeof charSetAuxWorlds !== 'function') return false;
+    const ch = readCurrentCharInfo();
+    const fileName = ch.raw ? getCharaFileNameSafe(ch.raw) : '';
+    if (!fileName) return false;
+    try {
+      charSetAuxWorlds(fileName, Array.isArray(books) ? books.filter(Boolean) : []);
+      return true;
+    } catch (err) {
+      console.warn('[快照管家] 设置角色附加世界书失败', err);
+      return false;
+    }
+  },
+  async setChatWorldbook(name) {
+    if (!chat_metadata) return false;
+    try {
+      if (name) chat_metadata.world_info = String(name);
+      else delete chat_metadata.world_info;
+      if (typeof saveMetadata === 'function') await saveMetadata();
+      return true;
+    } catch (err) {
+      console.warn('[快照管家] 设置聊天世界书失败', err);
+      return false;
+    }
   },
   async fetchWorldInfoUncached(bookName) {
     if (!bookName || !world_names.includes(bookName)) return null;
@@ -1551,6 +1590,8 @@ let isApplyingSnapshot = false;
 
 // 由 initExtension 注入：把「全局书怎么处理」这个决定交给面板里的确认条
 let confirmGlobalBooksHook = null;
+// 同上：角色主书 / 角色附加书 / 聊天书是否恢复
+let confirmBindingsHook = null;
 
 // 应用快照时全局世界书的处理：快照里的书要开；用户后来自己挂上的书是否要关，交给策略或用户决定
 function diffSnapshotGlobalBooks(snap) {
@@ -1570,6 +1611,66 @@ function diffSnapshotGlobalBooks(snap) {
 function resolveGlobalBooksMode(store) {
   const mode = store?.settings?.globalBooksMode;
   return ['ask', 'replace', 'merge'].includes(mode) ? mode : 'ask';
+}
+
+// 角色主书 / 角色附加书 / 聊天书的绑定差异（只比较快照真的记过的字段）
+function diffSnapshotBindings(snap) {
+  const allBooks = new Set(Host.listWorldbooks());
+  const rawChar = snap?.worldbooks?.char;
+  const rawChat = snap?.worldbooks?.chat;
+  const recorded = !!rawChar || rawChat !== undefined;
+  const pick = name => (name && allBooks.has(name) ? String(name) : null);
+  const snapPrimary = pick(rawChar?.primary);
+  const snapAdditional = (Array.isArray(rawChar?.additional) ? rawChar.additional : []).filter(b => allBooks.has(b));
+  const snapChat = pick(rawChat);
+  const curChar = Host.getCharWorldbooks();
+  const curPrimary = pick(curChar.primary);
+  const curAdditional = (Array.isArray(curChar.additional) ? curChar.additional : []).filter(b => allBooks.has(b));
+  const curChat = pick(Host.getChatWorldbook());
+  const sameSet = (a, b) => {
+    const A = Array.from(new Set(a)).sort();
+    const B = Array.from(new Set(b)).sort();
+    return A.length === B.length && A.every((x, i) => x === B[i]);
+  };
+  // 只恢复快照里确实记过的绑定；快照没记（null/空）就不主动拆掉你现在的挂载
+  const changedPrimary = (snapPrimary ? snapPrimary !== curPrimary : false);
+  const changedAdditional = (snapAdditional.length ? !sameSet(snapAdditional, curAdditional) : false);
+  const changedChat = (snapChat ? snapChat !== curChat : false);
+  return {
+    recorded,
+    snapPrimary,
+    snapAdditional,
+    snapChat,
+    curPrimary,
+    curAdditional,
+    curChat,
+    changedPrimary,
+    changedAdditional,
+    changedChat,
+    changed: changedPrimary || changedAdditional || changedChat,
+  };
+}
+
+function resolveBindingRestoreMode(store) {
+  const mode = store?.settings?.bindingRestoreMode;
+  return ['ask', 'restore', 'keep'].includes(mode) ? mode : 'ask';
+}
+
+async function restoreSnapshotBindings(diff) {
+  const notes = [];
+  if (diff.changedPrimary) {
+    const ok = await Host.setCharPrimaryWorldbook(diff.snapPrimary);
+    notes.push(`角色主书 → ${diff.snapPrimary || '未绑定'}${ok ? '' : '（失败）'}`);
+  }
+  if (diff.changedAdditional) {
+    const ok = Host.setCharAdditionalWorldbooks(diff.snapAdditional);
+    notes.push(`角色附加书 → ${diff.snapAdditional.length ? diff.snapAdditional.join('、') : '无'}${ok ? '' : '（失败）'}`);
+  }
+  if (diff.changedChat) {
+    const ok = await Host.setChatWorldbook(diff.snapChat);
+    notes.push(`聊天书 → ${diff.snapChat || '未绑定'}${ok ? '' : '（失败）'}`);
+  }
+  return notes;
 }
 
 async function applySnapshotLive(snap, store, silentPrefix, opts = {}) {
@@ -1598,6 +1699,30 @@ async function applySnapshotLive(snap, store, silentPrefix, opts = {}) {
       } else {
         // 自动应用：绝不静默关掉用户自己后来挂上的书
         globalDecision = 'merge';
+      }
+    }
+
+    // 角色/聊天绑定：恢复会改宿主挂载，按策略或询问用户
+    let bindingDecision = 'keep';
+    let bindingDiff = null;
+    if (snap.scope?.worldbooks && snap.worldbooks) {
+      bindingDiff = diffSnapshotBindings(snap);
+      if (bindingDiff.recorded && bindingDiff.changed) {
+        const bidMode = resolveBindingRestoreMode(store);
+        if (opts.bindingDecision === 'restore' || opts.bindingDecision === 'keep') {
+          bindingDecision = opts.bindingDecision;
+        } else if (bidMode === 'restore') {
+          bindingDecision = 'restore';
+        } else if (bidMode === 'keep') {
+          bindingDecision = 'keep';
+        } else if (opts.interactive && confirmBindingsHook) {
+          const decision = await confirmBindingsHook(snap, bindingDiff, silentPrefix || '');
+          if (!decision) return;   // 取消：一个字都不改
+          bindingDecision = decision;
+        } else {
+          // 自动切回快照时静默恢复（用户已确认“恢复”是期望行为）
+          bindingDecision = 'restore';
+        }
       }
     }
 
@@ -1651,6 +1776,9 @@ async function applySnapshotLive(snap, store, silentPrefix, opts = {}) {
         if (!allBooks.has(bk)) { totalSkipped++; continue; }
         const res = await Host.batchToggleWorldbookEntries(bk, entriesMap[bk]);
         totalSkipped += res.skipped;
+      }
+      if (bindingDiff && bindingDecision === 'restore') {
+        await restoreSnapshotBindings(bindingDiff);
       }
     }
 
@@ -5464,6 +5592,45 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'bindingsConfirm') {
+      const diff = d.diff || {};
+      const row = (label, from, to, changed) => `
+        <div class="upp-entry-row ${changed ? 'is-on' : ''}" style="align-items:flex-start;">
+          <div class="upp-entry-text">
+            <div class="upp-entry-name">${escapeHtml(label)}</div>
+            <div class="upp-entry-preview">当前：${escapeHtml(from || '未绑定')} → 快照：${escapeHtml(to || '未绑定')}</div>
+          </div>
+          <span class="upp-badge ${changed ? 'accent' : ''}">${changed ? '会改' : '一致'}</span>
+        </div>`;
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer is-fixed-sm" style="width:min(500px,100%);">
+          <div class="upp-drawer-head">
+            <span>应用快照 · 世界书绑定</span>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-notice-box">
+              <span>快照「${escapeHtml(d.snapshotName || '')}」把这几本书挂在角色/聊天上。恢复＝按快照改回宿主的挂载；保持现状＝只改条目开关，不动挂载。</span>
+            </div>
+            <div class="upp-entry-list">
+              ${row('角色主世界书', diff.curPrimary, diff.snapPrimary, !!diff.changedPrimary)}
+              ${row('角色附加世界书', (diff.curAdditional || []).join('、'), (diff.snapAdditional || []).join('、'), !!diff.changedAdditional)}
+              ${row('本聊天专属世界书', diff.curChat, diff.snapChat, !!diff.changedChat)}
+            </div>
+            <label class="upp-check-item">
+              <input type="checkbox" id="upp-bind-remember" />
+              <span>记住我的选择，以后不再询问（可在「备份」里改）</span>
+            </label>
+          </div>
+          <div class="upp-drawer-foot">
+            <button type="button" class="upp-btn" id="upp-bind-cancel">取消应用</button>
+            <button type="button" class="upp-btn" id="upp-bind-keep">保持现状</button>
+            <button type="button" class="upp-btn primary" id="upp-bind-restore">按快照恢复</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (d.type === 'globalBooksConfirm') {
       const diff = d.diff || { target: [], current: [], missing: [], stray: [] };
       const list = (arr) => arr.length ? arr.map(b => `<span class="upp-badge">${escapeHtml(b)}</span>`).join(' ') : '<span class="upp-muted">无</span>';
@@ -5918,6 +6085,15 @@ function initExtension() {
               </select>
             </div>
             <div class="upp-card-meta">只影响「应用快照」时对全局世界书绑定的处理，不动条目开关。自动切回快照时永远不会静默关掉你自己挂的书。</div>
+            <div class="upp-field">
+              <label>应用快照时的角色/聊天世界书绑定</label>
+              <select class="upp-select" id="upp-binding-mode">
+                <option value="ask" ${(resolveBindingRestoreMode(state.store) === 'ask') ? 'selected' : ''}>每次询问（默认）</option>
+                <option value="restore" ${(resolveBindingRestoreMode(state.store) === 'restore') ? 'selected' : ''}>总是按快照恢复</option>
+                <option value="keep" ${(resolveBindingRestoreMode(state.store) === 'keep') ? 'selected' : ''}>总是不动挂载</option>
+              </select>
+            </div>
+            <div class="upp-card-meta">改的是「这本书挂在哪个角色 / 哪个聊天」；恢复会写回角色主书、角色附加书与聊天专属书。自动切回快照时按「恢复」执行，不会弹窗。</div>
           </div>
           <div class="upp-drawer-foot">
             <button type="button" class="upp-btn" data-drawer-close>关闭</button>
@@ -5931,6 +6107,19 @@ function initExtension() {
   confirmGlobalBooksHook = (snap, diff, silentPrefix) => new Promise(resolve => {
     state.drawer = {
       type: 'globalBooksConfirm',
+      snapshotId: snap.id,
+      snapshotName: snap.name || '',
+      diff,
+      silentPrefix,
+      resolve,
+    };
+    renderDrawer();
+  });
+
+  // 应用快照前问一次角色/聊天绑定是否恢复；用户点完才继续（取消＝一个字都不改）
+  confirmBindingsHook = (snap, diff, silentPrefix) => new Promise(resolve => {
+    state.drawer = {
+      type: 'bindingsConfirm',
       snapshotId: snap.id,
       snapshotName: snap.name || '',
       diff,
@@ -7731,6 +7920,12 @@ function initExtension() {
   elDrawerMask.addEventListener('change', ev => {
     const d = state.drawer;
     if (!d) return;
+    if (d.type === 'backup' && ev.target.id === 'upp-binding-mode') {
+      state.store.settings.bindingRestoreMode = ['ask', 'restore', 'keep'].includes(ev.target.value) ? ev.target.value : 'ask';
+      persistStore(state.store);
+      toast('已保存角色/聊天绑定的处理方式', 'success');
+      return;
+    }
     if (d.type === 'backup' && ev.target.id === 'upp-global-books-mode') {
       state.store.settings.globalBooksMode = ['ask', 'replace', 'merge'].includes(ev.target.value) ? ev.target.value : 'ask';
       persistStore(state.store);
@@ -7921,6 +8116,24 @@ function initExtension() {
     const t = ev.target;
     const d = state.drawer;
     if (!d) return;
+
+    if (d.type === 'bindingsConfirm') {
+      const decide = decision => {
+        const remember = !!shadow.getElementById('upp-bind-remember')?.checked;
+        const resolve = d.resolve;
+        state.drawer = null;
+        renderDrawer();
+        if (remember && decision) {
+          state.store.settings.bindingRestoreMode = decision;
+          persistStore(state.store);
+          toast(decision === 'restore' ? '以后应用快照会按快照恢复世界书绑定' : '以后应用快照不会改动角色/聊天绑定', 'info');
+        }
+        if (resolve) resolve(decision);
+      };
+      if (t.closest('#upp-bind-restore')) { decide('restore'); return; }
+      if (t.closest('#upp-bind-keep')) { decide('keep'); return; }
+      if (t.closest('#upp-bind-cancel')) { decide(null); return; }
+    }
 
     if (d.type === 'globalBooksConfirm') {
       const decide = decision => {

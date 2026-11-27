@@ -66,6 +66,7 @@ export async function load(url, context, nextLoad) {
         export function getRequestHeaders() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': 'mock' }; }
         export async function reloadCurrentChat() { if (H()) H().reloadChatCalls++; }
         export function saveSettingsDebounced() { if (H()) H().saveSettingsCalls++; }
+        export async function saveMetadata() { if (H()) H().saveMetadataCalls = (H().saveMetadataCalls || 0) + 1; }
         export function setUserName(name, opts) {
           if (H()) H().setUserNameCalls.push({ name, opts });
           const inp = typeof document !== 'undefined' ? document.getElementById('your_name') : null;
@@ -115,6 +116,36 @@ export async function load(url, context, nextLoad) {
           return data ? structuredClone(data) : null;
         }
         export function onWorldInfoChange(arg) { H()?.onWorldInfoChangeCalls?.push(arg); }
+        // 安装版 ST 的真实签名：charUpdatePrimaryWorld(name) / charSetAuxWorlds(fileName, books)
+        export async function charUpdatePrimaryWorld(name) {
+          const h = H();
+          if (!h) return;
+          h.charPrimaryWorldCalls = h.charPrimaryWorldCalls || [];
+          h.charPrimaryWorldCalls.push(name || null);
+          const ch = h.characters?.[h.this_chid];
+          if (ch) {
+            if (!ch.data) ch.data = {};
+            if (!ch.data.extensions) ch.data.extensions = {};
+            ch.data.extensions.world = name || undefined;
+          }
+        }
+        export function charSetAuxWorlds(fileName, books) {
+          const h = H();
+          if (!h) return;
+          h.charAuxWorldCalls = h.charAuxWorldCalls || [];
+          h.charAuxWorldCalls.push({ fileName, books: [...(books || [])] });
+          const wi = h.worldInfoSettings || {};
+          wi.world_info = wi.world_info || {};
+          const lore = Array.isArray(wi.world_info.charLore) ? wi.world_info.charLore : (wi.world_info.charLore = []);
+          const idx = lore.findIndex(e => e.name === fileName);
+          if (!books || !books.length) {
+            if (idx !== -1) lore.splice(idx, 1);
+          } else if (idx === -1) {
+            lore.push({ name: fileName, extraBooks: [...books] });
+          } else {
+            lore[idx].extraBooks = [...books];
+          }
+        }
         export async function saveWorldInfo(name, data, immediately) {
           const h = H();
           if (!h) return;
@@ -4039,6 +4070,80 @@ test('意见 #17 [Global Books]: 应用快照时先问全局书怎么处理，�
       await flushAsync();
       assert.deepEqual(globalValues(), ['1'], '取消后不得改动宿主');
     }
+  } finally {
+    cleanup();
+  }
+});
+
+test('意见 #4 [Bindings]: 角色/聊天世界书绑定按快照恢复前先问，可记住不再问', async () => {
+  const snap = {
+    id: 'snap_bind', name: 'BindSnap', group: '', note: '', updatedAt: Date.now(),
+    scope: { persona: false, worldbooks: true, preset: false, regex: false, api: false },
+    worldbooks: {
+      global: ['BookGlobal'],
+      char: { primary: 'BookMain', additional: ['BookChat'] },
+      chat: 'BookGlobal',
+      entries: {},
+    },
+  };
+  const { shadow, openModal, cleanup } = await mountExtension({
+    hostOverrides: {
+      extension_settings: { user_persona_snapshot: {
+        version: 7, settings: {}, personaVersions: {}, snapshots: [snap], bindings: { chats: {}, characters: {} },
+      } },
+    },
+  });
+  try {
+    await openModal();
+    const settings = () => mockHost.extension_settings.user_persona_snapshot.settings;
+    const charWorld = () => mockHost.characters[0].data.extensions.world;
+    const chatWorld = () => mockHost.chat_metadata.world_info;
+    const curGlobals = () => globalThis.document.getElementById('world_info').selectedOptions.map((o) => o.value).sort();
+    // 现在挂的和快照不一样：角色主书是 BookChat、聊天书是 BookChat，附加书为空
+    mockHost.characters[0].data.extensions.world = 'BookChat';
+    mockHost.chat_metadata.world_info = 'BookChat';
+    mockHost.worldInfoSettings.world_info.charLore = [];
+
+    // 1) 应用：先问绑定（全局书与快照一致，不该问）
+    shadow.querySelector('[data-snap-apply="snap_bind"]').click();
+    await flushAsync();
+    const drawerText = shadow.getElementById('upp-drawer-mask').textContent;
+    assert.match(drawerText, /世界书绑定/, '有绑定差异时必须先问');
+    assert.match(drawerText, /角色主世界书/);
+    assert.match(drawerText, /本聊天专属世界书/);
+    assert.equal(charWorld(), 'BookChat', '问的时候不能先改宿主');
+    assert.equal(chatWorld(), 'BookChat');
+
+    // 2) 按快照恢复（不记住）
+    shadow.getElementById('upp-bind-restore').click();
+    await flushAsync();
+    assert.equal(charWorld(), 'BookMain', '角色主书必须恢复为快照里的书');
+    assert.equal(chatWorld(), 'BookGlobal', '聊天书必须恢复为快照里的书');
+    assert.equal((mockHost.worldInfoSettings.world_info.charLore[0] || {}).extraBooks?.join(','), 'BookChat', '角色附加书必须恢复');
+    assert.ok((mockHost.charPrimaryWorldCalls || []).length >= 1, '必须走安装版 ST 的 charUpdatePrimaryWorld');
+    assert.ok((mockHost.saveMetadataCalls || 0) >= 1, '聊天绑定改动后必须 saveMetadata');
+    assert.deepEqual(curGlobals(), ['1'], '全局书仍按快照处理，未受绑定影响');
+    assert.equal(settings().bindingRestoreMode, 'ask', '没勾记住就不改策略');
+
+    // 3) 再次制造差异：仍然要问
+    mockHost.characters[0].data.extensions.world = 'BookChat';
+    shadow.querySelector('[data-snap-apply="snap_bind"]').click();
+    await flushAsync();
+    assert.ok(shadow.getElementById('upp-bind-keep'), 'ask 模式下每次都要问');
+
+    // 4) 勾记住 + 保持现状
+    shadow.getElementById('upp-bind-remember').checked = true;
+    shadow.getElementById('upp-bind-keep').click();
+    await flushAsync();
+    assert.equal(charWorld(), 'BookChat', '保持现状就不会改挂载');
+    assert.equal(settings().bindingRestoreMode, 'keep', '勾了记住必须落盘');
+
+    // 5) 第三次：不再问，也不再改绑定
+    mockHost.chat_metadata.world_info = 'BookChat';
+    shadow.querySelector('[data-snap-apply="snap_bind"]').click();
+    await flushAsync();
+    assert.equal(shadow.getElementById('upp-bind-keep'), null, '记住之后不再弹确认');
+    assert.equal(charWorld(), 'BookChat', 'keep 策略下不动挂载');
   } finally {
     cleanup();
   }
