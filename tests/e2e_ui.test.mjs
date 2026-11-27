@@ -3973,3 +3973,73 @@ test('D3 [Mobile Window]: 手机端默认接近全屏浮动窗，可拖动/缩�
     cleanup();
   }
 });
+
+test('意见 #17 [Global Books]: 应用快照时先问全局书怎么处理，可记住选择不再询问', async () => {
+  const snap = {
+    id: 'snap_gb', name: 'GBSnap', group: '', note: '', updatedAt: Date.now(),
+    scope: { persona: false, worldbooks: true, preset: false, regex: false, api: false },
+    worldbooks: { global: ['BookGlobal'], entries: {} },
+  };
+  const { dom, shadow, openModal, cleanup } = await mountExtension({
+    hostOverrides: {
+      extension_settings: { user_persona_snapshot: {
+        version: 7, settings: {}, personaVersions: {}, snapshots: [snap], bindings: { chats: {}, characters: {} },
+      } },
+    },
+  });
+  try {
+    await openModal();
+    const worldInfoSel = globalThis.document.getElementById('world_info');
+    const globalValues = () => worldInfoSel.selectedOptions.map((o) => o.value);
+    const settings = () => mockHost.extension_settings.user_persona_snapshot.settings;
+    // 用户后来自己又挂了一本 BookMain（快照里没有）
+    worldInfoSel.value = ['0', '1'];
+    assert.deepEqual(globalValues().slice().sort(), ['0', '1']);
+
+    // 1) 第一次应用：必须先问，且问的时候一个字都不改
+    shadow.querySelector('[data-snap-apply="snap_gb"]').click();
+    await flushAsync();
+    const drawerText = shadow.getElementById('upp-drawer-mask').textContent;
+    assert.match(drawerText, /全局世界书/, '应用前必须弹出全局书处理确认');
+    assert.match(drawerText, /BookMain/, '必须点名会被关掉的那本书');
+    assert.deepEqual(globalValues().slice().sort(), ['0', '1'], '问的时候不能先改宿主');
+    assert.equal(mockHost.setUserAvatarCalls.length, 0);
+
+    // 2) 选「按快照覆盖」但不记住
+    shadow.getElementById('upp-gb-replace').click();
+    await flushAsync();
+    assert.deepEqual(globalValues(), ['1'], '按快照覆盖后只留快照里的书');
+    assert.equal(settings().globalBooksMode, 'ask', '没勾「记住」就不改策略');
+
+    // 3) 再次应用：仍然要问（ask 生效）
+    worldInfoSel.value = ['0', '1'];
+    shadow.querySelector('[data-snap-apply="snap_gb"]').click();
+    await flushAsync();
+    assert.ok(shadow.getElementById('upp-gb-merge'), 'ask 模式下每次都要问');
+
+    // 4) 勾「记住」+ 保留我挂的书
+    shadow.getElementById('upp-gb-remember').checked = true;
+    shadow.getElementById('upp-gb-merge').click();
+    await flushAsync();
+    assert.deepEqual(globalValues().slice().sort(), ['0', '1'], '保留策略下用户挂的书不会被关掉');
+    assert.equal(settings().globalBooksMode, 'merge', '勾了记住就必须落盘');
+
+    // 5) 第三次应用：不再问，直接保留
+    shadow.querySelector('[data-snap-apply="snap_gb"]').click();
+    await flushAsync();
+    assert.equal(shadow.getElementById('upp-gb-merge'), null, '记住之后不再弹确认');
+    assert.deepEqual(globalValues().slice().sort(), ['0', '1']);
+
+    // 6) 取消应用：什么都不改
+    worldInfoSel.value = ['1'];
+    shadow.querySelector('[data-snap-apply="snap_gb"]').click();
+    await flushAsync();
+    if (shadow.getElementById('upp-gb-cancel')) {
+      shadow.getElementById('upp-gb-cancel').click();
+      await flushAsync();
+      assert.deepEqual(globalValues(), ['1'], '取消后不得改动宿主');
+    }
+  } finally {
+    cleanup();
+  }
+});

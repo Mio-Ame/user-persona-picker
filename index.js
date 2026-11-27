@@ -1,4 +1,4 @@
-import {
+﻿import {
   characters,
   chat_metadata,
   eventSource,
@@ -1548,13 +1548,59 @@ async function captureLiveSnapshot(opts, store) {
 }
 
 let isApplyingSnapshot = false;
-async function applySnapshotLive(snap, store, silentPrefix) {
+
+// 由 initExtension 注入：把「全局书怎么处理」这个决定交给面板里的确认条
+let confirmGlobalBooksHook = null;
+
+// 应用快照时全局世界书的处理：快照里的书要开；用户后来自己挂上的书是否要关，交给策略或用户决定
+function diffSnapshotGlobalBooks(snap) {
+  const allBooks = new Set(Host.listWorldbooks());
+  const rawSnap = Array.isArray(snap?.worldbooks?.global) ? snap.worldbooks.global : [];
+  const target = rawSnap.filter(b => allBooks.has(b));
+  const current = (Host.getGlobalWorldbooks() || []).filter(b => allBooks.has(b));
+  return {
+    target,
+    current,
+    missing: target.filter(b => !current.includes(b)),      // 快照有、现在没开 → 会补开
+    stray: current.filter(b => !target.includes(b)),        // 现在开着、快照没有 → 覆盖会关掉
+    invalid: rawSnap.length - target.length,
+  };
+}
+
+function resolveGlobalBooksMode(store) {
+  const mode = store?.settings?.globalBooksMode;
+  return ['ask', 'replace', 'merge'].includes(mode) ? mode : 'ask';
+}
+
+async function applySnapshotLive(snap, store, silentPrefix, opts = {}) {
   if (!snap || isApplyingSnapshot) return;
   isApplyingSnapshot = true;
   let totalSkipped = 0;
   let regexChanged = false;
 
   try {
+    // 全局书冲突必须先问：否则先切了人设/预设，用户再取消就成半套状态
+    let globalDecision = 'replace';
+    let globalDiff = null;
+    if (snap.scope?.worldbooks && snap.worldbooks && Array.isArray(snap.worldbooks.global)) {
+      globalDiff = diffSnapshotGlobalBooks(snap);
+      const mode = resolveGlobalBooksMode(store);
+      if (!globalDiff.stray.length) {
+        globalDecision = 'replace';
+      } else if (opts.globalBooksDecision === 'replace' || opts.globalBooksDecision === 'merge') {
+        globalDecision = opts.globalBooksDecision;
+      } else if (mode === 'replace' || mode === 'merge') {
+        globalDecision = mode;
+      } else if (opts.interactive && confirmGlobalBooksHook) {
+        const decision = await confirmGlobalBooksHook(snap, globalDiff, silentPrefix || '');
+        if (!decision) return;   // 用户取消：一个字都不改
+        globalDecision = decision;
+      } else {
+        // 自动应用：绝不静默关掉用户自己后来挂上的书
+        globalDecision = 'merge';
+      }
+    }
+
     if (snap.scope.persona && snap.persona && snap.persona.avatarId) {
       const personas = Host.listPersonas();
       const target = personas.find(p => p.avatar_id === snap.persona.avatarId)
@@ -1593,9 +1639,12 @@ async function applySnapshotLive(snap, store, silentPrefix) {
     if (snap.scope.worldbooks && snap.worldbooks) {
       const allBooks = new Set(Host.listWorldbooks());
       if (Array.isArray(snap.worldbooks.global)) {
-        const validGlobal = snap.worldbooks.global.filter(b => allBooks.has(b));
-        totalSkipped += snap.worldbooks.global.length - validGlobal.length;
-        await Host.setGlobalWorldbooks(validGlobal);
+        const diff = globalDiff || diffSnapshotGlobalBooks(snap);
+        totalSkipped += diff.invalid;
+        const finalGlobals = globalDecision === 'merge'
+          ? Array.from(new Set([...diff.target, ...diff.current]))
+          : diff.target;
+        await Host.setGlobalWorldbooks(finalGlobals);
       }
       const entriesMap = snap.worldbooks.entries || {};
       for (const bk of Object.keys(entriesMap)) {
@@ -5415,6 +5464,39 @@ function initExtension() {
       return;
     }
 
+    if (d.type === 'globalBooksConfirm') {
+      const diff = d.diff || { target: [], current: [], missing: [], stray: [] };
+      const list = (arr) => arr.length ? arr.map(b => `<span class="upp-badge">${escapeHtml(b)}</span>`).join(' ') : '<span class="upp-muted">无</span>';
+      elDrawerMask.innerHTML = `
+        <div class="upp-drawer is-fixed-sm" style="width:min(460px,100%);">
+          <div class="upp-drawer-head">
+            <span>应用快照 · 全局世界书</span>
+          </div>
+          <div class="upp-drawer-body">
+            <div class="upp-notice-box">
+              <span>快照「${escapeHtml(d.snapshotName || '')}」没有记录这些你现在开着的全局书：</span>
+              <div class="upp-row-nowrap" style="flex-wrap:wrap;gap:4px;">${list(diff.stray)}</div>
+              <span>按快照覆盖会把它们关掉；保留则会和快照里的书一起开着。</span>
+            </div>
+            <div class="upp-section-block">
+              <div class="upp-sec-title"><span>快照里的全局书</span><span>${diff.target.length} 本</span></div>
+              <div class="upp-row-nowrap" style="flex-wrap:wrap;gap:4px;">${list(diff.target)}</div>
+            </div>
+            <label class="upp-check-item">
+              <input type="checkbox" id="upp-gb-remember" />
+              <span>记住我的选择，以后不再询问（可在「备份」里改）</span>
+            </label>
+          </div>
+          <div class="upp-drawer-foot">
+            <button type="button" class="upp-btn" id="upp-gb-cancel">取消应用</button>
+            <button type="button" class="upp-btn" id="upp-gb-merge">保留我挂的书</button>
+            <button type="button" class="upp-btn primary" id="upp-gb-replace">按快照覆盖</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (d.type === 'bookPicker') {
       const hasOrg = hasActiveOrganizer();
       elDrawerMask.innerHTML = `
@@ -5827,6 +5909,15 @@ function initExtension() {
               <input type="file" id="upp-import-file" accept=".json,application/json" hidden />
             </div>
             <div class="upp-card-meta">包含所有快照、绑定关系及 User 内部描述版本，导入后将与当前列表合并更新。</div>
+            <div class="upp-field">
+              <label>应用快照时的全局世界书</label>
+              <select class="upp-select" id="upp-global-books-mode">
+                <option value="ask" ${(resolveGlobalBooksMode(state.store) === 'ask') ? 'selected' : ''}>每次询问（默认）</option>
+                <option value="merge" ${(resolveGlobalBooksMode(state.store) === 'merge') ? 'selected' : ''}>总是保留我自己挂的书</option>
+                <option value="replace" ${(resolveGlobalBooksMode(state.store) === 'replace') ? 'selected' : ''}>总是按快照覆盖</option>
+              </select>
+            </div>
+            <div class="upp-card-meta">只影响「应用快照」时对全局世界书绑定的处理，不动条目开关。自动切回快照时永远不会静默关掉你自己挂的书。</div>
           </div>
           <div class="upp-drawer-foot">
             <button type="button" class="upp-btn" data-drawer-close>关闭</button>
@@ -5835,6 +5926,19 @@ function initExtension() {
       `;
     }
   }
+
+  // 应用快照前问一次全局书处理方式；用户点完才继续（取消＝一个字都不改）
+  confirmGlobalBooksHook = (snap, diff, silentPrefix) => new Promise(resolve => {
+    state.drawer = {
+      type: 'globalBooksConfirm',
+      snapshotId: snap.id,
+      snapshotName: snap.name || '',
+      diff,
+      silentPrefix,
+      resolve,
+    };
+    renderDrawer();
+  });
 
   function render() {
     renderHeader();
@@ -6141,7 +6245,7 @@ function initExtension() {
       renderDrawer();
       return;
     }
-    await applySnapshotLive(snap, state.store);
+    await applySnapshotLive(snap, state.store, undefined, { interactive: true });
     syncFabUi();
     if (state.open) await refreshAll(true);
   }
@@ -7627,6 +7731,12 @@ function initExtension() {
   elDrawerMask.addEventListener('change', ev => {
     const d = state.drawer;
     if (!d) return;
+    if (d.type === 'backup' && ev.target.id === 'upp-global-books-mode') {
+      state.store.settings.globalBooksMode = ['ask', 'replace', 'merge'].includes(ev.target.value) ? ev.target.value : 'ask';
+      persistStore(state.store);
+      toast('已保存全局世界书处理方式', 'success');
+      return;
+    }
     if (d.type === 'presetSync') {
       if (ev.target.id === 'upp-ps-source-sel') {
         d.sourcePreset = ev.target.value;
@@ -7812,7 +7922,26 @@ function initExtension() {
     const d = state.drawer;
     if (!d) return;
 
+    if (d.type === 'globalBooksConfirm') {
+      const decide = decision => {
+        const remember = !!shadow.getElementById('upp-gb-remember')?.checked;
+        const resolve = d.resolve;
+        state.drawer = null;
+        renderDrawer();
+        if (remember && decision) {
+          state.store.settings.globalBooksMode = decision;
+          persistStore(state.store);
+          toast(decision === 'replace' ? '以后应用快照将按快照覆盖全局书' : '以后应用快照会保留你自己挂的全局书', 'info');
+        }
+        if (resolve) resolve(decision);
+      };
+      if (t.closest('#upp-gb-replace')) { decide('replace'); return; }
+      if (t.closest('#upp-gb-merge')) { decide('merge'); return; }
+      if (t.closest('#upp-gb-cancel')) { decide(null); return; }
+    }
+
     if (t.closest('[data-drawer-close]')) {
+      if (typeof d.resolve === 'function') d.resolve(null);
       state.drawer = d.returnTo || null;
       renderDrawer();
       return;
@@ -8299,7 +8428,7 @@ function initExtension() {
         const snap = d.snapshot;
         state.drawer = null;
         renderDrawer();
-        await applySnapshotLive(snap, state.store);
+        await applySnapshotLive(snap, state.store, undefined, { interactive: true });
         syncFabUi();
         if (state.open) await refreshAll(true);
         return;
@@ -8391,7 +8520,7 @@ function initExtension() {
         }
         state.drawer = null;
         renderDrawer();
-        await applySnapshotLive(snap, state.store);
+        await applySnapshotLive(snap, state.store, undefined, { interactive: true });
         syncFabUi();
         if (state.open) await refreshAll(true);
         return;
@@ -9089,6 +9218,7 @@ function initExtension() {
   }
 
   function closeModal() {
+    if (typeof state.drawer?.resolve === 'function') state.drawer.resolve(null);
     state.open = false;
     state.minimized = false;
     state.drawer = null;
@@ -9247,6 +9377,7 @@ function initExtension() {
     if (fabPopOpen) { closeFabPop(); return true; }
     if (state.open && !state.minimized) {
       if (state.drawer) {
+        if (typeof state.drawer.resolve === 'function') state.drawer.resolve(null);
         if (state.drawer.type === 'viewSnapshot' && state.drawer.dirty) {
           state.drawer.pendingAction = 'close';
           renderDrawer();

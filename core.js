@@ -43,6 +43,8 @@ export function createEmptyStore() {
       // -1 = 用户还没摆过位置（首次打开按默认居中/接近全屏）
       modalLeft: -1,
       modalTop: -1,
+      // 应用快照时自由挂在身上的全局世界书怎么处理：ask=每次问，merge=保留，replace=按快照覆盖
+      globalBooksMode: 'ask',
       pinnedWorldbooks: [],
     },
     personaVersions: {},
@@ -119,6 +121,7 @@ export function sanitizeStore(raw) {
   const mtNum = Math.round(Number(st.modalTop));
   base.settings.modalLeft = Number.isFinite(mlNum) && mlNum >= 0 && mlNum <= 8000 ? mlNum : -1;
   base.settings.modalTop = Number.isFinite(mtNum) && mtNum >= 0 && mtNum <= 8000 ? mtNum : -1;
+  base.settings.globalBooksMode = ['ask', 'merge', 'replace'].includes(st.globalBooksMode) ? st.globalBooksMode : 'ask';
   base.settings.pinnedWorldbooks = Array.isArray(st.pinnedWorldbooks)
     ? Array.from(new Set(st.pinnedWorldbooks.map(x => String(x || '').trim()).filter(Boolean)))
     : [];
