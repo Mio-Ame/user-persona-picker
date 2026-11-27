@@ -162,10 +162,46 @@ function getContext() {
   }
 }
 
+function getToastLayer() {
+  try {
+    const hostEl = document.getElementById(HOST_ID);
+    const sr = hostEl && hostEl.shadowRoot;
+    if (!sr) return null;
+    let layer = sr.getElementById('upp-toast-layer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'upp-toast-layer';
+      layer.className = 'upp-toast-layer';
+      layer.setAttribute('aria-live', 'polite');
+      sr.appendChild(layer);
+    }
+    // 提示层不在面板的配色作用域里，补一次当前配色，避免深色面板弹出浅色提示条
+    if (!layer.dataset || !layer.dataset.theme) {
+      const themed = sr.querySelector('.upp-backdrop[data-theme], .upp-fab-root[data-theme]');
+      if (themed && themed.dataset && themed.dataset.theme) layer.dataset.theme = themed.dataset.theme;
+    }
+    return layer;
+  } catch (_) {
+    return null;
+  }
+}
+
 function toast(msg, type = 'info') {
-  const t = window.toastr;
-  if (t && typeof t[type] === 'function') t[type](String(msg), '快照管家');
-  else console.log('[快照管家]', msg);
+  const text = String(msg);
+  const layer = getToastLayer();
+  if (!layer) { console.log('[快照管家]', text); return; }
+  const el = document.createElement('div');
+  el.className = `upp-toast is-${type}`;
+  el.setAttribute('role', 'status');
+  el.textContent = text;
+  layer.appendChild(el);
+  // 只保留最近 4 条；用一次性快照 + 计数，避免在无移除能力的宿主/假 DOM 上死循环
+  const kids = [...layer.children];
+  for (let i = 0; i < kids.length - 4; i++) { try { kids[i].remove(); } catch (_) {} }
+  window.setTimeout(() => {
+    el.classList.add('is-out');
+    window.setTimeout(() => el.remove(), 240);
+  }, 3600);
 }
 
 function detectHostTheme() {
@@ -1681,7 +1717,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 /* Unified Theme Palettes: paper (素纸) | ink (青岚) | warm (暖砂) | sakura (淡樱) | glass-dark (深色夜间) */
 .upp-backdrop,
 .upp-fab-root,
-.upp-restore-pill {
+.upp-restore-pill,
+.upp-toast-layer {
   --bg: ${PANEL_BACKGROUNDS.paper};
   --chrome: #e5e5de;
   --surface: #e9e9e3;
@@ -1713,7 +1750,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .upp-backdrop[data-theme="ink"],
 .upp-fab-root[data-theme="ink"],
-.upp-restore-pill[data-theme="ink"] {
+.upp-restore-pill[data-theme="ink"],
+.upp-toast-layer[data-theme="ink"] {
   --bg: ${PANEL_BACKGROUNDS.ink};
   --chrome: #dde5ea;
   --surface: #e2eaef;
@@ -1735,7 +1773,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .upp-backdrop[data-theme="warm"],
 .upp-fab-root[data-theme="warm"],
-.upp-restore-pill[data-theme="warm"] {
+.upp-restore-pill[data-theme="warm"],
+.upp-toast-layer[data-theme="warm"] {
   --bg: ${PANEL_BACKGROUNDS.warm};
   --chrome: #e5ddd0;
   --surface: #e9e2d6;
@@ -1757,7 +1796,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .upp-backdrop[data-theme="sakura"],
 .upp-fab-root[data-theme="sakura"],
-.upp-restore-pill[data-theme="sakura"] {
+.upp-restore-pill[data-theme="sakura"],
+.upp-toast-layer[data-theme="sakura"] {
   --bg: ${PANEL_BACKGROUNDS.sakura};
   --chrome: #ecdfe4;
   --surface: #f0e4e8;
@@ -1779,7 +1819,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .upp-backdrop[data-theme="glass-dark"],
 .upp-fab-root[data-theme="glass-dark"],
-.upp-restore-pill[data-theme="glass-dark"] {
+.upp-restore-pill[data-theme="glass-dark"],
+.upp-toast-layer[data-theme="glass-dark"] {
   --bg: ${PANEL_BACKGROUNDS['glass-dark']};
   --chrome: #111216;
   --surface: #202228;
@@ -2900,6 +2941,39 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   flex-direction: column;
   gap: 6px;
 }
+/* 自带提示条：宿主 toast 容器的层级低于本插件面板（面板 z-index 900000），
+   打开面板时会被压在下面看不见，所以提示条画在影子树里并压在面板之上 */
+.upp-toast-layer {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+  z-index: 500000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.upp-toast {
+  max-width: min(440px, 100%);
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-strong);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+  font-size: var(--upp-fs-md);
+  line-height: 1.45;
+  word-break: break-word;
+  opacity: 1;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.upp-toast.is-success { border-color: color-mix(in srgb, var(--accent) 46%, var(--border-strong)); background: var(--surface-strong); }
+/* 提示条必须是不透底：--warn-soft / --danger-soft 是半透明叠色，直接当底色会透出列表文字 */
+.upp-toast.is-warning { border-color: color-mix(in srgb, var(--warn) 52%, var(--border-strong)); border-left: 3px solid var(--warn); background: var(--surface-strong); }
+.upp-toast.is-error { border-color: color-mix(in srgb, var(--danger) 52%, var(--border-strong)); border-left: 3px solid var(--danger); background: var(--surface-strong); }
+.upp-toast.is-out { opacity: 0; transform: translateY(4px); }
 `;
 
 // =========================
@@ -2935,6 +3009,9 @@ function initExtension() {
 
     personas: [],
     currentPersona: null,
+    // 查看与“设为当前使用”分离：这里只记录正在查看谁，绝不等于切换宿主
+    viewPersonaId: '',
+    personaSwitchConfirm: false,
     userSearch: '',
     userView: 'main', // main | merge | diff
     userInlineEditor: null, // null | rename | body
@@ -2968,6 +3045,10 @@ function initExtension() {
 
     presets: [],
     loadedPresetName: '',
+    // 空字符串=跟随宿主当前预设；有值=正在只读查看另一套预设，不改变酒馆
+    viewPresetName: '',
+    presetUseConfirm: false,
+    presetDiskSaveConfirm: false,
     livePresetNorm: { prompts: [], groups: [], groupsById: {}, promptGroupMap: {} },
     presetSearch: '',
     presetOnlyOn: false,
@@ -3108,6 +3189,12 @@ function initExtension() {
 
     state.personas = Host.listPersonas();
     state.currentPersona = Host.getCurrentPersona();
+    if (state.viewPersonaId && (!state.personas.some(p => p.avatar_id === state.viewPersonaId)
+      || state.viewPersonaId === state.currentPersona?.avatar_id)) {
+      // 查看对象消失或已经等于宿主当前 User：退出查看态
+      state.viewPersonaId = '';
+      state.personaSwitchConfirm = false;
+    }
     state.worldbooks = Host.listWorldbooks();
     state.globalWorldbooks = Host.getGlobalWorldbooks();
     state.charWorldbooks = Host.getCharWorldbooks();
@@ -3125,7 +3212,7 @@ function initExtension() {
 
     state.presets = Host.listPresets();
     state.loadedPresetName = Host.getLoadedPresetName();
-    state.livePresetNorm = Host.getLiveNormalizedPreset();
+    syncPresetViewData();
     state.apiProfiles = Host.listConnectionProfiles();
     scheduleBackfillOnce();
     if (state.tab === 'regex') {
@@ -3338,35 +3425,98 @@ function initExtension() {
     elBody.innerHTML = html;
   }
 
+  // 正在查看哪个 User：查看与“酒馆当前使用”分离，下拉只切换查看对象
+  function viewingPersona() {
+    const cur = state.currentPersona;
+    if (!state.viewPersonaId) return cur;
+    if (cur && state.viewPersonaId === cur.avatar_id) return cur;
+    return state.personas.find(p => p.avatar_id === state.viewPersonaId) || cur;
+  }
+
+  function isViewingForeignPersona() {
+    return !!(state.currentPersona && state.viewPersonaId
+      && state.viewPersonaId !== state.currentPersona.avatar_id
+      && state.personas.some(p => p.avatar_id === state.viewPersonaId));
+  }
+
   function renderUserToolbar() {
     const curP = state.currentPersona;
+    const viewP = viewingPersona();
+    const foreign = isViewingForeignPersona();
     const pVersions = curP ? (state.store.personaVersions[curP.avatar_id] || []) : [];
     const dupGroups = detectProliferatedPersonas(state.personas);
     const personaOptions = state.personas.map(p =>
-      `<option value="${escapeHtml(p.avatar_id)}" ${curP && p.avatar_id === curP.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+      `<option value="${escapeHtml(p.avatar_id)}" ${viewP && p.avatar_id === viewP.avatar_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
     ).join('');
 
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-user-top">
         <div class="upp-tb-u-primary">
-          <select class="upp-select" id="upp-persona-select" title="切换当前 User">${personaOptions || '<option value="">无可用 User</option>'}</select>
-          <button type="button" class="upp-btn ${state.userView === 'main' && state.userInlineEditor === 'rename' ? 'active' : ''}" id="upp-persona-rename-btn" ${curP ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
-          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'body' ? 'active' : ''}" id="upp-persona-edit-btn" ${curP ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
+          <select class="upp-select" id="upp-persona-select" title="选择要查看的 User（查看不会切换酒馆当前 User）">${personaOptions || '<option value="">无可用 User</option>'}</select>
+          ${foreign ? '<span class="upp-badge accent" title="酒馆当前 User 未改变">查看中 · 未切换</span>' : ''}
+          <button type="button" class="upp-btn ${state.userView === 'main' && state.userInlineEditor === 'rename' ? 'active' : ''}" id="upp-persona-rename-btn" ${curP && !foreign ? '' : 'disabled'} title="原地修改当前 User 名字，不新增分身">改名</button>
+          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'body' ? 'active' : ''}" id="upp-persona-edit-btn" ${curP && !foreign ? '' : 'disabled'}>${ICONS.edit}<span>编辑正文</span></button>
         </div>
         <div class="upp-tb-u-secondary">
-          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'savever' ? 'active' : ''}" id="upp-persona-savever-btn" ${curP ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
-          <button type="button" class="upp-btn ${state.userView === 'diff' ? 'active' : ''}" id="upp-persona-diff-btn" ${curP && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
-          <button type="button" class="upp-btn ${state.userView === 'merge' || dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
+          <button type="button" class="upp-btn secondary ${state.userView === 'main' && state.userInlineEditor === 'savever' ? 'active' : ''}" id="upp-persona-savever-btn" ${curP && !foreign ? '' : 'disabled'}>${ICONS.plus}<span>存为版本</span></button>
+          <button type="button" class="upp-btn ${state.userView === 'diff' ? 'active' : ''}" id="upp-persona-diff-btn" ${curP && !foreign && pVersions.length ? '' : 'disabled'}>${ICONS.diff}<span>对比</span></button>
+          <button type="button" class="upp-btn ${state.userView === 'merge' || dupGroups.length ? 'active' : ''}" id="upp-persona-merge-btn" ${foreign ? 'disabled' : ''} title="将同名或换姓分身收回为内部版本">${ICONS.merge}<span>整理分身${dupGroups.length ? ' ' + dupGroups.length : ''}</span></button>
         </div>
       </div>
       <div class="upp-row upp-tb-u-search-row">
         <div class="upp-input-wrap">
           ${ICONS.search}
-          <input type="text" id="upp-user-search" spellcheck="false" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" ${state.userView === 'main' ? '' : 'disabled'} />
+          <input type="text" id="upp-user-search" spellcheck="false" placeholder="搜索 User 名称、内部版本名或正文关键词…" value="${escapeHtml(state.userSearch)}" ${state.userView === 'main' && !foreign ? '' : 'disabled'} />
         </div>
-        <button type="button" class="upp-btn" id="upp-user-search-clear-btn" ${(state.userView === 'main' && state.userSearch) ? '' : 'hidden'} ${state.userView === 'main' ? '' : 'disabled'}>清空</button>
+        <button type="button" class="upp-btn" id="upp-user-search-clear-btn" ${(state.userView === 'main' && state.userSearch) ? '' : 'hidden'} ${state.userView === 'main' && !foreign ? '' : 'disabled'}>清空</button>
       </div>
     `;
+  }
+
+  // 查看非当前 User：只读预览 + 一次确认后的显式切换
+  function renderPersonaPreviewBody() {
+    const curP = state.currentPersona;
+    const viewP = viewingPersona();
+    if (!viewP) { elBody.innerHTML = `<div class="upp-empty">未读取到当前 User 人设</div>`; return; }
+    const desc = String(viewP.description || '');
+    const versions = state.store.personaVersions[viewP.avatar_id] || [];
+    let html = '';
+    if (state.personaSwitchConfirm) {
+      html += `
+        <div class="upp-bind-strip is-confirm" style="background:var(--warn-soft);border-color:color-mix(in srgb, var(--warn) 35%, transparent);" data-persona-confirm-strip>
+          <span>确认把酒馆当前 User 从「${escapeHtml(curP?.name || '无')}」切换为「${escapeHtml(viewP.name)}」？原生界面会短暂刷新。</span>
+          <div class="upp-row-nowrap">
+            <button type="button" class="upp-btn primary" id="upp-persona-use-confirm">确认切换</button>
+            <button type="button" class="upp-btn" id="upp-persona-use-cancel">取消</button>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="upp-bind-strip" style="background:var(--inset);" data-persona-view-strip>
+          <span>正在查看「${escapeHtml(viewP.name)}」· 酒馆当前使用「${escapeHtml(curP?.name || '无')}」，<strong>尚未切换</strong></span>
+          <div class="upp-row-nowrap">
+            <button type="button" class="upp-btn primary" id="upp-persona-use-btn">设为当前使用</button>
+            <button type="button" class="upp-btn" id="upp-persona-view-back-btn">看回当前</button>
+          </div>
+        </div>
+      `;
+    }
+    html += `
+      <section class="upp-card upp-section-block" data-user-section="preview">
+        <div class="upp-card-head">
+          <div class="upp-row-nowrap">
+            <span class="upp-card-title">${escapeHtml(viewP.name)}</span>
+            <span class="upp-badge">查看中 · 未切换</span>
+          </div>
+          <span class="upp-card-meta">${desc.length} 字</span>
+        </div>
+        ${viewP.lorebook ? `<div class="upp-card-meta"><span class="upp-badge">绑定世界书: ${escapeHtml(viewP.lorebook)}</span></div>` : ''}
+        <div class="upp-persona-live-box" style="max-height:min(46dvh,360px);overflow:auto;overscroll-behavior:contain;white-space:pre-wrap;">${escapeHtml(desc || '这个 User 还没有正文')}</div>
+        <div class="upp-card-meta">内部版本 ${versions.length} 个 · 查看不会改动酒馆当前 User，也不会改动这份人设</div>
+      </section>
+    `;
+    elBody.innerHTML = html;
   }
 
   function makeMatchedSnippet(text, rawQuery) {
@@ -3568,6 +3718,10 @@ function initExtension() {
   }
 
   function renderUserBody() {
+    if (isViewingForeignPersona()) {
+      renderPersonaPreviewBody();
+      return;
+    }
     if (state.userView === 'merge') {
       renderUserMergeView();
       return;
@@ -3783,6 +3937,44 @@ function initExtension() {
     `;
   }
 
+  // 内联面板模板独立成函数：列表重建和“就地展开某一行”共用同一份结构
+  function buildWorldbookInlinePanelHtml(e, warnList, uidKey) {
+    return `
+            <div class="upp-inline-panel" data-wb-panel="${escapeHtml(uidKey)}">
+              <div class="upp-inline-meta">
+                <span>顺序 ${e.order} · 约 ${Math.ceil(e.content.replace(/[\x00-\x7f]+/g, text => 'x'.repeat(Math.ceil(text.length / 4))).length)} tokens</span>
+                ${warnList.length ? `<span class="upp-badge warn">${ICONS.warn} ${escapeHtml(warnList.join('；'))}</span>` : ''}
+              </div>
+              <div class="upp-row">
+                <input type="text" class="upp-text-input" spellcheck="false" style="flex:1;min-width:140px;" data-wb-inline-name="${escapeHtml(uidKey)}" value="${escapeHtml(e.name || '')}" placeholder="条目名称" />
+                <select class="upp-select" data-wb-inline-strategy="${escapeHtml(uidKey)}" style="max-width:140px;">
+                  <option value="constant" ${e.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
+                  <option value="selective" ${e.strategyType === 'selective' ? 'selected' : ''}>绿灯触发</option>
+                  <option value="vectorized" ${e.strategyType === 'vectorized' ? 'selected' : ''}>向量</option>
+                </select>
+              </div>
+              <textarea class="upp-inline-textarea" spellcheck="false" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
+              <details>
+                <summary>触发词、位置与深度</summary>
+                <div class="upp-field">
+                  <label>触发词<input type="text" class="upp-text-input" spellcheck="false" data-wb-inline-key="${escapeHtml(uidKey)}" value="${escapeHtml(e.keys.join(', '))}" /></label>
+                  <label>位置<select class="upp-select" data-wb-inline-position="${escapeHtml(uidKey)}">
+                    ${['角色前', '角色后', '作者注释前', '作者注释后', '聊天深度', '示例对话前', '示例对话后', 'Outlet'].map((name, pos) => `<option value="${pos}" ${e.position === pos ? 'selected' : ''}>${name}</option>`).join('')}
+                    ${e.position > 7 ? `<option value="${e.position}" selected>位置 ${e.position}</option>` : ''}
+                  </select></label>
+                  <label>深度<input type="number" min="0" step="1" class="upp-text-input" data-wb-inline-depth="${escapeHtml(uidKey)}" value="${e.depth}" /></label>
+                </div>
+              </details>
+              <div class="upp-inline-foot">
+                <button type="button" class="upp-btn" data-wb-inline-tall aria-pressed="false">加高</button>
+                <button type="button" class="upp-btn" data-wb-inline-copy="${escapeHtml(uidKey)}">${ICONS.copy}<span>复制</span></button>
+                <button type="button" class="upp-btn" data-wb-inline-close="${escapeHtml(uidKey)}">收起</button>
+                <button type="button" class="upp-btn primary" data-wb-inline-save="${escapeHtml(uidKey)}">保存</button>
+              </div>
+            </div>
+    `;
+  }
+
   function renderWorldbookBody({ preservePanels = false } = {}) {
     const activeBook = state.activeBook;
     if (!activeBook) { elBody.innerHTML = `<div class="upp-empty">酒馆中暂无世界书</div>`; return; }
@@ -3856,40 +4048,7 @@ function initExtension() {
             </button>
             <button type="button" class="upp-switch" role="switch" aria-checked="${!!e.enabled}" data-wb-toggle="${escapeHtml(uidKey)}"></button>
           </div>
-          ${isExpanded ? `
-            <div class="upp-inline-panel" data-wb-panel="${escapeHtml(uidKey)}">
-              <div class="upp-inline-meta">
-                <span>顺序 ${e.order} · 约 ${Math.ceil(e.content.replace(/[\x00-\x7f]+/g, text => 'x'.repeat(Math.ceil(text.length / 4))).length)} tokens</span>
-                ${warnList.length ? `<span class="upp-badge warn">${ICONS.warn} ${escapeHtml(warnList.join('；'))}</span>` : ''}
-              </div>
-              <div class="upp-row">
-                <input type="text" class="upp-text-input" spellcheck="false" style="flex:1;min-width:140px;" data-wb-inline-name="${escapeHtml(uidKey)}" value="${escapeHtml(e.name || '')}" placeholder="条目名称" />
-                <select class="upp-select" data-wb-inline-strategy="${escapeHtml(uidKey)}" style="max-width:140px;">
-                  <option value="constant" ${e.strategyType === 'constant' ? 'selected' : ''}>蓝灯常驻</option>
-                  <option value="selective" ${e.strategyType === 'selective' ? 'selected' : ''}>绿灯触发</option>
-                  <option value="vectorized" ${e.strategyType === 'vectorized' ? 'selected' : ''}>向量</option>
-                </select>
-              </div>
-              <textarea class="upp-inline-textarea" spellcheck="false" data-wb-inline-content="${escapeHtml(uidKey)}">${escapeHtml(e.content || '')}</textarea>
-              <details>
-                <summary>触发词、位置与深度</summary>
-                <div class="upp-field">
-                  <label>触发词<input type="text" class="upp-text-input" spellcheck="false" data-wb-inline-key="${escapeHtml(uidKey)}" value="${escapeHtml(e.keys.join(', '))}" /></label>
-                  <label>位置<select class="upp-select" data-wb-inline-position="${escapeHtml(uidKey)}">
-                    ${['角色前', '角色后', '作者注释前', '作者注释后', '聊天深度', '示例对话前', '示例对话后', 'Outlet'].map((name, pos) => `<option value="${pos}" ${e.position === pos ? 'selected' : ''}>${name}</option>`).join('')}
-                    ${e.position > 7 ? `<option value="${e.position}" selected>位置 ${e.position}</option>` : ''}
-                  </select></label>
-                  <label>深度<input type="number" min="0" step="1" class="upp-text-input" data-wb-inline-depth="${escapeHtml(uidKey)}" value="${e.depth}" /></label>
-                </div>
-              </details>
-              <div class="upp-inline-foot">
-                <button type="button" class="upp-btn" data-wb-inline-tall aria-pressed="false">加高</button>
-                <button type="button" class="upp-btn" data-wb-inline-copy="${escapeHtml(uidKey)}">${ICONS.copy}<span>复制</span></button>
-                <button type="button" class="upp-btn" data-wb-inline-close="${escapeHtml(uidKey)}">收起</button>
-                <button type="button" class="upp-btn primary" data-wb-inline-save="${escapeHtml(uidKey)}">保存</button>
-              </div>
-            </div>
-          ` : ''}
+          ${isExpanded ? buildWorldbookInlinePanelHtml(e, warnList, uidKey) : ''}
         </div>
       `;
     }).join('') + `</div>`;
@@ -3910,15 +4069,46 @@ function initExtension() {
     const row = [...elBody.querySelectorAll('[data-wb-wrap]')].find(el => el.dataset.wbWrap === uid);
     if (!row) return;
     const top = Math.max(0, elBody.scrollTop + row.getBoundingClientRect().top - elBody.getBoundingClientRect().top - Math.round(elBody.clientHeight * 0.25));
-    elBody.scrollTo({ top, behavior: 'smooth' });
+    // 立刻到位，不用 smooth：iOS 平滑滚动期间叠加键盘/视口变化会把外层页面一起带走
+    elBody.scrollTo({ top, behavior: 'auto' });
     if (highlight) {
       row.classList.add('is-highlighted');
       window.setTimeout(() => row.classList.remove('is-highlighted'), 1200);
     }
   }
 
+  // 正在查看哪套预设：与“酒馆当前使用”彻底分开，查看不碰宿主
+  function viewingPresetName() {
+    return state.viewPresetName || state.loadedPresetName;
+  }
+
+  function isViewingForeignPreset() {
+    return !!state.viewPresetName && state.viewPresetName !== state.loadedPresetName;
+  }
+
+  function presetFoldKey(id) {
+    return `${viewingPresetName()}::${id}`;
+  }
+
+  // 刷新数据后重新对齐“查看”状态：查看的预设被删/已等于当前就退回跟随宿主，
+  // 否则按只读方式重新读取被查看的预设条目
+  function syncPresetViewData() {
+    if (state.viewPresetName
+      && (state.viewPresetName === state.loadedPresetName || !state.presets.includes(state.viewPresetName))) {
+      state.viewPresetName = '';
+      state.presetUseConfirm = false;
+    }
+    if (state.viewPresetName) {
+      const norm = Host.getPresetByNameNormalized(state.viewPresetName);
+      if (norm) { state.livePresetNorm = norm; return; }
+      state.viewPresetName = '';
+      state.presetUseConfirm = false;
+    }
+    state.livePresetNorm = Host.getLiveNormalizedPreset();
+  }
+
   function isPresetGroupCollapsed(group) {
-    const key = `${state.loadedPresetName}::${group.id}`;
+    const key = presetFoldKey(group.id);
     if (Object.prototype.hasOwnProperty.call(state.presetFoldState, key)) {
       return !!state.presetFoldState[key];
     }
@@ -3927,8 +4117,10 @@ function initExtension() {
   }
 
   function renderPresetToolbar() {
+    const viewName = viewingPresetName();
+    const foreign = isViewingForeignPreset();
     const presetOpts = state.presets.map(name =>
-      `<option value="${escapeHtml(name)}" ${name === state.loadedPresetName ? 'selected' : ''}>${escapeHtml(name)}</option>`
+      `<option value="${escapeHtml(name)}" ${name === viewName ? 'selected' : ''}>${escapeHtml(name)}</option>`
     ).join('');
     const groups = state.livePresetNorm.groups || [];
     const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
@@ -3937,9 +4129,9 @@ function initExtension() {
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-pr-row1">
         <div class="upp-tb-pr-p1">
-          <select class="upp-select" id="upp-preset-select" title="切换预设">${presetOpts || '<option value="">无可用预设</option>'}</select>
-          <button type="button" class="upp-btn secondary" id="upp-preset-sync-btn" title="把当前预设的新增条目或更新后的开关批量同步或迁移到快照">同步到快照</button>
-          <button type="button" class="upp-btn secondary" id="upp-preset-save-disk-btn" title="将当前开关与分组状态写入预设文件">保存预设</button>
+          <select class="upp-select" id="upp-preset-select" title="选择要查看的预设（查看不会切换酒馆当前预设）">${presetOpts || '<option value="">无可用预设</option>'}</select>
+          <button type="button" class="upp-btn secondary" id="upp-preset-sync-btn" ${foreign ? 'disabled' : ''} title="${foreign ? '正在查看非当前预设，先「设为当前使用」再同步' : '把当前预设的新增条目或更新后的开关批量同步或迁移到快照'}">同步到快照</button>
+          <button type="button" class="upp-btn secondary" id="upp-preset-save-disk-btn" ${foreign ? 'disabled' : ''} title="${foreign ? '正在查看非当前预设，不能写回预设文件' : '将当前开关与分组状态写入预设文件（会覆盖原生预设，点击后需再确认）'}">保存预设</button>
         </div>
         <div class="upp-spacer"></div>
         <div class="upp-tb-pr-fold">
@@ -4003,18 +4195,59 @@ function initExtension() {
     `;
   }
 
+  // 预设页顶部的状态条：查看中（未切换）/ 切换确认 / 写回预设文件确认
+  function renderPresetNoticeStrip() {
+    let html = '';
+    if (isViewingForeignPreset()) {
+      if (state.presetUseConfirm) {
+        html += `
+          <div class="upp-bind-strip is-confirm" style="background:var(--warn-soft);border-color:color-mix(in srgb, var(--warn) 35%, transparent);" data-preset-view-strip>
+            <span>确认把酒馆当前预设从「${escapeHtml(state.loadedPresetName || '无')}」切换为「${escapeHtml(state.viewPresetName)}」？之后的生成会用新预设。</span>
+            <div class="upp-row-nowrap">
+              <button type="button" class="upp-btn primary" id="upp-preset-use-confirm">确认切换</button>
+              <button type="button" class="upp-btn" id="upp-preset-use-cancel">取消</button>
+            </div>
+          </div>
+        `;
+      } else {
+        html += `
+          <div class="upp-bind-strip" style="background:var(--inset);" data-preset-view-strip>
+            <span>正在查看「${escapeHtml(state.viewPresetName)}」· 酒馆当前使用「${escapeHtml(state.loadedPresetName || '无')}」，<strong>尚未切换</strong>（查看只读）</span>
+            <div class="upp-row-nowrap">
+              <button type="button" class="upp-btn primary" id="upp-preset-use-btn">设为当前使用</button>
+              <button type="button" class="upp-btn" id="upp-preset-view-back-btn">看回当前</button>
+            </div>
+          </div>
+        `;
+      }
+    }
+    if (state.presetDiskSaveConfirm) {
+      html += `
+        <div class="upp-bind-strip is-confirm" style="background:var(--danger-soft);border-color:color-mix(in srgb, var(--danger) 35%, transparent);" data-preset-disk-save-strip>
+          <span>「保存预设」会把当前开关与分组状态写进酒馆原生预设文件「${escapeHtml(state.loadedPresetName || '无')}」，覆盖原内容。继续？</span>
+          <div class="upp-row-nowrap">
+            <button type="button" class="upp-btn danger" id="upp-preset-disk-save-confirm">确认写入预设文件</button>
+            <button type="button" class="upp-btn" id="upp-preset-disk-save-cancel">取消</button>
+          </div>
+        </div>
+      `;
+    }
+    return html;
+  }
+
   function renderPresetBody() {
     const { nodes } = buildPresetRenderNodes(state.livePresetNorm, {
       search: state.presetSearch,
       onlyOn: state.presetOnlyOn,
     });
 
+    const notice = renderPresetNoticeStrip();
     if (!nodes.length) {
-      elBody.innerHTML = `<div class="upp-empty">${state.livePresetNorm.prompts.length ? '没有匹配的提示词' : '未能读取当前预设条目'}</div>`;
+      elBody.innerHTML = notice + `<div class="upp-empty">${state.livePresetNorm.prompts.length ? '没有匹配的提示词' : '未能读取当前预设条目'}</div>`;
       return;
     }
 
-    elBody.innerHTML = `<div class="upp-entry-list">` + nodes.map(node => {
+    elBody.innerHTML = notice + `<div class="upp-entry-list">` + nodes.map(node => {
       if (node.type === 'prompt') return renderPresetPromptRowHtml(node.prompt);
       const g = node.group;
       const collapsed = node.forceExpand ? false : isPresetGroupCollapsed(g);
@@ -5948,11 +6181,17 @@ function initExtension() {
     if (next === 'worldbook' && state.activeBook) await ensureBookEntries(state.activeBook, false);
     else if (next === 'regex') state.regexList = await Host.getRegexes(state.regexScope);
     else if (next === 'preset') {
+      state.presets = Host.listPresets();
       state.loadedPresetName = Host.getLoadedPresetName();
-      state.livePresetNorm = Host.getLiveNormalizedPreset();
+      syncPresetViewData();
     } else if (next === 'user') {
       state.personas = Host.listPersonas();
       state.currentPersona = Host.getCurrentPersona();
+      if (state.viewPersonaId && (!state.personas.some(p => p.avatar_id === state.viewPersonaId)
+        || state.viewPersonaId === state.currentPersona?.avatar_id)) {
+        state.viewPersonaId = '';
+        state.personaSwitchConfirm = false;
+      }
     }
     render();
     syncNativePersonaBar();
@@ -6114,7 +6353,7 @@ function initExtension() {
     if (target.closest('#upp-preset-fold-all-btn')) {
       const groups = state.livePresetNorm.groups || [];
       const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
-      groups.forEach(g => { state.presetFoldState[`${state.loadedPresetName}::${g.id}`] = anyExpanded; });
+      groups.forEach(g => { state.presetFoldState[presetFoldKey(g.id)] = anyExpanded; });
       renderPresetToolbar(); renderPresetBody(); return;
     }
     if (target.closest('#upp-preset-default-fold-sw')) {
@@ -6131,12 +6370,10 @@ function initExtension() {
       return;
     }
     if (target.closest('#upp-preset-save-disk-btn')) {
-      try {
-        await Host.saveActivePresetToDisk();
-        toast(`已将开关与分组保存到预设「${state.loadedPresetName}」`, 'success');
-      } catch (err) {
-        toast('保存预设失败：' + (err?.message || err), 'error');
-      }
+      // 写回原生预设文件是覆盖动作：先弹确认，不直接写盘
+      if (isViewingForeignPreset()) { toast('正在查看非当前预设，先「设为当前使用」再保存', 'warning'); return; }
+      state.presetDiskSaveConfirm = true;
+      renderPresetBody();
       return;
     }
 
@@ -6187,25 +6424,44 @@ function initExtension() {
   elToolbar.addEventListener('change', async ev => {
     if (ev.target.id === 'upp-persona-select') {
       const targetId = ev.target.value;
-      if (targetId) {
-        await Host.switchPersona(targetId);
-        state.currentPersona = Host.getCurrentPersona();
-        state.userInlineEditor = null;
-        renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
-        syncNativePersonaBar();
-      }
+      const curId = state.currentPersona?.avatar_id || '';
+      if (!targetId) return;
+      // 下拉只改“正在查看”的对象，不碰酒馆当前 User
+      state.viewPersonaId = (targetId === curId) ? '' : targetId;
+      state.personaSwitchConfirm = false;
+      state.userInlineEditor = null;
+      renderUserToolbar(); renderUserBody(); renderFooter();
+      if (state.viewPersonaId) toast('正在查看该 User，酒馆当前 User 未改变', 'info');
       return;
     }
     if (ev.target.id === 'upp-preset-select') {
       const targetPreset = ev.target.value;
-      if (targetPreset && targetPreset !== state.loadedPresetName) {
-        await Host.selectPresetByName(targetPreset);
-        state.loadedPresetName = Host.getLoadedPresetName();
+      const curName = Host.getLoadedPresetName();
+      state.loadedPresetName = curName;
+      if (!targetPreset) return;
+      if (targetPreset === curName) {
+        // 选回酒馆当前预设＝结束查看，不需要任何确认
+        state.viewPresetName = '';
+        state.presetUseConfirm = false;
         state.livePresetNorm = Host.getLiveNormalizedPreset();
         state.expandedPresetIds.clear();
         renderPresetToolbar(); renderPresetBody(); renderFooter();
-        toast('已切换预设：' + targetPreset, 'success');
+        return;
       }
+      // 查看别的预设：只读读取，绝不调用 selectPresetByName
+      const norm = Host.getPresetByNameNormalized(targetPreset);
+      if (!norm) {
+        toast('读取不到该预设的条目，未做任何切换', 'warning');
+        renderPresetToolbar();
+        return;
+      }
+      state.viewPresetName = targetPreset;
+      state.presetUseConfirm = false;
+      state.livePresetNorm = norm;
+      state.expandedPresetIds.clear();
+      renderPresetToolbar(); renderPresetBody(); renderFooter();
+      toast(`正在查看预设「${targetPreset}」，酒馆当前预设未改变`, 'info');
+      return;
     }
   });
 
@@ -6282,6 +6538,62 @@ function initExtension() {
   elBody.addEventListener('click', async ev => {
     const t = ev.target;
     if (t.closest('[data-open-save-snap]')) { openSaveSnapshotDrawer(); return; }
+
+    // 预设：查看中 → 设为当前使用 / 看回当前 / 写回预设文件确认
+    if (t.closest('#upp-preset-use-btn')) {
+      if (!isViewingForeignPreset()) return;
+      state.presetUseConfirm = true;
+      renderPresetBody();
+      return;
+    }
+    if (t.closest('#upp-preset-use-cancel')) {
+      state.presetUseConfirm = false;
+      renderPresetBody();
+      return;
+    }
+    if (t.closest('#upp-preset-view-back-btn')) {
+      state.viewPresetName = '';
+      state.presetUseConfirm = false;
+      state.livePresetNorm = Host.getLiveNormalizedPreset();
+      state.expandedPresetIds.clear();
+      renderPresetToolbar(); renderPresetBody(); renderFooter();
+      return;
+    }
+    if (t.closest('#upp-preset-use-confirm')) {
+      const target = state.viewPresetName;
+      state.presetUseConfirm = false;
+      if (!target || !isViewingForeignPreset()) { renderPresetBody(); return; }
+      try {
+        const ok = await Host.selectPresetByName(target);
+        if (!ok) { toast('切换失败：酒馆未找到该预设', 'error'); renderPresetBody(); return; }
+        state.viewPresetName = '';
+        state.loadedPresetName = Host.getLoadedPresetName();
+        state.livePresetNorm = Host.getLiveNormalizedPreset();
+        state.expandedPresetIds.clear();
+        renderPresetToolbar(); renderPresetBody(); renderFooter();
+        toast('已切换预设为「' + target + '」', 'success');
+      } catch (err) {
+        toast('切换失败：' + (err?.message || err), 'error');
+        renderPresetBody();
+      }
+      return;
+    }
+    if (t.closest('#upp-preset-disk-save-cancel')) {
+      state.presetDiskSaveConfirm = false;
+      renderPresetBody();
+      return;
+    }
+    if (t.closest('#upp-preset-disk-save-confirm')) {
+      state.presetDiskSaveConfirm = false;
+      try {
+        await Host.saveActivePresetToDisk();
+        toast(`已将开关与分组写入预设文件「${state.loadedPresetName}」`, 'success');
+      } catch (err) {
+        toast('保存预设失败：' + (err?.message || err), 'error');
+      }
+      renderPresetBody();
+      return;
+    }
 
     // Batch snapshot delete controls
     const batchCheck = t.closest('[data-snap-batch-check]');
@@ -6400,14 +6712,50 @@ function initExtension() {
     const userSwitchBtn = t.closest('[data-user-switch-id]');
     if (userSwitchBtn) {
       const targetId = userSwitchBtn.getAttribute('data-user-switch-id');
-      if (targetId && targetId !== state.currentPersona?.avatar_id) {
+      const curId = state.currentPersona?.avatar_id || '';
+      if (targetId && targetId !== curId) {
+        // 列表里的“切换”也只进入查看 + 二次确认，不直接改宿主
+        state.viewPersonaId = targetId;
+        state.personaSwitchConfirm = true;
+        state.userInlineEditor = null;
+        renderUserToolbar(); renderUserBody(); renderFooter();
+      }
+      return;
+    }
+
+    if (t.closest('#upp-persona-use-btn')) {
+      if (!isViewingForeignPersona()) return;
+      state.personaSwitchConfirm = true;
+      renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-persona-use-cancel')) {
+      state.personaSwitchConfirm = false;
+      renderUserBody();
+      return;
+    }
+    if (t.closest('#upp-persona-view-back-btn')) {
+      state.viewPersonaId = '';
+      state.personaSwitchConfirm = false;
+      renderUserToolbar(); renderUserBody(); renderFooter();
+      return;
+    }
+    if (t.closest('#upp-persona-use-confirm')) {
+      const targetId = state.viewPersonaId;
+      state.personaSwitchConfirm = false;
+      if (!targetId || !isViewingForeignPersona()) { renderUserBody(); return; }
+      try {
         await Host.switchPersona(targetId);
+        state.viewPersonaId = '';
         state.personas = Host.listPersonas();
         state.currentPersona = Host.getCurrentPersona();
         state.userInlineEditor = null;
         renderHeader(); renderUserToolbar(); renderUserBody(); renderFooter();
         syncNativePersonaBar();
         toast(`已切换 User：${state.currentPersona?.name || ''}`, 'success');
+      } catch (err) {
+        toast('切换 User 失败：' + (err?.message || err), 'error');
+        renderUserBody();
       }
       return;
     }
@@ -6834,13 +7182,41 @@ function initExtension() {
       state.wbHygieneCursor = (idx + 1) % problemEntries.length;
       const target = problemEntries[idx];
       const uidKey = String(target.uid);
-      if (state.wbEntrySearch) {
+      const focusBefore = shadow.activeElement;
+      const hadSearch = !!state.wbEntrySearch;
+      if (hadSearch) {
         state.wbEntrySearch = '';
-        renderWorldbookToolbar();
+        // 就地清空搜索框，不重建工具栏：输入框节点、焦点与输入法合成态都不动
+        const searchInput = shadow.getElementById('upp-wb-search');
+        if (searchInput) searchInput.value = '';
       }
       state.expandedWbUids.add(uidKey);
-      renderWorldbookBody({ preservePanels: true });
+      const wrap = [...elBody.querySelectorAll('[data-wb-wrap]')].find(el => el.dataset.wbWrap === uidKey);
+      if (!hadSearch && wrap) {
+        // 就地展开目标行：只往这一行追加面板，不重建整张列表，
+        // 正在输入的正文框/搜索框节点不被搬动，焦点和输入法合成态都不会断
+        if (!wrap.querySelector('[data-wb-panel]')) {
+          const warnList = [
+            hygiene.byUid[uidKey].unclosed.length ? '未闭合: ' + hygiene.byUid[uidKey].unclosed.join(', ') : '',
+            hygiene.byUid[uidKey].duplicateTags.length ? '重复包裹: ' + hygiene.byUid[uidKey].duplicateTags.join(', ') : '',
+          ].filter(Boolean);
+          wrap.classList.add('is-expanded');
+          const holder = document.createElement('div');
+          holder.innerHTML = buildWorldbookInlinePanelHtml(target, warnList, uidKey);
+          const panelNode = holder.firstChild;
+          if (panelNode) wrap.appendChild(panelNode);
+        }
+      } else {
+        renderWorldbookBody({ preservePanels: true });
+      }
       locateWorldbookRow(uidKey);
+      // 走重建路径时，内联面板会被搬动、被点的徽章会被销毁；桌面端把焦点还给原来的输入控件，
+      // 避免 activeElement 掉到 body（真机 iOS 会因此收键盘并保持视口偏移）
+      if (focusBefore && focusBefore !== shadow.activeElement && focusBefore.isConnected
+        && typeof focusBefore.matches === 'function'
+        && focusBefore.matches('input, textarea, select, [contenteditable="true"]')) {
+        focusDesktopSafe(focusBefore);
+      }
       const h = hygiene.byUid[uidKey];
       const detail = [
         h.unclosed.length ? '未闭合: ' + h.unclosed.join(', ') : '',
@@ -6923,9 +7299,14 @@ function initExtension() {
       if (box && gid) {
         const nextCollapsed = !box.classList.contains('is-collapsed');
         box.classList.toggle('is-collapsed', nextCollapsed);
-        state.presetFoldState[`${state.loadedPresetName}::${gid}`] = nextCollapsed;
+        state.presetFoldState[presetFoldKey(gid)] = nextCollapsed;
         renderPresetToolbar();
       }
+      return;
+    }
+    if ((t.closest('[data-prg-toggle]') || t.closest('[data-pr-toggle]') || t.closest('[data-pr-inline-save]')) && isViewingForeignPreset()) {
+      // 查看非当前预设时只读：开关不改宿主、不写别的预设文件
+      toast('正在查看非当前预设（只读），先「设为当前使用」才能改开关', 'warning');
       return;
     }
     const prgSw = t.closest('[data-prg-toggle]');
@@ -7345,6 +7726,15 @@ function initExtension() {
       reader.readAsText(file);
     }
   });
+
+  // 定位徽章只做跳转：pointerdown 上阻止默认的聚焦行为，点它不会把焦点从正在输入的
+  // 搜索框/正文框偷走（取消 pointerdown 会连带取消 mousedown 的聚焦，click 仍然照常触发）
+  elBody.addEventListener('pointerdown', ev => {
+    const t = ev.target;
+    if (!t || typeof t.closest !== 'function') return;
+    if (!t.closest('#upp-wb-jump-hygiene-btn')) return;
+    if (ev.cancelable) ev.preventDefault();
+  }, { signal: ac.signal });
 
   elDrawerMask.addEventListener('click', async ev => {
     const t = ev.target;
@@ -8307,6 +8697,8 @@ function initExtension() {
     const solidFab = applyThemeToElement(elFabRoot, mode);
     elFabPop.style.backgroundColor = solidFab;
     elRestorePill.style.backgroundColor = applyThemeToElement(elRestorePill, mode);
+    const toastLayer = getToastLayer();
+    if (toastLayer) applyThemeToElement(toastLayer, mode);
     if (elThemeSelect) elThemeSelect.value = mode;
     guardPanelSurface(solidBg);
     if (state.open) {
@@ -8855,16 +9247,34 @@ function initExtension() {
       }
     }, { passive: false, signal: ac.signal });
 
+    // 手势到顶/到底后继续同向拖，事件会链式传给宿主文档，被 iOS 当成整页滚动；
+    // 记住上一个触点位置判断方向，只在边界处截断
+    let lastTouchY = null;
+    const resetTouchY = () => { lastTouchY = null; };
+    rootEl.addEventListener('touchstart', ev => {
+      lastTouchY = ev.touches?.[0]?.clientY ?? null;
+    }, { signal: ac.signal, passive: true });
+    rootEl.addEventListener('touchend', resetTouchY, { signal: ac.signal, passive: true });
+    rootEl.addEventListener('touchcancel', resetTouchY, { signal: ac.signal, passive: true });
+
     rootEl.addEventListener('touchmove', ev => {
       ev.stopPropagation();
+      const y = ev.touches?.[0]?.clientY;
+      const dy = (lastTouchY === null || y === undefined || y === null) ? 0 : y - lastTouchY;
+      if (y !== undefined && y !== null) lastTouchY = y;
       if (isFixedButton) {
         if (ev.cancelable) ev.preventDefault();
         return;
       }
       const scrollers = findScrollableInRoot(ev, rootEl);
-      if (!scrollers.length && ev.cancelable) {
-        ev.preventDefault();
+      if (!scrollers.length) {
+        if (ev.cancelable) ev.preventDefault();
+        return;
       }
+      if (!ev.cancelable || dy === 0) return;
+      const atTop = scrollers.every(s => (s.scrollTop || 0) <= 0);
+      const atBottom = scrollers.every(s => ((s.scrollTop || 0) + (s.clientHeight || 0)) >= ((s.scrollHeight || 0) - 1));
+      if ((dy > 0 && atTop) || (dy < 0 && atBottom)) ev.preventDefault();
     }, { passive: false, signal: ac.signal });
   });
 
@@ -9396,7 +9806,7 @@ function initExtension() {
       if (!state.open || isApplyingSnapshot) return;
       state.presets = Host.listPresets();
       state.loadedPresetName = Host.getLoadedPresetName();
-      state.livePresetNorm = Host.getLiveNormalizedPreset();
+      syncPresetViewData();
       if (state.tab === 'preset') { renderPresetToolbar(); renderPresetBody(); }
       renderFooter();
     }, 250);

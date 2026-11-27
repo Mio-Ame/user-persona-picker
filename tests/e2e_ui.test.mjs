@@ -2687,9 +2687,20 @@ test('Tier 1 [R8]: Native ST UI/Scroll isolation — zero scrollIntoView, preven
     assertAllShadowButtonsHaveTypeButton(shadow, 'user');
     const pSel = shadow.getElementById('upp-persona-select');
     pSel.value = 'u_alt1.png';
+    const switchesBefore = mockHost.setUserAvatarCalls.length;
     pSel.dispatchEvent(new dom.MockEvent('change', { bubbles: true }));
     await flushAsync();
-    assert.ok(mockHost.setUserAvatarCalls.length >= 1, 'Switching persona should call setUserAvatar');
+    // 意见 #5/#15（D4）：下拉只改“正在查看”的对象，浏览不得切换酒馆当前 User
+    assert.equal(mockHost.setUserAvatarCalls.length, switchesBefore, 'D4: 查看 User 不得调用 setUserAvatar（浏览不切宿主）');
+    assert.ok(shadow.getElementById('upp-persona-use-btn'), 'D4: 查看态必须提供显式「设为当前使用」按钮');
+    assert.ok(shadow.getElementById('upp-persona-view-back-btn'), 'D4: 查看态必须能退回当前 User');
+    // 显式确认后才切换，且仍不跳转聊天
+    shadow.getElementById('upp-persona-use-btn').click();
+    await flushAsync();
+    assert.equal(mockHost.setUserAvatarCalls.length, switchesBefore, 'D4: 设为当前使用需二次确认，点一次不能直接切换');
+    shadow.getElementById('upp-persona-use-confirm').click();
+    await flushAsync();
+    assert.ok(mockHost.setUserAvatarCalls.length > switchesBefore, 'D4: 确认后必须切换酒馆当前 User');
     const lastSwitch = mockHost.setUserAvatarCalls[mockHost.setUserAvatarCalls.length - 1];
     assert.equal(lastSwitch.opts?.navigateToCurrent, false, 'R8: Host.switchPersona MUST pass navigateToCurrent: false');
 
@@ -3535,14 +3546,21 @@ test('Tier 4 [Real-World Workflow]: Capture snapshot -> switch persona -> edit W
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0].name, 'WorkflowSnap');
 
-    // Step 2: Switch persona on User tab without navigateToCurrent jump
+    // Step 2: 查看另一个 User 不切宿主；确认后才切换，且不跳转聊天
     shadow.querySelector('[data-tab="user"]').click();
     await flushAsync();
     const pSel = shadow.getElementById('upp-persona-select');
+    const switchesBefore = mockHost.setUserAvatarCalls.length;
     pSel.value = 'u_alt1.png';
     pSel.dispatchEvent(new dom.MockEvent('change', { bubbles: true }));
     await flushAsync();
+    assert.equal(mockHost.user_avatar, 'u_main.png', 'D4: 查看 User 不得改变酒馆当前 User');
+    shadow.getElementById('upp-persona-use-btn').click();
+    await flushAsync();
+    shadow.getElementById('upp-persona-use-confirm').click();
+    await flushAsync();
     assert.equal(mockHost.user_avatar, 'u_alt1.png');
+    assert.equal(mockHost.setUserAvatarCalls[mockHost.setUserAvatarCalls.length - 1]?.opts?.navigateToCurrent, false);
 
     // Step 3: Edit Worldbook entry inline and save
     shadow.querySelector('[data-tab="worldbook"]').click();
@@ -3671,6 +3689,137 @@ test('M4b: floating ball keeps its drop point, filters by group, and saves witho
     assert.doesNotMatch(saved.name, /CharAlpha/);
     assert.equal(shadow.querySelector('.upp-backdrop').hidden, true);
     assert.equal(pop.hidden, false);
+  } finally {
+    cleanup();
+  }
+});
+
+// ============================================================================
+// 8. D4 — 查看不切宿主（预设 / User）+ 提示条层级
+// ============================================================================
+
+test('D4 [Preset View]: 下拉查看预设不切换宿主、查看态只读、显式确认后才真正切换', async () => {
+  const { dom, shadow, openModal, cleanup } = await mountExtension();
+  try {
+    await openModal();
+    shadow.querySelector('[data-tab="preset"]').click();
+    await flushAsync();
+
+    const sel = shadow.getElementById('upp-preset-select');
+    assert.ok(sel, '预设下拉必须渲染');
+    const hostPresetBefore = mockHost.loadedPresetName;
+    const target = [...sel.options].map((o) => o.value).find((v) => v && v !== hostPresetBefore);
+    assert.ok(target, '测试夹具必须提供第二个预设');
+
+    sel.value = target;
+    sel.dispatchEvent(new dom.MockEvent('change', { bubbles: true }));
+    await flushAsync();
+
+    // 查看 = 只读：宿主预设不变，且拿不到任何切换副作用
+    assert.equal(mockHost.loadedPresetName, hostPresetBefore, 'D4: 查看预设不得切换酒馆当前预设');
+    assert.ok(shadow.querySelector('[data-preset-view-strip]'), 'D4: 查看态必须有“未切换”状态条');
+    assert.ok(shadow.getElementById('upp-preset-use-btn'), 'D4: 查看态必须提供「设为当前使用」');
+    assert.ok(shadow.getElementById('upp-preset-view-back-btn'), 'D4: 查看态必须能「看回当前」');
+    assert.equal(shadow.getElementById('upp-preset-save-disk-btn')?.getAttribute('disabled') !== null, true, 'D4: 查看非当前预设时禁用「保存预设」');
+    assert.equal(shadow.getElementById('upp-preset-sync-btn')?.getAttribute('disabled') !== null, true, 'D4: 查看非当前预设时禁用「同步到快照」');
+
+    // 查看态下点条目开关：不写宿主，只给只读提示
+    const presetsSnapshot = JSON.stringify(mockHost.presetsStore);
+    const prToggle = shadow.querySelector('[data-pr-toggle]');
+    assert.ok(prToggle, '查看态仍应列出被查看预设的条目');
+    prToggle.click();
+    await flushAsync();
+    assert.equal(JSON.stringify(mockHost.presetsStore), presetsSnapshot, 'D4: 查看态点开关不得写任何预设文件');
+    assert.equal(mockHost.loadedPresetName, hostPresetBefore, 'D4: 查看态点开关不得切换预设');
+    assert.match(shadow.getElementById('upp-toast-layer')?.textContent || '', /只读/, 'D4: 查看态点开关必须提示只读');
+
+    // 设为当前使用 → 先要确认，点一次不切
+    shadow.getElementById('upp-preset-use-btn').click();
+    await flushAsync();
+    assert.equal(mockHost.loadedPresetName, hostPresetBefore, 'D4: 点「设为当前使用」只是展开确认，不能直接切换');
+    assert.ok(shadow.getElementById('upp-preset-use-confirm'), 'D4: 必须出现确认按钮');
+    shadow.getElementById('upp-preset-use-confirm').click();
+    await flushAsync();
+    assert.equal(mockHost.loadedPresetName, target, 'D4: 确认后才切换酒馆预设');
+    assert.equal(shadow.querySelector('[data-preset-view-strip]'), null, 'D4: 切换后退出查看态');
+
+    // 「保存预设」写的是酒馆原生预设文件：必须先确认，点一次不落盘（意见 #7）
+    const storeBefore = JSON.stringify(mockHost.presetsStore);
+    shadow.getElementById('upp-preset-save-disk-btn').click();
+    await flushAsync();
+    assert.equal(JSON.stringify(mockHost.presetsStore), storeBefore, 'D4/#7: 「保存预设」点一次不得写盘');
+    assert.ok(shadow.getElementById('upp-preset-disk-save-confirm'), 'D4/#7: 「保存预设」必须出现覆盖确认');
+    shadow.getElementById('upp-preset-disk-save-cancel').click();
+    await flushAsync();
+    assert.equal(JSON.stringify(mockHost.presetsStore), storeBefore, 'D4/#7: 取消后不得写盘');
+    assert.equal(shadow.getElementById('upp-preset-disk-save-confirm'), null, 'D4/#7: 取消后确认条消失');
+  } finally {
+    cleanup();
+  }
+});
+
+test('D4 [Persona View]: 列表里的「切换」先进入查看+确认，绝不浏览即切宿主', async () => {
+  const { dom, shadow, openModal, cleanup } = await mountExtension();
+  try {
+    await openModal();
+    shadow.querySelector('[data-tab="user"]').click();
+    await flushAsync();
+    const curAvatar = mockHost.user_avatar;
+
+    // 用搜索把 User 列表拉出来，再点列表行的「切换」
+    const search = shadow.getElementById('upp-user-search');
+    search.value = '';
+    search.dispatchEvent(new dom.MockEvent('input', { bubbles: true }));
+    const switchesBefore = mockHost.setUserAvatarCalls.length;
+    const altId = mockHost.power_user.personas ? Object.keys(mockHost.power_user.personas).find((id) => id !== curAvatar) : null;
+    assert.ok(altId, '测试夹具必须提供第二个 User');
+    shadow.getElementById('upp-persona-select').value = altId;
+    shadow.getElementById('upp-persona-select').dispatchEvent(new dom.MockEvent('change', { bubbles: true }));
+    await flushAsync();
+    assert.equal(mockHost.user_avatar, curAvatar, 'D4: 查看 User 不得切换宿主');
+    assert.equal(mockHost.setUserAvatarCalls.length, switchesBefore, 'D4: 查看 User 不得调用 setUserAvatar');
+
+    // 查看态只读：编辑类按钮必须禁用，正文以只读方式呈现
+    assert.equal(shadow.getElementById('upp-persona-edit-btn')?.getAttribute('disabled') !== null, true, 'D4: 查看态禁用「编辑正文」');
+    assert.equal(shadow.getElementById('upp-persona-rename-btn')?.getAttribute('disabled') !== null, true, 'D4: 查看态禁用「改名」');
+    const bodyEl = shadow.getElementById('upp-body');
+    assert.match(String(bodyEl && bodyEl.textContent), /正在查看「.*」.*尚未切换/, 'D4: 查看态必须明确写出“尚未切换”');
+    assert.ok(shadow.getElementById('upp-persona-use-btn'), 'D4: 查看态必须提供「设为当前使用」');
+    assert.ok(shadow.getElementById('upp-persona-view-back-btn'), 'D4: 查看态必须能退回当前 User');
+    // 确认后才切换
+    shadow.getElementById('upp-persona-use-btn').click();
+    await flushAsync();
+    assert.equal(mockHost.user_avatar, curAvatar, 'D4: 第一次点只展开确认');
+    shadow.getElementById('upp-persona-use-confirm').click();
+    await flushAsync();
+    assert.equal(mockHost.user_avatar, altId, 'D4: 确认后才切换酒馆当前 User');
+  } finally {
+    cleanup();
+  }
+});
+
+test('D4 [Toast Layer]: 提示条画在影子树内且压在面板之上，不再依赖宿主 toast 容器', async () => {
+  const { shadow, openModal, cleanup } = await mountExtension();
+  try {
+    await openModal();
+    shadow.querySelector('[data-tab="worldbook"]').click();
+    await flushAsync();
+    const jump = shadow.getElementById('upp-wb-jump-hygiene-btn');
+    assert.ok(jump, '未闭合标签条目应渲染定位徽章');
+    jump.click();
+    await flushAsync();
+
+    const layer = shadow.getElementById('upp-toast-layer');
+    assert.ok(layer, 'D4: 提示条容器必须存在于影子树内');
+    assert.match(layer.className, /upp-toast-layer/);
+    assert.match(layer.textContent, /已定位到/, '提示内容必须真的渲染出来');
+    assert.equal(mockHost.toasts.length, 0, 'D4: 不得再写宿主 toastr（宿主层级低于面板，会被压住）');
+
+    // 面板层级最高 30002；提示层必须更高，才能在面板打开时可见
+    const styleText = shadow.querySelector('style')?.textContent || '';
+    const toastZ = Number((styleText.match(/\.upp-toast-layer\s*\{[^}]*z-index:\s*(\d+)/) || [])[1] || 0);
+    assert.ok(toastZ > 30002, `D4: 提示层 z-index(${toastZ}) 必须高于面板层（30002）`);
+    assert.ok(toastZ < 999999, 'D4: 提示层 z-index 仍需低于宿主 toast 容器层级上限');
   } finally {
     cleanup();
   }
