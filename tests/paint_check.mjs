@@ -212,7 +212,7 @@ const HARNESS_SCRIPT = `
   function read(el) {
     if (!el) return null;
     const cs = getComputedStyle(el);
-    return { background: cs.backgroundColor, image: cs.backgroundImage, zIndex: cs.zIndex };
+    return { background: cs.backgroundColor, image: cs.backgroundImage, zIndex: cs.zIndex, pointerEvents: cs.pointerEvents };
   }
   const cx = Math.round(innerWidth / 2);
   const rect = elModal.getBoundingClientRect();
@@ -527,7 +527,11 @@ function checkMobile(report) {
   if (report.dataTheme !== 'glass-dark' && report.dataTheme !== 'paper') fail(`宿主主题判定异常：${report.dataTheme}`);
   opaque('主面板 .upp-modal', modal, modalAlpha);
   opaque('悬浮弹层 .upp-fab-pop', fabPop, fabPopAlpha);
-  opaque('手机端遮罩 .upp-backdrop', backdrop, backdropAlpha);
+  // 用户裁决（2026-11-28）：手机端不再整屏铺实底，遮罩必须透明且可穿透
+  if (backdropAlpha !== null && backdropAlpha <= 0.001) pass('手机端遮罩保持透明，宿主不被压黑');
+  else fail(`手机端遮罩仍有底色：${backdrop?.background}（alpha=${backdropAlpha}）`);
+  if (String(backdrop?.pointerEvents || '') === 'none') pass('手机端遮罩可穿透，宿主界面仍可点');
+  else fail(`手机端遮罩拦截点击：pointer-events=${backdrop?.pointerEvents}`);
 
   const z = Number(hostZ);
   if (Number.isFinite(z) && z >= 90000 && z < 999999) pass(`面板宿主层叠 z-index=${hostZ}`);
@@ -537,10 +541,14 @@ function checkMobile(report) {
   if (topmost === 'upp-host') pass('面板顶栏命中自身，未被宿主元素压盖');
   else fail(`面板顶栏被宿主元素压盖：${JSON.stringify(headerHit)}`);
 
-  const coversWidth = modalRect.width >= viewport.w - 1;
-  const coversHeight = modalRect.height >= viewport.h - 1;
-  if (coversWidth && coversHeight) pass(`手机全屏覆盖 ${modalRect.width}×${modalRect.height}`);
-  else fail(`手机端面板未覆盖整屏：${modalRect.width}×${modalRect.height} @ ${viewport.w}×${viewport.h}`);
+  // 默认是「接近全屏的浮动窗」：四周留 8px 抓取边距，不是贴边全屏
+  const nearW = modalRect.width >= viewport.w - 24;
+  const nearH = modalRect.height >= viewport.h - 24;
+  const hasGrip = modalRect.width < viewport.w && modalRect.height < viewport.h;
+  if (nearW && nearH) pass(`手机默认接近全屏 ${modalRect.width}×${modalRect.height} @ ${viewport.w}×${viewport.h}`);
+  else fail(`手机默认窗口过小：${modalRect.width}×${modalRect.height} @ ${viewport.w}×${viewport.h}`);
+  if (hasGrip) pass(`四周留有抓取边距 ${Math.round((viewport.w - modalRect.width) / 2)}px`);
+  else fail('手机默认窗口贴死视口边缘，抓不到拖动/缩放手柄');
 }
 
 function checkDesktop(report) {

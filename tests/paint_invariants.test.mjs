@@ -47,18 +47,24 @@ test('Paint invariant: 面板/悬浮弹层必须自带不透明底色兜底，�
   }
 });
 
-test('Paint invariant: 手机全屏形态整屏铺实底，仅小窗对照形态保留透明', () => {
+test('Paint invariant: 手机端遮罩保持透明可穿透，面板是默认接近全屏的浮动窗', () => {
   const mobileIdx = indexSrc.indexOf('@media (max-width: 680px)');
   assert.ok(mobileIdx > -1, '缺少 680px 手机断点');
   const mobileBlock = indexSrc.slice(mobileIdx, indexSrc.indexOf('@media (max-width: 680px), (pointer: coarse)', mobileIdx));
-  assert.match(mobileBlock, /\.upp-backdrop:not\(\.is-mini\)\s*\{[\s\S]*?background-color:\s*#[0-9a-f]{3,8}/i,
-    '手机端遮罩在全屏形态下必须声明实底背景色');
-  assert.match(mobileBlock, /background-image:\s*linear-gradient\(var\(--bg\)/i,
-    '手机端遮罩实底必须跟随主题色');
-  assert.match(mobileBlock, /\.upp-modal:not\(\.is-floating\)\s*\{[\s\S]*?height:\s*100vh;[\s\S]*?height:\s*100dvh;/i,
-    '手机全屏面板必须同时给出 100vh 与 100dvh，兼容不支持动态视口单位的内核');
-  assert.match(mobileBlock, /\[data-theme="glass-dark"\]\s*\{[\s\S]*?background-color:\s*#[0-9a-f]{3,8}/i,
-    '深色主题下手机端遮罩需给深色实底兜底');
+  // 用户裁决（2026-11-28）：手机端不铺整屏实底，宿主要一直看得见、点得着
+  assert.equal(/\.upp-backdrop:not\(\.is-mini\)/.test(mobileBlock), false,
+    '手机端不得再为遮罩单独铺实底（整屏压黑宿主）');
+  assert.match(mobileBlock, /\.upp-backdrop\s*\{[\s\S]*?background:\s*transparent;/i,
+    '手机端遮罩必须保持透明');
+  assert.match(mobileBlock, /\.upp-backdrop\s*\{[\s\S]*?pointer-events:\s*none;/i,
+    '手机端遮罩必须可穿透，否则宿主界面点不到');
+  // 默认形态＝接近全屏的浮动窗，四周留 8px 供抓取
+  assert.match(mobileBlock, /\.upp-modal:not\(\.is-floating\)\s*\{[\s\S]*?width:\s*calc\(100%\s*-\s*16px\)/i,
+    '手机默认形态必须是留出抓取边距的浮动窗');
+  assert.match(mobileBlock, /\.upp-modal:not\(\.is-floating\)\s*\{[\s\S]*?max-height:\s*calc\(100dvh\s*-\s*16px\)/i,
+    '手机浮动窗高度必须用 100dvh 兜底并留边距');
+  assert.equal(/\.upp-modal:not\(\.is-floating\) \.upp-rz\s*\{[^}]*display:\s*none/.test(mobileBlock), false,
+    '手机端必须保留缩放抓手，不能藏掉');
 });
 
 test('Paint invariant: 桌面端遮罩仍保持透明（不压黑酒馆主界面）', () => {
@@ -81,6 +87,9 @@ test('Paint invariant: 实底守卫必须存在，且不能把解析不出的底
   assert.match(indexSrc, /if \(alpha >= 0\.999\) return false;/, '实底守卫在底色已不透明时必须直接返回，避免无意义改写');
   // 解析不出颜色（如 Fake DOM 返回 undefined）必须视为已知不透明，避免测试与降级环境下误触发
   assert.match(indexSrc, /if \(!m \|\| m\[4\] === undefined\) return 1;/, 'colorAlpha 对无法解析的颜色必须返回 1');
+  // 用户裁决：遮罩永远透明，实底守卫只能兜底面板自身
+  assert.equal(/elBackdrop\.style\.setProperty\('background-color'/.test(indexSrc), false,
+    '实底守卫不得再给遮罩铺整屏实底');
 });
 
 test('Paint invariant: 小窗形态标记与视口变化后的主题重算必须存在', () => {

@@ -3914,3 +3914,62 @@ test('意见 #9/#22 [Book Picker]: 分组胶囊置顶、点胶囊只看该组、
     cleanup();
   }
 });
+
+test('D3 [Mobile Window]: 手机端默认接近全屏浮动窗，可拖动/缩放并把落点尺寸记住', async () => {
+  const { dom, shadow, openModal, cleanup } = await mountExtension({
+    domOpts: { innerWidth: 390, innerHeight: 844, pointerCoarse: true },
+  });
+  try {
+    await openModal();
+    const modal = shadow.querySelector('.upp-modal');
+    const backdrop = shadow.querySelector('.upp-backdrop');
+    const settings = () => mockHost.extension_settings.user_persona_snapshot.settings;
+
+    // 默认形态：接近全屏的浮动窗（四周 8px 抓取边距），不是贴边全屏
+    assert.equal(modal.style.left, '8px');
+    assert.equal(modal.style.top, '8px');
+    assert.equal(parseFloat(modal.style.width), 374);
+    assert.equal(parseFloat(modal.style.height), 828);
+    assert.equal(modal.classList.contains('is-floating'), true, '手机端默认必须是浮动窗');
+    // 遮罩不铺底、不拦截（样式在 paint_invariants 里静态校验，这里确认没有内联底色）
+    assert.doesNotMatch(backdrop.style.backgroundColor || '', /^rgb/);
+    assert.ok(shadow.getElementById('upp-drag-grip'), '必须提供固定的拖动抓手（手机顶栏被控件占满）');
+
+    const pointer = (el, type, x, y) => el.dispatchEvent(new dom.MockEvent(type, {
+      bubbles: true, cancelable: true, button: 0, pointerType: 'mouse', pointerId: 3, clientX: x, clientY: y,
+    }));
+
+    // 1) 缩放：右下角往内拖
+    const rz = shadow.querySelector('.upp-rz-se');
+    assert.ok(rz, '缺少右下角缩放手柄');
+    pointer(rz, 'pointerdown', 382, 836);
+    pointer(rz, 'pointermove', 312, 636);
+    pointer(rz, 'pointerup', 312, 636);
+    await flushAsync();
+    assert.equal(settings().modalWidth, 310, '缩放后的宽度必须持久化');
+    assert.equal(settings().modalHeight, 628, '缩放后的高度必须持久化');
+
+    // 2) 拖动：抓抓手往右下移
+    const grip = shadow.getElementById('upp-drag-grip');
+    pointer(grip, 'pointerdown', 100, 100);
+    pointer(grip, 'pointermove', 130, 140);
+    pointer(grip, 'pointerup', 130, 140);
+    await flushAsync();
+    assert.equal(modal.style.left, '38px', '拖动后窗口必须真的移动（不被重新居中）');
+    assert.equal(modal.style.top, '48px');
+    assert.equal(settings().modalLeft, 38, '落点必须持久化');
+    assert.equal(settings().modalTop, 48);
+
+    // 3) 关闭再打开：几何原样恢复，不回到居中/全屏
+    shadow.getElementById('upp-close-btn').click();
+    await flushAsync();
+    await openModal();
+    await flushAsync();
+    assert.equal(modal.style.left, '38px', '重开后必须回到用户摆的位置');
+    assert.equal(modal.style.top, '48px');
+    assert.equal(parseFloat(modal.style.width), 310, '重开后必须沿用用户尺寸');
+    assert.equal(parseFloat(modal.style.height), 628);
+  } finally {
+    cleanup();
+  }
+});

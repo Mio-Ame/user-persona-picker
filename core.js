@@ -40,6 +40,9 @@ export function createEmptyStore() {
       fabY: 0.68,
       modalWidth: 0,
       modalHeight: 0,
+      // -1 = 用户还没摆过位置（首次打开按默认居中/接近全屏）
+      modalLeft: -1,
+      modalTop: -1,
       pinnedWorldbooks: [],
     },
     personaVersions: {},
@@ -112,6 +115,10 @@ export function sanitizeStore(raw) {
   const mhNum = Math.round(Number(st.modalHeight));
   base.settings.modalWidth = Number.isFinite(mwNum) && mwNum >= 310 && mwNum <= 2400 ? mwNum : 0;
   base.settings.modalHeight = Number.isFinite(mhNum) && mhNum >= 250 && mhNum <= 2000 ? mhNum : 0;
+  const mlNum = Math.round(Number(st.modalLeft));
+  const mtNum = Math.round(Number(st.modalTop));
+  base.settings.modalLeft = Number.isFinite(mlNum) && mlNum >= 0 && mlNum <= 8000 ? mlNum : -1;
+  base.settings.modalTop = Number.isFinite(mtNum) && mtNum >= 0 && mtNum <= 8000 ? mtNum : -1;
   base.settings.pinnedWorldbooks = Array.isArray(st.pinnedWorldbooks)
     ? Array.from(new Set(st.pinnedWorldbooks.map(x => String(x || '').trim()).filter(Boolean)))
     : [];

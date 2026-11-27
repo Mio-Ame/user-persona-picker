@@ -1929,6 +1929,25 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .upp-modal.is-dragging .upp-header {
   cursor: grabbing;
 }
+/* 明确的拖动抓手：手机端顶栏几乎被控件占满，必须有固定可抓的区域 */
+.upp-drag-grip {
+  flex-shrink: 0;
+  width: 12px;
+  height: 22px;
+  margin-right: 2px;
+  border-radius: 4px;
+  background-image: radial-gradient(currentColor 1px, transparent 1.2px);
+  background-size: 5px 5px;
+  background-position: 50% 50%;
+  background-repeat: repeat;
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.upp-modal.is-dragging .upp-drag-grip { cursor: grabbing; opacity: 0.8; }
 .upp-title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .upp-title { font-size: var(--upp-fs-lg); font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; flex-shrink: 0; }
 .upp-ctx-chip {
@@ -2568,31 +2587,23 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 }
 
 @media (max-width: 680px) {
-  /* 手机全屏形态：整屏铺不透明实底，任何高度/宽度计算偏差或主题半透明都不会透出宿主内容；
-     小窗对照形态（.is-mini）仍保持透明，方便看上方聊天区 */
-  .upp-backdrop:not(.is-mini) {
-    background-color: #f1f1ec;
-    background-image: linear-gradient(var(--bg), var(--bg));
-  }
-  .upp-backdrop:not(.is-mini)[data-theme="glass-dark"] {
-    background-color: #17181c;
-  }
+  /* 手机端不再铺整屏实底遮罩：遮罩永远透明可穿透，面板本体是「默认接近全屏」的浮动窗，
+     可拖动/可缩放，宿主内容随时可见可点 */
   .upp-backdrop {
+    background: transparent;
+    pointer-events: none;
     padding: 0;
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
-    align-items: flex-end;
+    align-items: center;
+    justify-content: center;
   }
+  /* 没有显式几何（首帧/未拖动过）时也保持接近全屏的浮动窗形态，四周留 8px 方便抓取 */
   .upp-modal:not(.is-floating) {
-    width: 100%;
-    height: 100vh;
-    height: 100dvh;
-    max-height: 100vh;
-    max-height: 100dvh;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
+    width: calc(100% - 16px);
+    height: calc(100% - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 14px;
   }
   .upp-modal:not(.is-floating) .upp-header {
     padding-top: calc(10px + env(safe-area-inset-top, 0px));
@@ -2606,8 +2617,6 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
   .upp-modal:not(.is-floating) .upp-drawer.is-full .upp-drawer-head {
     padding-top: calc(11px + env(safe-area-inset-top, 0px));
   }
-  .upp-modal:not(.is-floating) .upp-rz { display: none; }
-  .upp-modal:not(.is-floating) .upp-header { cursor: default; touch-action: auto; }
 }
 
 /* Mobile & coarse-pointer input font-size >= 16px and min-height >= 34px */
@@ -3103,6 +3112,7 @@ function initExtension() {
 <div class="upp-backdrop" hidden>
   <div class="upp-modal" role="dialog" aria-modal="true" aria-label="快照管家">
     <div class="upp-header">
+      <span class="upp-drag-grip" id="upp-drag-grip" aria-hidden="true" title="按住拖动窗口"></span>
       <div class="upp-title-wrap">
         <span class="upp-title">快照管家</span>
         <span class="upp-ctx-chip" id="upp-ctx-chip" hidden></span>
@@ -8739,17 +8749,12 @@ function initExtension() {
     let alpha = 1;
     try { alpha = colorAlpha(window.getComputedStyle(elModal).backgroundColor); } catch (_) { return false; }
     if (alpha >= 0.999) return false;
+    // 只兜底面板自身的表面；遮罩必须永远透明，绝不为了“看起来实底”去铺整屏
     const targets = [elModal, elFabPop, elRestorePill].filter(Boolean);
     targets.forEach(el => {
       el.style.setProperty('background-color', solidBg, 'important');
       el.style.setProperty('background-image', 'none', 'important');
     });
-    let floating = false;
-    try { floating = !!modalGeo.floating; } catch (_) { floating = false; }
-    if (isMobileFullscreen() && !floating && elBackdrop) {
-      elBackdrop.style.setProperty('background-color', solidBg, 'important');
-      elBackdrop.style.setProperty('background-image', 'none', 'important');
-    }
     if (!surfaceGuardFired) {
       surfaceGuardFired = true;
       try { toast('已强制面板不透明显示', 'warning'); } catch (_) {}
@@ -8803,7 +8808,7 @@ function initExtension() {
       hostTint: rootStyle.getPropertyValue('--SmartThemeBlurTintColor').trim(),
       hostBodyBg: window.getComputedStyle(document.body || document.documentElement).backgroundColor,
       viewport: getViewportSize(),
-      mobileFullscreen: isMobileFullscreen(),
+      mobileFullscreen: isMobileViewport(),
       hostZ: window.getComputedStyle(host).zIndex,
       modal: read(elModal),
       backdrop: read(elBackdrop),
@@ -8857,17 +8862,24 @@ function initExtension() {
     return getViewportSize().vw <= 680;
   }
 
-  function isMobileFullscreen() {
-    return isMobileViewport();
+  // 手机端默认几何：接近全屏的浮动窗，四周留 8px 供抓取拖动/缩放
+  function defaultNarrowModalRect() {
+    const { vw, vh } = getViewportSize();
+    const inset = vw <= 420 ? 8 : 12;
+    return {
+      left: inset,
+      top: inset,
+      width: Math.max(1, vw - inset * 2),
+      height: Math.max(1, vh - inset * 2),
+    };
   }
 
   function syncModalLayoutClasses() {
     if (!elModal) return;
-    const mobileFs = isMobileFullscreen();
     elModal.classList.toggle('is-floating', !!modalGeo.floating);
-    elModal.classList.toggle('is-draggable', !mobileFs);
-    elModal.classList.toggle('is-resizable', !mobileFs);
-    // 小窗对照形态下遮罩保持透明以便看后方酒馆界面，其余手机形态整屏铺实底
+    // 手机与桌面都允许拖动/缩放（手机默认接近全屏，但仍可抓取调整）
+    elModal.classList.toggle('is-draggable', true);
+    elModal.classList.toggle('is-resizable', true);
     elBackdrop?.classList.toggle('is-mini', !!modalGeo.floating);
     let h = modalGeo.floating && modalGeo.height ? modalGeo.height : (elModal.getBoundingClientRect().height || 0);
     if (!h && state.open) h = getViewportSize().vh;
@@ -8894,33 +8906,61 @@ function initExtension() {
   }
 
   function restorePersistedModalSize() {
-    if (isMobileFullscreen()) {
+    const settings = state.store?.settings || {};
+    const sw = Number(settings.modalWidth) || 0;
+    const sh = Number(settings.modalHeight) || 0;
+    const hasPos = Number.isFinite(Number(settings.modalLeft)) && Number.isFinite(Number(settings.modalTop))
+      && Number(settings.modalLeft) >= 0 && Number(settings.modalTop) >= 0;
+    const hasSize = sw > 0 && sh > 0;
+    if (!hasSize && !hasPos && !isMobileViewport()) {
+      // 桌面首次打开：交给 CSS 居中，不做内联几何
       resetModalGeometry();
       return;
     }
-    const sw = Number(state.store?.settings?.modalWidth) || 0;
-    const sh = Number(state.store?.settings?.modalHeight) || 0;
-    if (sw > 0 && sh > 0) {
-      const { vw, vh } = getViewportSize();
-      const rawLeft = Math.round((vw - sw) / 2);
-      const rawTop = Math.round((vh - sh) / 2);
-      modalGeo.floating = true;
-      modalGeo.resized = true;
-      modalGeo.baseLeft = rawLeft;
-      modalGeo.baseTop = rawTop;
-      modalGeo.baseWidth = sw;
-      modalGeo.baseHeight = sh;
-      applyModalRect(clampModalRect({
-        left: rawLeft,
-        top: rawTop,
+    const { vw, vh } = getViewportSize();
+    // 有保存的尺寸就沿用；没有（手机首次）就是接近全屏的浮动窗
+    const base = hasSize
+      ? {
         width: sw,
         height: sh,
-        viewportWidth: vw,
-        viewportHeight: vh,
-      }), false);
-    } else {
-      resetModalGeometry();
+        left: hasPos ? Number(settings.modalLeft) : Math.round((vw - sw) / 2),
+        top: hasPos ? Number(settings.modalTop) : Math.round((vh - sh) / 2),
+      }
+      : (hasPos
+        ? { ...defaultNarrowModalRect(), left: Number(settings.modalLeft), top: Number(settings.modalTop) }
+        : defaultNarrowModalRect());
+    modalGeo.floating = true;
+    modalGeo.resized = hasSize;
+    modalGeo.baseLeft = base.left;
+    modalGeo.baseTop = base.top;
+    modalGeo.baseWidth = base.width;
+    modalGeo.baseHeight = base.height;
+    // 只有真的跑出视口才夹回来，不再每次重开都重新居中
+    applyModalRect(clampModalRect({
+      left: base.left,
+      top: base.top,
+      width: base.width,
+      height: base.height,
+      viewportWidth: vw,
+      viewportHeight: vh,
+    }), false);
+  }
+
+  // 拖动/缩放结束后记住落点与尺寸（用户摆的位置优先，重开不回到居中）
+  function persistModalGeometry() {
+    if (!state.store?.settings) return;
+    const left = Math.round(Number.isFinite(modalGeo.baseLeft) ? modalGeo.baseLeft : modalGeo.left);
+    const top = Math.round(Number.isFinite(modalGeo.baseTop) ? modalGeo.baseTop : modalGeo.top);
+    if (Number.isFinite(left)) state.store.settings.modalLeft = left;
+    if (Number.isFinite(top)) state.store.settings.modalTop = top;
+    const w = Math.round(modalGeo.baseWidth || modalGeo.width || 0);
+    const h = Math.round(modalGeo.baseHeight || modalGeo.height || 0);
+    // 手机端最小可缩到 310×250，门槛不能比它还高，否则手机上缩过之后就记不住
+    if (w >= 300 && h >= 240) {
+      state.store.settings.modalWidth = w;
+      state.store.settings.modalHeight = h;
     }
+    persistStore(state.store);
   }
 
   function resetModalGeometry() {
@@ -8946,20 +8986,6 @@ function initExtension() {
   function reclampModalGeometry() {
     if (!state.open || state.minimized) return;
     const { vw, vh } = getViewportSize();
-    if (isMobileFullscreen()) {
-      if (modalGeo.floating) {
-        modalGeo.floating = false;
-        modalGeo.resized = false;
-        if (elModal) {
-          elModal.style.removeProperty('left');
-          elModal.style.removeProperty('top');
-          elModal.style.removeProperty('width');
-          elModal.style.removeProperty('height');
-        }
-      }
-      syncModalLayoutClasses();
-      return;
-    }
     if (modalGeo.floating) {
       const srcLeft = modalGeo.baseWidth ? modalGeo.baseLeft : modalGeo.left;
       const srcTop = modalGeo.baseHeight ? modalGeo.baseTop : modalGeo.top;
@@ -9077,14 +9103,14 @@ function initExtension() {
     elBackdrop.hidden = true;
     elRestorePill.hidden = true;
     elModal.classList.remove('is-fab-clear-foot-l', 'is-fab-clear-foot-r', 'is-fab-clear-head-l', 'is-fab-clear-head-r');
-    resetModalGeometry();
+    // 不清几何：用户摆的位置/尺寸由设置持久化，下次打开按保存值恢复
     syncFabUi();
   }
 
   // Unified PointerEvent Drag on .upp-header
   elHeader.addEventListener('pointerdown', ev => {
     if (ev.button !== 0 && ev.pointerType === 'mouse') return;
-    if (!state.open || state.minimized || isMobileFullscreen()) return;
+    if (!state.open || state.minimized) return;
     if (ev.target && ev.target.closest('button, select, input, textarea, a, label, [role="button"], option')) return;
     const rect = elModal.getBoundingClientRect();
     dragState = {
@@ -9143,9 +9169,12 @@ function initExtension() {
 
   function finishModalDrag(ev) {
     if (!dragState || ev.pointerId !== dragState.pointerId) return;
+    const moved = !!dragState.moved;
     dragState = null;
     elModal.classList.remove('is-dragging');
     try { elHeader.releasePointerCapture(ev.pointerId); } catch (_) {}
+    // 落点持久化：下次打开回到用户摆的位置，不再每次重新居中
+    if (moved && modalGeo.floating) persistModalGeometry();
   }
   elHeader.addEventListener('pointerup', finishModalDrag, { signal: ac.signal });
   elHeader.addEventListener('pointercancel', finishModalDrag, { signal: ac.signal });
@@ -9155,7 +9184,7 @@ function initExtension() {
     const handle = rzEl.getAttribute('data-resize') || 'se';
     rzEl.addEventListener('pointerdown', ev => {
       if (ev.button !== 0 && ev.pointerType === 'mouse') return;
-      if (!state.open || state.minimized || isMobileFullscreen()) return;
+      if (!state.open || state.minimized) return;
       ev.preventDefault();
       ev.stopPropagation();
       const { vw, vh } = getViewportSize();
@@ -9204,16 +9233,11 @@ function initExtension() {
 
     const finishResize = ev => {
       if (!resizeState || ev.pointerId !== resizeState.pointerId) return;
-      const savedW = Math.round(modalGeo.baseWidth || modalGeo.width || 0);
-      const savedH = Math.round(modalGeo.baseHeight || modalGeo.height || 0);
       resizeState = null;
       elModal.classList.remove('is-resizing');
       try { rzEl.releasePointerCapture(ev.pointerId); } catch (_) {}
-      if (savedW >= 340 && savedH >= 280) {
-        state.store.settings.modalWidth = savedW;
-        state.store.settings.modalHeight = savedH;
-        persistStore(state.store);
-      }
+      // 尺寸 + 落点一起记住（≥340×280 才写尺寸，避免误缩放成不可用的小窗）
+      persistModalGeometry();
     };
     rzEl.addEventListener('pointerup', finishResize, { signal: ac.signal });
     rzEl.addEventListener('pointercancel', finishResize, { signal: ac.signal });
@@ -9575,10 +9599,8 @@ function initExtension() {
       if (modalGeo.floating) reclampModalGeometry();
       return;
     }
-    if (modalGeo.floating && !isMobileFullscreen()) {
-      nudgePanelAwayFromFab(ball, rect);
-      return;
-    }
+    // 球与面板重叠时不再搬动面板：面板落点由用户决定，球自己可拖走，
+    // 只在手机窄窗时给顶/底操作条留出让位内边距，避免球压住标题或按钮
     const footerRect = elFooter?.getBoundingClientRect();
     const headerRect = elHeader?.getBoundingClientRect();
     const ballCenterX = ball.left + ball.width / 2;
@@ -9588,31 +9610,6 @@ function initExtension() {
     } else if (headerRect && ball.bottom > headerRect.top && ball.top < headerRect.bottom) {
       elModal.classList.add(`is-fab-clear-head-${side}`);
     }
-  }
-
-  // 浮动窗口遇到悬浮球时，用最小位移让开（保持落点不动）
-  function nudgePanelAwayFromFab(ball, rect) {
-    const pad = 10;
-    const { vw, vh } = getViewportSize();
-    let dx = 0;
-    let dy = 0;
-    const needLeft = ball.right + pad - rect.left;
-    const needRight = rect.right - (ball.left - pad);
-    if (rect.left - pad >= needLeft) dx = -needLeft;
-    else if (vw - rect.right - pad >= needRight) dx = needRight;
-    else {
-      const needUp = ball.bottom + pad - rect.top;
-      const needDown = rect.bottom - (ball.top - pad);
-      if (rect.top - pad >= needUp) dy = -needUp;
-      else if (vh - rect.bottom - pad >= needDown) dy = needDown;
-      else return;
-    }
-    applyModalRect({
-      left: Math.round(rect.left + dx),
-      top: Math.round(rect.top + dy),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    }, false);
   }
 
   elFabBtn.addEventListener('pointerdown', ev => {
