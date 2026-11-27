@@ -2139,6 +2139,25 @@ button.upp-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsi
 .upp-group-items > * { flex-shrink: 0; }
 .upp-group-box.is-collapsed > .upp-group-items { display: none; }
 
+/* 世界书选择器：分组胶囊在顶部方便挑，分组栏吸顶，滚到很下面也能随时折叠 */
+/* 吸顶要求祖先不剪裁，所以这里单独一套 box/head，不复用 overflow:hidden 的 .upp-group-box */
+.upp-wb-chips { flex: 0 0 auto; padding-block: 1px 5px; }
+.upp-wb-chip-count { opacity: 0.7; margin-left: 5px; font-variant-numeric: tabular-nums; }
+.upp-bp-box {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent-border-strong);
+  border-radius: 12px; background: var(--inset); overflow: visible; box-shadow: none;
+}
+.upp-bp-head {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+  background: var(--inset-strong); border-bottom: 1px solid var(--border);
+  border-radius: 11px 11px 0 0; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+}
+.upp-bp-box.is-collapsed .upp-bp-head { border-radius: 11px; border-bottom-color: transparent; }
+.upp-bp-items { display: flex; flex-direction: column; gap: 4px; padding: 5px 6px 6px; }
+.upp-bp-items > * { flex-shrink: 0; }
+.upp-bp-box.is-collapsed > .upp-bp-items { display: none; }
+
 .upp-ps-ov-box { overflow: visible; }
 .upp-ps-ov-head { position: sticky; top: 0; z-index: 1; border-radius: 9px; background: var(--bg); }
 .upp-ps-ov-scroll { max-height: min(34dvh, 280px); overflow-y: auto; overscroll-behavior: contain; }
@@ -4107,13 +4126,29 @@ function initExtension() {
     state.livePresetNorm = Host.getLiveNormalizedPreset();
   }
 
-  function isPresetGroupCollapsed(group) {
+  // 用户显式折叠优先；搜索命中时允许自动展开（autoExpand），但「只看已开」下不自动展开，
+  // 否则全部展开/折叠按钮在只看已开模式里点了没反应（意见 #6）
+  function isPresetGroupCollapsed(group, { autoExpand = false } = {}) {
     const key = presetFoldKey(group.id);
     if (Object.prototype.hasOwnProperty.call(state.presetFoldState, key)) {
       return !!state.presetFoldState[key];
     }
+    if (autoExpand) return false;
     if (state.store.settings.presetGroupsDefaultCollapsed !== false) return true;
     return !!group.collapsed;
+  }
+
+  // 当前（含搜索/只看已开过滤后）真正渲染出来的分组节点
+  function visiblePresetGroupNodes() {
+    const { nodes } = buildPresetRenderNodes(state.livePresetNorm, {
+      search: state.presetSearch,
+      onlyOn: state.presetOnlyOn,
+    });
+    return nodes.filter(n => n.type === 'group');
+  }
+
+  function presetNodeCollapsed(node) {
+    return isPresetGroupCollapsed(node.group, { autoExpand: !state.presetOnlyOn && !!node.forceExpand });
   }
 
   function renderPresetToolbar() {
@@ -4122,9 +4157,10 @@ function initExtension() {
     const presetOpts = state.presets.map(name =>
       `<option value="${escapeHtml(name)}" ${name === viewName ? 'selected' : ''}>${escapeHtml(name)}</option>`
     ).join('');
-    const groups = state.livePresetNorm.groups || [];
-    const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
+    const groupNodes = visiblePresetGroupNodes();
+    const anyExpanded = groupNodes.some(n => !presetNodeCollapsed(n));
     const defFoldOn = state.store.settings.presetGroupsDefaultCollapsed !== false;
+    const onCount = (state.livePresetNorm.prompts || []).filter(p => p.enabled).length;
 
     elToolbar.innerHTML = `
       <div class="upp-row upp-tb-pr-row1">
@@ -4135,8 +4171,8 @@ function initExtension() {
         </div>
         <div class="upp-spacer"></div>
         <div class="upp-tb-pr-fold">
-          ${groups.length ? `<button type="button" class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
-          ${groups.length ? `
+          ${groupNodes.length ? `<button type="button" class="upp-btn" id="upp-preset-fold-all-btn">${anyExpanded ? '全部折叠' : '全部展开'}</button>` : ''}
+          ${groupNodes.length ? `
             <label class="upp-switch-label" title="打开预设页或快照详情时，分组是否默认收起">
               <span>默认折叠</span>
               <button type="button" class="upp-switch" id="upp-preset-default-fold-sw" role="switch" aria-checked="${defFoldOn}"></button>
@@ -4150,7 +4186,7 @@ function initExtension() {
           <input type="text" id="upp-preset-search" spellcheck="false" placeholder="搜索分组、提示词或正文…" value="${escapeHtml(state.presetSearch)}" />
         </div>
         <div class="upp-tb-pr-onlyon">
-          <button type="button" class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn">只看已开</button>
+          <button type="button" class="upp-btn ${state.presetOnlyOn ? 'active' : ''}" id="upp-preset-only-on-btn" aria-pressed="${state.presetOnlyOn ? 'true' : 'false'}" title="${state.presetOnlyOn ? '当前只显示已开启条目，点击看回全部' : '只显示已开启的条目'}">只看已开${state.presetOnlyOn ? ` · ${onCount}` : ''}</button>
         </div>
       </div>
     `;
@@ -4250,7 +4286,7 @@ function initExtension() {
     elBody.innerHTML = notice + `<div class="upp-entry-list">` + nodes.map(node => {
       if (node.type === 'prompt') return renderPresetPromptRowHtml(node.prompt);
       const g = node.group;
-      const collapsed = node.forceExpand ? false : isPresetGroupCollapsed(g);
+      const collapsed = presetNodeCollapsed(node);
       return `
         <div class="upp-group-box ${collapsed ? 'is-collapsed' : ''} ${g.enabled ? '' : 'is-disabled'}" data-prg-box="${escapeHtml(g.id)}">
           <div class="upp-group-head">
@@ -4961,28 +4997,51 @@ function initExtension() {
     }).join('');
   }
 
-  function renderBookPickerList(d) {
-    const listEl = shadow.getElementById('upp-book-picker-list');
-    if (!listEl) return;
-    const { sections } = groupWorldbooksByOrganizer(state.worldbooks, getOrganizerSettings(), {
+  function bookPickerSections(d, query = '') {
+    return groupWorldbooksByOrganizer(state.worldbooks, getOrganizerSettings(), {
       pinned: state.store.settings.pinnedWorldbooks,
       globals: state.globalWorldbooks,
       charBooks: [state.charWorldbooks.primary, ...(state.charWorldbooks.additional || [])].filter(Boolean),
       chatBook: state.chatWorldbook,
       liveCharBookMap: buildLiveCharBookMap(),
-      query: d.query || '',
-    });
+      query,
+    }).sections;
+  }
+
+  // 顶部组胶囊：点一个只看该组，再点「全部」看回来
+  function renderBookPickerChips(d, sections) {
+    const chipsEl = shadow.getElementById('upp-book-picker-chips');
+    if (!chipsEl) return;
+    const total = sections.reduce((sum, sec) => sum + sec.items.length, 0);
+    const active = d.groupFilter || '';
+    const chip = (id, label, count) => `
+      <button type="button" class="upp-pill ${active === id ? 'active' : ''}" data-bp-group="${escapeHtml(id)}" aria-pressed="${active === id ? 'true' : 'false'}">
+        <span class="upp-pill-text">${escapeHtml(label)}</span><span class="upp-wb-chip-count">${count}</span>
+      </button>`;
+    chipsEl.innerHTML = chip('', '全部', total) + sections.map(sec => chip(sec.id, sec.name, sec.items.length)).join('');
+  }
+
+  function renderBookPickerList(d) {
+    const listEl = shadow.getElementById('upp-book-picker-list');
+    if (!listEl) return;
+    const query = d.query || '';
+    const hasQuery = !!normalizeText(query);
+    const allSections = bookPickerSections(d, '');
+    if (!d.groupFilter || !allSections.some(sec => sec.id === d.groupFilter)) d.groupFilter = '';
+    renderBookPickerChips(d, allSections);
+    const scoped = hasQuery ? bookPickerSections(d, query) : allSections;
+    const sections = d.groupFilter ? scoped.filter(sec => sec.id === d.groupFilter) : scoped;
     if (!sections.length) {
       listEl.innerHTML = '<div class="upp-empty" style="padding:18px;">未找到匹配世界书</div>';
       return;
     }
-    const hasQuery = !!normalizeText(d.query || '');
     listEl.innerHTML = sections.map(sec => {
-      const folded = hasQuery ? false : (Object.prototype.hasOwnProperty.call(d.foldMap || {}, sec.id) ? !!d.foldMap[sec.id] : !!sec.defaultCollapsed);
+      // 只看某组时默认展开，省一次点击；其余沿用用户的折叠记录
+      const folded = (d.groupFilter === sec.id) ? false : (Object.prototype.hasOwnProperty.call(d.foldMap || {}, sec.id) ? !!d.foldMap[sec.id] : !!sec.defaultCollapsed);
       const dotHtml = sec.color ? `<span class="upp-wb-dot" style="background:${escapeHtml(sec.color)};"></span>` : '';
       return `
-        <div class="upp-group-box ${folded ? 'is-collapsed' : ''}" style="margin-bottom:4px;">
-          <div class="upp-group-head" style="padding:6px 9px;">
+        <div class="upp-bp-box ${folded ? 'is-collapsed' : ''}" data-bp-section="${escapeHtml(sec.id)}">
+          <div class="upp-bp-head">
             <button type="button" class="upp-group-toggle-btn" data-bp-fold="${escapeHtml(sec.id)}" style="font-size:var(--upp-fs-sm);">
               <span class="upp-group-chev">${ICONS.chevron}</span>
               ${dotHtml}
@@ -4991,7 +5050,7 @@ function initExtension() {
               <span class="upp-badge">${sec.items.length}</span>
             </button>
           </div>
-          <div class="upp-group-items" style="padding:5px 6px;">
+          <div class="upp-bp-items">
             ${sec.items.map(item => {
               const tags = [];
               if (item.isPinned) tags.push('<span class="upp-badge warn">置顶</span>');
@@ -5362,6 +5421,7 @@ function initExtension() {
               ${ICONS.search}
               <input type="text" id="upp-book-search-input" spellcheck="false" placeholder="输入世界书名称、角色名、别名或分组名筛选…" value="${escapeHtml(d.query || '')}" />
             </div>
+            <div class="upp-pill-strip upp-wb-chips" id="upp-book-picker-chips"></div>
             <div class="upp-pop-list is-fill" id="upp-book-picker-list"></div>
           </div>
         </div>
@@ -6351,9 +6411,10 @@ function initExtension() {
 
     if (target.closest('#upp-preset-only-on-btn')) { state.presetOnlyOn = !state.presetOnlyOn; renderPresetToolbar(); renderPresetBody(); return; }
     if (target.closest('#upp-preset-fold-all-btn')) {
-      const groups = state.livePresetNorm.groups || [];
-      const anyExpanded = groups.some(g => !isPresetGroupCollapsed(g));
-      groups.forEach(g => { state.presetFoldState[presetFoldKey(g.id)] = anyExpanded; });
+      // 只翻转当前真正渲染出来的分组（搜索/只看已开过滤后），否则只看已开里点折叠等于没点
+      const groupNodes = visiblePresetGroupNodes();
+      const anyExpanded = groupNodes.some(n => !presetNodeCollapsed(n));
+      groupNodes.forEach(n => { state.presetFoldState[presetFoldKey(n.group.id)] = anyExpanded; });
       renderPresetToolbar(); renderPresetBody(); return;
     }
     if (target.closest('#upp-preset-default-fold-sw')) {
@@ -8333,10 +8394,24 @@ function initExtension() {
       return;
     }
 
+    const bpGroup = t.closest('[data-bp-group]');
+    if (bpGroup && d.type === 'bookPicker') {
+      const gid = bpGroup.getAttribute('data-bp-group') || '';
+      d.groupFilter = gid;
+      if (gid) {
+        if (!d.foldMap) d.foldMap = {};
+        d.foldMap[gid] = false;
+      }
+      renderBookPickerList(d);
+      const listEl = shadow.getElementById('upp-book-picker-list');
+      if (listEl) listEl.scrollTop = 0;
+      return;
+    }
+
     const bpFold = t.closest('[data-bp-fold]');
     if (bpFold && d.type === 'bookPicker') {
       const sid = bpFold.getAttribute('data-bp-fold');
-      const box = bpFold.closest('.upp-group-box');
+      const box = bpFold.closest('.upp-bp-box');
       if (box && sid) {
         const next = !box.classList.contains('is-collapsed');
         box.classList.toggle('is-collapsed', next);

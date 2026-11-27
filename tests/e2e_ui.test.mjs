@@ -3824,3 +3824,93 @@ test('D4 [Toast Layer]: 提示条画在影子树内且压在面板之上，不�
     cleanup();
   }
 });
+
+// ============================================================================
+// 9. 意见 #6 / #9 / #22 — 预设只看已开的折叠、世界书选择器分组胶囊与吸顶
+// ============================================================================
+
+test('意见 #6 [Preset Fold]: 只看已开时「全部展开/折叠」照常生效', async () => {
+  const { shadow, openModal, cleanup } = await mountExtension();
+  try {
+    await openModal();
+    shadow.querySelector('[data-tab="preset"]').click();
+    await flushAsync();
+
+    const foldBtn = () => shadow.getElementById('upp-preset-fold-all-btn');
+    const boxes = () => [...shadow.querySelectorAll('.upp-group-box')];
+    const allCollapsed = () => boxes().length > 0 && boxes().every((b) => b.className.includes('is-collapsed'));
+    const anyCollapsed = () => boxes().some((b) => b.className.includes('is-collapsed'));
+
+    assert.ok(foldBtn(), '有分组时必须提供「全部折叠 / 全部展开」');
+    if (foldBtn().textContent.includes('全部展开')) { foldBtn().click(); await flushAsync(); }
+    assert.equal(anyCollapsed(), false, '全部展开后不应还有折叠的分组');
+
+    // 只看已开：仍要能折叠
+    shadow.getElementById('upp-preset-only-on-btn').click();
+    await flushAsync();
+    assert.ok(boxes().length >= 1, '只看已开后仍应显示有开启条目的分组');
+    assert.equal(foldBtn().textContent.includes('全部折叠'), true, '此时应显示「全部折叠」');
+    foldBtn().click();
+    await flushAsync();
+    assert.equal(allCollapsed(), true, '意见 #6：只看已开时「全部折叠」必须生效');
+
+    foldBtn().click();
+    await flushAsync();
+    assert.equal(anyCollapsed(), false, '意见 #6：只看已开时「全部展开」必须生效');
+
+    // 选中态可辨认：按钮 aria-pressed 且带已开数量
+    const onlyBtn = shadow.getElementById('upp-preset-only-on-btn');
+    assert.equal(onlyBtn.getAttribute('aria-pressed'), 'true');
+    assert.match(onlyBtn.textContent, /只看已开 · \d+/, '只看已开开启后必须给出明确的数量提示');
+  } finally {
+    cleanup();
+  }
+});
+
+test('意见 #9/#22 [Book Picker]: 分组胶囊置顶、点胶囊只看该组、分组栏吸顶可随时折叠', async () => {
+  const { shadow, openModal, cleanup } = await mountExtension();
+  try {
+    await openModal();
+    shadow.querySelector('[data-tab="worldbook"]').click();
+    await flushAsync();
+    shadow.getElementById('upp-book-picker-btn').click();
+    await flushAsync();
+
+    const chips = shadow.getElementById('upp-book-picker-chips');
+    assert.ok(chips, '选择世界书必须渲染分组胶囊栏');
+    const chipList = [...chips.querySelectorAll('[data-bp-group]')];
+    assert.ok(chipList.length >= 2, '至少要有「全部」+ 一个分组胶囊');
+    assert.equal(chipList[0].getAttribute('data-bp-group'), '', '第一个胶囊是「全部」');
+    assert.ok(shadow.querySelectorAll('[data-bp-section]').length >= 1, '胶囊下方要分组渲染世界书');
+
+    // 点分组胶囊：只看该组，且该胶囊高亮
+    const targetChip = chipList.find((c) => c.getAttribute('data-bp-group'));
+    const gid = targetChip.getAttribute('data-bp-group');
+    targetChip.click();
+    await flushAsync();
+    const boxesAfter = [...shadow.querySelectorAll('[data-bp-section]')];
+    assert.equal(boxesAfter.length, 1, '点分组胶囊后只显示该组');
+    assert.equal(boxesAfter[0].getAttribute('data-bp-section'), gid);
+    assert.match(shadow.querySelector(`[data-bp-group="${gid}"]`).className, /active/, '选中的分组胶囊必须高亮');
+
+    // 分组栏折叠可用
+    const foldBtn = shadow.querySelector('[data-bp-fold]');
+    assert.ok(foldBtn, '分组栏必须有折叠按钮');
+    foldBtn.click();
+    await flushAsync();
+    assert.match(shadow.querySelector('[data-bp-section]').className, /is-collapsed/, '点分组栏必须能折叠');
+
+    // 回看全部
+    shadow.querySelector('[data-bp-group=""]').click();
+    await flushAsync();
+    assert.ok(shadow.querySelectorAll('[data-bp-section]').length >= 1, '「全部」必须恢复完整列表');
+
+    // 吸顶：分组栏 position:sticky，且外层不剪裁（否则 sticky 失效）
+    const css = shadow.querySelector('style').textContent;
+    assert.match(css, /\.upp-bp-head\s*\{[^}]*position:\s*sticky/, '分组栏必须吸顶');
+    assert.match(css, /\.upp-bp-head\s*\{[^}]*z-index:\s*\d+/, '吸顶分组栏需要层级，避免被条目压住');
+    assert.match(css, /\.upp-bp-box\s*\{[^}]*overflow:\s*visible/, '吸顶祖先不能 overflow:hidden');
+  } finally {
+    cleanup();
+  }
+});
