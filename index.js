@@ -9155,7 +9155,8 @@ function initExtension() {
     if (!fabMoved) return;
     const bounds = fabBounds();
     const left = Math.min(bounds.right, Math.max(bounds.left, fabOrigLeft + dx));
-    const top = Math.min(bounds.bottom, Math.max(bounds.top, fabOrigTop + dy));    elFabBtn.style.left = Math.round(left) + 'px';
+    const top = Math.min(bounds.bottom, Math.max(bounds.top, fabOrigTop + dy));
+    elFabBtn.style.left = Math.round(left) + 'px';
     elFabBtn.style.top = Math.round(top) + 'px';
   }, { signal: ac.signal });
 
@@ -9181,7 +9182,8 @@ function initExtension() {
       if (fabPopOpen) closeFabPop();
       else openFabPop();
     }
-  }  elFabBtn.addEventListener('pointerup', finishFabPointer, { signal: ac.signal });
+  }
+  elFabBtn.addEventListener('pointerup', finishFabPointer, { signal: ac.signal });
   elFabBtn.addEventListener('pointercancel', finishFabPointer, { signal: ac.signal });
 
   elFabBtn.addEventListener('keydown', ev => {

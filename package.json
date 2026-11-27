@@ -9,7 +9,7 @@
     "test": "node --max-old-space-size=1024 --test --test-concurrency=1 tests/*.test.mjs",
     "test:core": "node --max-old-space-size=1024 --test tests/core.test.mjs",
     "test:e2e": "node --max-old-space-size=1024 --test --test-concurrency=1 tests/e2e_ui.test.mjs",
-    "test:paint": "node tests/paint_check.mjs"
+    "test:paint": "node --max-old-space-size=1024 tests/paint_check.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
